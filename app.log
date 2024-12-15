@@ -1,0 +1,584 @@
+2024-12-12 20:37:14,028 - INFO - Selected student: 201801660 - May Kassem Zaarour
+2024-12-12 20:37:14,029 - ERROR - General error in student_eligibility_view: 'Standing'
+2024-12-12 20:37:14,029 - ERROR - General error in full_student_view: "['Standing'] not in index"
+2024-12-12 20:37:23,563 - INFO - Selected student: 201601649 - Marwa Abed Gacham
+2024-12-12 20:37:23,564 - ERROR - General error in student_eligibility_view: 'Standing'
+2024-12-12 20:37:23,564 - ERROR - General error in full_student_view: "['Standing'] not in index"
+2024-12-12 20:37:55,489 - INFO - Selected student: 201601649 - Marwa Abed Gacham
+2024-12-12 20:37:55,490 - ERROR - General error in student_eligibility_view: 'Standing'
+2024-12-12 20:37:55,490 - ERROR - General error in full_student_view: "['Standing'] not in index"
+2024-12-12 20:38:08,108 - INFO - Selected student: 201601649 - Marwa Abed Gacham
+2024-12-12 20:38:08,109 - ERROR - General error in student_eligibility_view: 'Standing'
+2024-12-12 20:38:08,110 - ERROR - General error in full_student_view: "['Standing'] not in index"
+2024-12-12 20:38:47,011 - INFO - Selected student: 201601649 - Marwa Abed Gacham
+2024-12-12 20:38:47,011 - ERROR - General error in student_eligibility_view: 'Standing'
+2024-12-12 20:38:47,012 - ERROR - General error in full_student_view: "['Standing'] not in index"
+2024-12-12 20:39:03,126 - INFO - Selected student: 201601649 - Marwa Abed Gacham
+2024-12-12 20:39:03,127 - ERROR - General error in student_eligibility_view: 'Standing'
+2024-12-12 20:39:03,128 - ERROR - General error in full_student_view: "['Standing'] not in index"
+2024-12-12 20:43:14,027 - INFO - Selected student: 201601649 - Marwa Abed Gacham
+2024-12-12 20:43:14,027 - ERROR - General error in student_eligibility_view: 'Standing'
+2024-12-12 20:43:14,027 - ERROR - General error in full_student_view: "['Standing'] not in index"
+2024-12-12 20:43:25,362 - INFO - Selected student: 201801616 - Fatima Abdallah Wehbi
+2024-12-12 20:43:25,362 - ERROR - General error in student_eligibility_view: 'Standing'
+2024-12-12 20:43:25,363 - ERROR - General error in full_student_view: "['Standing'] not in index"
+2024-12-13 23:36:52,844 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:36:54,877 - INFO - Courses table loaded successfully.
+2024-12-13 23:36:56,484 - INFO - Progress report loaded successfully.
+2024-12-13 23:36:58,158 - INFO - Advising selections loaded successfully.
+2024-12-13 23:36:58,161 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:37:08,524 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:37:08,527 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:37:27,396 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:37:27,399 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:37:29,880 - INFO - courses_table.xlsx synced with Google Drive successfully.
+2024-12-13 23:37:32,252 - INFO - progress_report.xlsx synced with Google Drive successfully.
+2024-12-13 23:37:34,552 - INFO - advising_selections.xlsx synced with Google Drive successfully.
+2024-12-13 23:37:51,543 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:37:51,546 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:37:51,610 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:37:51,611 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:37:53,945 - INFO - courses_table.xlsx synced with Google Drive successfully.
+2024-12-13 23:37:56,066 - INFO - progress_report.xlsx synced with Google Drive successfully.
+2024-12-13 23:37:57,939 - INFO - advising_selections.xlsx synced with Google Drive successfully.
+2024-12-13 23:38:09,689 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:38:09,691 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:38:12,946 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:38:12,951 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:41:18,754 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:41:18,757 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:41:18,799 - INFO - Computed 'Standing' for all students.
+2024-12-13 23:41:19,175 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:41:26,407 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:41:26,410 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:41:26,452 - INFO - Computed 'Standing' for student ID 201601649: Senior
+2024-12-13 23:41:26,465 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:41:27,470 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:41:27,472 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:41:27,510 - INFO - Computed 'Standing' for all students.
+2024-12-13 23:41:27,917 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:41:32,426 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:41:32,430 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:41:32,475 - INFO - Computed 'Standing' for student ID 201601649: Senior
+2024-12-13 23:41:32,491 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:41:37,162 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:41:37,163 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:41:37,215 - INFO - Computed 'Standing' for student ID 201701281: Senior
+2024-12-13 23:41:37,231 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:41:42,812 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:41:42,814 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:41:42,857 - INFO - Computed 'Standing' for all students.
+2024-12-13 23:41:43,222 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:41:54,178 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:41:54,180 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:41:54,226 - INFO - Computed 'Standing' for student ID 201601649: Senior
+2024-12-13 23:41:54,242 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:42:19,106 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:42:19,108 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:42:19,152 - INFO - Computed 'Standing' for student ID 201601649: Senior
+2024-12-13 23:42:19,167 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:42:19,169 - INFO - Computed 'Standing' for student ID 201601649: Senior
+2024-12-13 23:42:19,190 - INFO - Computed 'Standing' for student ID 201801616: Senior
+2024-12-13 23:42:20,026 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:42:20,034 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:42:20,093 - INFO - Computed 'Standing' for student ID 201601649: Senior
+2024-12-13 23:42:20,114 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:43:37,704 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:43:37,712 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:43:37,765 - INFO - Computed 'Standing' for all students.
+2024-12-13 23:43:38,228 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:43:39,122 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:43:39,123 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:43:39,156 - INFO - Computed 'Standing' for student ID 201601649: Senior
+2024-12-13 23:43:39,171 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:43:41,593 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:43:41,595 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:43:41,641 - INFO - Computed 'Standing' for student ID 201601649: Senior
+2024-12-13 23:43:41,657 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:43:41,675 - INFO - Individual Advising Report downloaded for student ID 201601649.
+2024-12-13 23:43:43,188 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:43:43,192 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:43:43,236 - INFO - Computed 'Standing' for student ID 201601649: Senior
+2024-12-13 23:43:43,260 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:43:45,521 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:43:45,522 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:43:45,560 - INFO - Computed 'Standing' for all students.
+2024-12-13 23:43:45,965 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:46:32,742 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:46:32,745 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:46:32,755 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-13 23:46:32,763 - INFO - Credits advised: 3, Credits optional: 3
+2024-12-13 23:46:32,794 - INFO - Computed 'Standing' for all students.
+2024-12-13 23:46:33,202 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:46:37,584 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:46:39,800 - INFO - Courses table loaded successfully.
+2024-12-13 23:46:41,084 - INFO - Progress report loaded successfully.
+2024-12-13 23:46:42,446 - INFO - Advising selections loaded successfully.
+2024-12-13 23:46:42,449 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:46:42,464 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-13 23:46:42,487 - INFO - Credits advised: 3, Credits optional: 3
+2024-12-13 23:46:42,522 - INFO - Computed 'Standing' for all students.
+2024-12-13 23:46:42,891 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:47:23,555 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:47:25,910 - INFO - Courses table loaded successfully.
+2024-12-13 23:47:27,374 - INFO - Progress report loaded successfully.
+2024-12-13 23:47:28,642 - INFO - Advising selections loaded successfully.
+2024-12-13 23:47:28,647 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:47:35,437 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:47:36,935 - INFO - Courses table loaded successfully.
+2024-12-13 23:47:37,983 - INFO - Progress report loaded successfully.
+2024-12-13 23:47:39,497 - INFO - Advising selections loaded successfully.
+2024-12-13 23:47:39,500 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:47:39,510 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-13 23:47:39,530 - INFO - Credits advised: 3, Credits optional: 3
+2024-12-13 23:47:39,565 - INFO - Computed 'Standing' for all students.
+2024-12-13 23:47:39,940 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:48:04,823 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:48:04,825 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:48:04,830 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-13 23:48:04,839 - INFO - Updated advising selections for student ID 201601649.
+2024-12-13 23:48:23,577 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:48:23,579 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:48:26,054 - INFO - courses_table.xlsx synced with Google Drive successfully.
+2024-12-13 23:48:28,157 - INFO - progress_report.xlsx synced with Google Drive successfully.
+2024-12-13 23:48:30,346 - INFO - advising_selections.xlsx synced with Google Drive successfully.
+2024-12-13 23:48:30,350 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-13 23:48:30,378 - INFO - Credits advised: 3, Credits optional: 3
+2024-12-13 23:48:30,423 - INFO - Computed 'Standing' for all students.
+2024-12-13 23:48:30,787 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:48:40,495 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:48:40,499 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:48:40,503 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-13 23:48:40,514 - INFO - Updated advising selections for student ID 201601649.
+2024-12-13 23:48:40,563 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:48:40,565 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:48:42,961 - INFO - courses_table.xlsx synced with Google Drive successfully.
+2024-12-13 23:48:45,419 - INFO - progress_report.xlsx synced with Google Drive successfully.
+2024-12-13 23:48:47,490 - INFO - advising_selections.xlsx synced with Google Drive successfully.
+2024-12-13 23:48:47,496 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-13 23:48:47,525 - INFO - Credits advised: 3, Credits optional: 3
+2024-12-13 23:48:47,568 - INFO - Computed 'Standing' for all students.
+2024-12-13 23:48:47,928 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:48:57,041 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:48:57,044 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:48:57,048 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-13 23:48:57,058 - INFO - Updated advising selections for student ID 201601649.
+2024-12-13 23:48:57,111 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:48:57,113 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:48:59,506 - INFO - courses_table.xlsx synced with Google Drive successfully.
+2024-12-13 23:49:01,803 - INFO - progress_report.xlsx synced with Google Drive successfully.
+2024-12-13 23:49:04,539 - INFO - advising_selections.xlsx synced with Google Drive successfully.
+2024-12-13 23:49:04,543 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-13 23:49:04,570 - INFO - Credits advised: 3, Credits optional: 3
+2024-12-13 23:49:04,594 - INFO - Computed 'Standing' for all students.
+2024-12-13 23:49:04,988 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:49:14,227 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:49:14,230 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:49:14,234 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-13 23:49:43,963 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:49:43,966 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:49:43,971 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-13 23:50:07,984 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:50:09,753 - INFO - Courses table loaded successfully.
+2024-12-13 23:50:11,102 - INFO - Progress report loaded successfully.
+2024-12-13 23:50:12,628 - INFO - Advising selections loaded successfully.
+2024-12-13 23:50:12,631 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:50:12,647 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-13 23:50:12,668 - INFO - Credits advised: 3, Credits optional: 3
+2024-12-13 23:50:12,704 - INFO - Computed 'Standing' for all students.
+2024-12-13 23:50:13,075 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:50:23,829 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:50:23,832 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:50:23,836 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-13 23:50:23,847 - INFO - Updated advising selections for student ID 201601649.
+2024-12-13 23:50:23,900 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:50:23,903 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:50:26,196 - INFO - courses_table.xlsx synced with Google Drive successfully.
+2024-12-13 23:50:28,444 - INFO - progress_report.xlsx synced with Google Drive successfully.
+2024-12-13 23:50:30,479 - INFO - advising_selections.xlsx synced with Google Drive successfully.
+2024-12-13 23:50:30,484 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-13 23:50:30,511 - INFO - Credits advised: 6, Credits optional: 3
+2024-12-13 23:50:30,542 - INFO - Computed 'Standing' for all students.
+2024-12-13 23:50:30,906 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:51:00,692 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:51:02,559 - INFO - Courses table loaded successfully.
+2024-12-13 23:51:03,909 - INFO - Progress report loaded successfully.
+2024-12-13 23:51:05,115 - INFO - Advising selections loaded successfully.
+2024-12-13 23:51:05,117 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:51:05,125 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-13 23:51:05,139 - INFO - Credits advised: 0, Credits optional: 0
+2024-12-13 23:51:05,175 - INFO - Computed 'Standing' for all students.
+2024-12-13 23:51:05,543 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:51:10,579 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:51:10,581 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:51:10,586 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-13 23:51:10,597 - INFO - Updated advising selections for student ID 201601649.
+2024-12-13 23:51:10,650 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:51:10,651 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:51:13,528 - INFO - courses_table.xlsx synced with Google Drive successfully.
+2024-12-13 23:51:19,679 - INFO - progress_report.xlsx synced with Google Drive successfully.
+2024-12-13 23:51:21,935 - INFO - advising_selections.xlsx synced with Google Drive successfully.
+2024-12-13 23:51:21,941 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-13 23:51:21,969 - INFO - Credits advised: 3, Credits optional: 0
+2024-12-13 23:51:22,010 - INFO - Computed 'Standing' for all students.
+2024-12-13 23:51:22,375 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:51:28,997 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:51:30,924 - INFO - Courses table loaded successfully.
+2024-12-13 23:51:32,383 - INFO - Progress report loaded successfully.
+2024-12-13 23:51:33,784 - INFO - Advising selections loaded successfully.
+2024-12-13 23:51:33,787 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:51:33,797 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-13 23:51:33,815 - INFO - Credits advised: 3, Credits optional: 0
+2024-12-13 23:51:33,853 - INFO - Computed 'Standing' for all students.
+2024-12-13 23:51:34,215 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:51:42,730 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:51:42,732 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:51:42,736 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-13 23:51:42,748 - INFO - Updated advising selections for student ID 201601649.
+2024-12-13 23:51:42,800 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:51:42,802 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:51:45,119 - INFO - courses_table.xlsx synced with Google Drive successfully.
+2024-12-13 23:51:47,385 - INFO - progress_report.xlsx synced with Google Drive successfully.
+2024-12-13 23:51:49,771 - INFO - advising_selections.xlsx synced with Google Drive successfully.
+2024-12-13 23:51:49,775 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-13 23:51:49,803 - INFO - Credits advised: 6, Credits optional: 0
+2024-12-13 23:51:49,847 - INFO - Computed 'Standing' for all students.
+2024-12-13 23:51:50,210 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:51:59,978 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:51:59,980 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:51:59,984 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-13 23:51:59,994 - INFO - Updated advising selections for student ID 201601649.
+2024-12-13 23:52:00,043 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:52:00,044 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:52:02,334 - INFO - courses_table.xlsx synced with Google Drive successfully.
+2024-12-13 23:52:04,792 - INFO - progress_report.xlsx synced with Google Drive successfully.
+2024-12-13 23:52:06,739 - INFO - advising_selections.xlsx synced with Google Drive successfully.
+2024-12-13 23:52:06,744 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-13 23:52:06,771 - INFO - Credits advised: 6, Credits optional: 0
+2024-12-13 23:52:06,813 - INFO - Computed 'Standing' for all students.
+2024-12-13 23:52:07,174 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:57:58,703 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:57:59,475 - INFO - Found file 'courses_table.xlsx' in Google Drive with ID: 1aaQihH_haIXKnSPbA0GCl2khlzy9NhEL
+2024-12-13 23:58:00,678 - INFO - Downloaded file from Google Drive with ID: 1aaQihH_haIXKnSPbA0GCl2khlzy9NhEL
+2024-12-13 23:58:00,709 - INFO - Courses table loaded successfully.
+2024-12-13 23:58:01,129 - INFO - Found file 'progress_report.xlsx' in Google Drive with ID: 1Ciz73IOKsA9yyIGG8DJeJ1LkLnIxy7_g
+2024-12-13 23:58:02,897 - INFO - Downloaded file from Google Drive with ID: 1Ciz73IOKsA9yyIGG8DJeJ1LkLnIxy7_g
+2024-12-13 23:58:02,926 - INFO - Progress report loaded successfully.
+2024-12-13 23:58:03,228 - INFO - Found file 'advising_selections.xlsx' in Google Drive with ID: 1coTylwMGLTT1Z2pa_VODMueThTnLYR7a
+2024-12-13 23:58:05,264 - INFO - Downloaded file from Google Drive with ID: 1coTylwMGLTT1Z2pa_VODMueThTnLYR7a
+2024-12-13 23:58:05,275 - INFO - Advising selections loaded successfully.
+2024-12-13 23:58:05,279 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:58:05,294 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-13 23:58:05,312 - INFO - Credits advised: 6, Credits optional: 0
+2024-12-13 23:59:21,223 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:59:21,225 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:59:21,229 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-13 23:59:21,236 - INFO - Credits advised: 6, Credits optional: 0
+2024-12-13 23:59:50,205 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:59:50,208 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:59:50,213 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-13 23:59:50,223 - INFO - Credits advised: 6, Credits optional: 0
+2024-12-13 23:59:50,253 - INFO - Computed 'Standing' for all students.
+2024-12-13 23:59:50,620 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:59:56,916 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:59:56,920 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-13 23:59:56,926 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-13 23:59:56,938 - INFO - Updated advising selections for student ID 201601649.
+2024-12-14 00:00:13,785 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:00:13,788 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:00:14,492 - INFO - Found file 'courses_table.xlsx' in Google Drive with ID: 1aaQihH_haIXKnSPbA0GCl2khlzy9NhEL
+2024-12-14 00:00:16,146 - INFO - Updated existing file on Drive: courses_table.xlsx
+2024-12-14 00:00:16,147 - INFO - courses_table.xlsx synced with Google Drive successfully.
+2024-12-14 00:00:16,453 - INFO - Found file 'progress_report.xlsx' in Google Drive with ID: 1Ciz73IOKsA9yyIGG8DJeJ1LkLnIxy7_g
+2024-12-14 00:00:18,251 - INFO - Updated existing file on Drive: progress_report.xlsx
+2024-12-14 00:00:18,252 - INFO - progress_report.xlsx synced with Google Drive successfully.
+2024-12-14 00:00:18,563 - INFO - Found file 'advising_selections.xlsx' in Google Drive with ID: 1coTylwMGLTT1Z2pa_VODMueThTnLYR7a
+2024-12-14 00:00:20,345 - INFO - Updated existing file on Drive: advising_selections.xlsx
+2024-12-14 00:00:20,346 - INFO - advising_selections.xlsx synced with Google Drive successfully.
+2024-12-14 00:00:20,355 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 00:00:20,384 - INFO - Credits advised: 3, Credits optional: 0
+2024-12-14 00:00:20,427 - INFO - Computed 'Standing' for all students.
+2024-12-14 00:00:20,792 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:00:30,515 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:00:30,517 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:00:30,521 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 00:00:30,532 - INFO - Updated advising selections for student ID 201601649.
+2024-12-14 00:00:30,585 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:00:30,588 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:00:31,228 - INFO - Found file 'courses_table.xlsx' in Google Drive with ID: 1aaQihH_haIXKnSPbA0GCl2khlzy9NhEL
+2024-12-14 00:00:32,899 - INFO - Updated existing file on Drive: courses_table.xlsx
+2024-12-14 00:00:32,900 - INFO - courses_table.xlsx synced with Google Drive successfully.
+2024-12-14 00:00:33,218 - INFO - Found file 'progress_report.xlsx' in Google Drive with ID: 1Ciz73IOKsA9yyIGG8DJeJ1LkLnIxy7_g
+2024-12-14 00:00:34,845 - INFO - Updated existing file on Drive: progress_report.xlsx
+2024-12-14 00:00:34,845 - INFO - progress_report.xlsx synced with Google Drive successfully.
+2024-12-14 00:00:35,145 - INFO - Found file 'advising_selections.xlsx' in Google Drive with ID: 1coTylwMGLTT1Z2pa_VODMueThTnLYR7a
+2024-12-14 00:00:37,169 - INFO - Updated existing file on Drive: advising_selections.xlsx
+2024-12-14 00:00:37,170 - INFO - advising_selections.xlsx synced with Google Drive successfully.
+2024-12-14 00:00:37,176 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 00:00:37,204 - INFO - Credits advised: 15, Credits optional: 0
+2024-12-14 00:00:37,246 - INFO - Computed 'Standing' for all students.
+2024-12-14 00:00:37,607 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:00:43,434 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:00:43,437 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:00:43,440 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 00:00:43,449 - INFO - Updated advising selections for student ID 201601649.
+2024-12-14 00:00:43,497 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:00:43,499 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:00:44,190 - INFO - Found file 'courses_table.xlsx' in Google Drive with ID: 1aaQihH_haIXKnSPbA0GCl2khlzy9NhEL
+2024-12-14 00:00:46,061 - INFO - Updated existing file on Drive: courses_table.xlsx
+2024-12-14 00:00:46,062 - INFO - courses_table.xlsx synced with Google Drive successfully.
+2024-12-14 00:00:46,395 - INFO - Found file 'progress_report.xlsx' in Google Drive with ID: 1Ciz73IOKsA9yyIGG8DJeJ1LkLnIxy7_g
+2024-12-14 00:00:48,233 - INFO - Updated existing file on Drive: progress_report.xlsx
+2024-12-14 00:00:48,234 - INFO - progress_report.xlsx synced with Google Drive successfully.
+2024-12-14 00:00:48,524 - INFO - Found file 'advising_selections.xlsx' in Google Drive with ID: 1coTylwMGLTT1Z2pa_VODMueThTnLYR7a
+2024-12-14 00:00:50,142 - INFO - Updated existing file on Drive: advising_selections.xlsx
+2024-12-14 00:00:50,143 - INFO - advising_selections.xlsx synced with Google Drive successfully.
+2024-12-14 00:00:50,148 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 00:00:50,175 - INFO - Credits advised: 12, Credits optional: 0
+2024-12-14 00:00:50,219 - INFO - Computed 'Standing' for all students.
+2024-12-14 00:00:50,586 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:01:15,093 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:01:15,096 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:01:15,100 - INFO - Computed standing for student ID 201601942: Senior
+2024-12-14 00:01:15,111 - INFO - Credits advised: 0, Credits optional: 0
+2024-12-14 00:01:15,137 - INFO - Computed 'Standing' for all students.
+2024-12-14 00:01:15,510 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:01:31,603 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:01:31,606 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:01:31,612 - INFO - Computed standing for student ID 201601942: Senior
+2024-12-14 00:01:31,622 - INFO - Updated advising selections for student ID 201601942.
+2024-12-14 00:01:31,675 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:01:31,676 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:01:32,324 - INFO - Found file 'courses_table.xlsx' in Google Drive with ID: 1aaQihH_haIXKnSPbA0GCl2khlzy9NhEL
+2024-12-14 00:01:33,829 - INFO - Updated existing file on Drive: courses_table.xlsx
+2024-12-14 00:01:33,830 - INFO - courses_table.xlsx synced with Google Drive successfully.
+2024-12-14 00:01:34,159 - INFO - Found file 'progress_report.xlsx' in Google Drive with ID: 1Ciz73IOKsA9yyIGG8DJeJ1LkLnIxy7_g
+2024-12-14 00:01:35,877 - INFO - Updated existing file on Drive: progress_report.xlsx
+2024-12-14 00:01:35,878 - INFO - progress_report.xlsx synced with Google Drive successfully.
+2024-12-14 00:01:36,189 - INFO - Found file 'advising_selections.xlsx' in Google Drive with ID: 1coTylwMGLTT1Z2pa_VODMueThTnLYR7a
+2024-12-14 00:01:37,953 - INFO - Updated existing file on Drive: advising_selections.xlsx
+2024-12-14 00:01:37,954 - INFO - advising_selections.xlsx synced with Google Drive successfully.
+2024-12-14 00:01:37,960 - INFO - Computed standing for student ID 201601942: Senior
+2024-12-14 00:01:37,989 - INFO - Credits advised: 6, Credits optional: 0
+2024-12-14 00:01:38,029 - INFO - Computed 'Standing' for all students.
+2024-12-14 00:01:38,409 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:01:45,051 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:01:45,053 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:01:45,056 - INFO - Computed standing for student ID 201601942: Senior
+2024-12-14 00:01:45,065 - INFO - Updated advising selections for student ID 201601942.
+2024-12-14 00:01:45,115 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:01:45,117 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:01:45,781 - INFO - Found file 'courses_table.xlsx' in Google Drive with ID: 1aaQihH_haIXKnSPbA0GCl2khlzy9NhEL
+2024-12-14 00:01:47,652 - INFO - Updated existing file on Drive: courses_table.xlsx
+2024-12-14 00:01:47,652 - INFO - courses_table.xlsx synced with Google Drive successfully.
+2024-12-14 00:01:47,999 - INFO - Found file 'progress_report.xlsx' in Google Drive with ID: 1Ciz73IOKsA9yyIGG8DJeJ1LkLnIxy7_g
+2024-12-14 00:01:49,600 - INFO - Updated existing file on Drive: progress_report.xlsx
+2024-12-14 00:01:49,601 - INFO - progress_report.xlsx synced with Google Drive successfully.
+2024-12-14 00:01:50,007 - INFO - Found file 'advising_selections.xlsx' in Google Drive with ID: 1coTylwMGLTT1Z2pa_VODMueThTnLYR7a
+2024-12-14 00:01:51,753 - INFO - Updated existing file on Drive: advising_selections.xlsx
+2024-12-14 00:01:51,753 - INFO - advising_selections.xlsx synced with Google Drive successfully.
+2024-12-14 00:01:51,759 - INFO - Computed standing for student ID 201601942: Senior
+2024-12-14 00:01:51,787 - INFO - Credits advised: 6, Credits optional: 0
+2024-12-14 00:01:51,830 - INFO - Computed 'Standing' for all students.
+2024-12-14 00:01:52,196 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:30:48,715 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:30:48,720 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:30:48,744 - INFO - Computed standing for student ID 201601942: Senior
+2024-12-14 00:30:48,757 - INFO - Credits advised: 6, Credits optional: 0
+2024-12-14 00:30:48,799 - INFO - Computed 'Standing' for all students.
+2024-12-14 00:30:49,174 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:30:49,215 - INFO - Full Advising Report downloaded.
+2024-12-14 00:30:58,537 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:30:58,542 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:30:58,553 - INFO - Computed standing for student ID 201601942: Senior
+2024-12-14 00:30:58,572 - INFO - Credits advised: 6, Credits optional: 0
+2024-12-14 00:30:58,606 - INFO - Computed 'Standing' for all students.
+2024-12-14 00:30:59,007 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:33:16,491 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:33:16,496 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:33:16,503 - INFO - Computed standing for student ID 201601942: Senior
+2024-12-14 00:33:16,512 - INFO - Credits advised: 6, Credits optional: 0
+2024-12-14 00:33:16,538 - INFO - Computed 'Standing' for all students.
+2024-12-14 00:33:16,906 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:33:16,945 - INFO - Full Advising Report downloaded.
+2024-12-14 00:34:29,903 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:34:29,906 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:34:29,914 - INFO - Computed standing for student ID 201601942: Senior
+2024-12-14 00:34:29,923 - INFO - Credits advised: 6, Credits optional: 0
+2024-12-14 00:34:29,947 - INFO - Computed 'Standing' for all students.
+2024-12-14 00:34:30,323 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:34:32,407 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:34:33,098 - INFO - Found file 'courses_table.xlsx' in Google Drive with ID: 1aaQihH_haIXKnSPbA0GCl2khlzy9NhEL
+2024-12-14 00:34:34,214 - INFO - Downloaded file from Google Drive with ID: 1aaQihH_haIXKnSPbA0GCl2khlzy9NhEL
+2024-12-14 00:34:34,244 - INFO - Courses table loaded successfully.
+2024-12-14 00:34:34,543 - INFO - Found file 'progress_report.xlsx' in Google Drive with ID: 1Ciz73IOKsA9yyIGG8DJeJ1LkLnIxy7_g
+2024-12-14 00:34:35,496 - INFO - Downloaded file from Google Drive with ID: 1Ciz73IOKsA9yyIGG8DJeJ1LkLnIxy7_g
+2024-12-14 00:34:35,537 - INFO - Progress report loaded successfully.
+2024-12-14 00:34:35,810 - INFO - Found file 'advising_selections.xlsx' in Google Drive with ID: 1coTylwMGLTT1Z2pa_VODMueThTnLYR7a
+2024-12-14 00:34:36,982 - INFO - Downloaded file from Google Drive with ID: 1coTylwMGLTT1Z2pa_VODMueThTnLYR7a
+2024-12-14 00:34:36,996 - INFO - Advising selections loaded successfully.
+2024-12-14 00:34:36,999 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:34:37,010 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 00:34:37,025 - INFO - Credits advised: 12, Credits optional: 0
+2024-12-14 00:34:37,073 - INFO - Computed 'Standing' for all students.
+2024-12-14 00:34:37,465 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:36:31,216 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:36:31,219 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:36:31,227 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 00:38:26,431 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:38:26,434 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:38:26,443 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 00:38:26,453 - INFO - Credits advised: 12, Credits optional: 0
+2024-12-14 00:38:26,479 - INFO - Computed 'Standing' for all students.
+2024-12-14 00:38:26,865 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:38:33,943 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:38:33,945 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:38:33,949 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 00:38:33,957 - INFO - Credits advised: 12, Credits optional: 0
+2024-12-14 00:38:33,980 - INFO - Computed 'Standing' for all students.
+2024-12-14 00:38:34,347 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:38:36,123 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:38:36,126 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:38:36,130 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 00:38:36,142 - INFO - Credits advised: 12, Credits optional: 0
+2024-12-14 00:38:36,172 - INFO - Computed 'Standing' for all students.
+2024-12-14 00:38:36,550 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:38:40,040 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:38:40,042 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:38:40,047 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 00:38:40,060 - INFO - Credits advised: 12, Credits optional: 0
+2024-12-14 00:38:40,091 - INFO - Computed 'Standing' for all students.
+2024-12-14 00:38:40,460 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:38:43,592 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:38:43,594 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:38:43,598 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 00:38:43,610 - INFO - Credits advised: 12, Credits optional: 0
+2024-12-14 00:38:43,639 - INFO - Computed 'Standing' for all students.
+2024-12-14 00:38:44,007 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:38:47,989 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:38:47,992 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:38:47,997 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 00:38:48,009 - INFO - Credits advised: 12, Credits optional: 0
+2024-12-14 00:38:48,038 - INFO - Computed 'Standing' for all students.
+2024-12-14 00:38:48,406 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:38:49,493 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:38:49,496 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:38:49,501 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 00:38:49,514 - INFO - Credits advised: 12, Credits optional: 0
+2024-12-14 00:38:49,542 - INFO - Computed 'Standing' for all students.
+2024-12-14 00:38:49,908 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:40:08,228 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:40:08,231 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:40:08,238 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 00:40:08,248 - INFO - Credits advised: 12, Credits optional: 0
+2024-12-14 00:40:08,276 - INFO - Computed 'Standing' for all students.
+2024-12-14 00:40:08,647 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:40:10,955 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:40:10,958 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:40:10,963 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 00:40:10,976 - INFO - Credits advised: 12, Credits optional: 0
+2024-12-14 00:40:11,009 - INFO - Computed 'Standing' for all students.
+2024-12-14 00:40:11,387 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:40:13,809 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:40:13,811 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:40:13,816 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 00:40:13,829 - INFO - Reset advising selections for student ID 201601649.
+2024-12-14 00:40:26,870 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:40:26,873 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:40:27,553 - INFO - Found file 'courses_table.xlsx' in Google Drive with ID: 1aaQihH_haIXKnSPbA0GCl2khlzy9NhEL
+2024-12-14 00:40:29,658 - INFO - Updated existing file on Drive: courses_table.xlsx
+2024-12-14 00:40:29,659 - INFO - courses_table.xlsx synced with Google Drive successfully.
+2024-12-14 00:40:30,011 - INFO - Found file 'progress_report.xlsx' in Google Drive with ID: 1Ciz73IOKsA9yyIGG8DJeJ1LkLnIxy7_g
+2024-12-14 00:40:32,054 - INFO - Updated existing file on Drive: progress_report.xlsx
+2024-12-14 00:40:32,055 - INFO - progress_report.xlsx synced with Google Drive successfully.
+2024-12-14 00:40:32,334 - INFO - Found file 'advising_selections.xlsx' in Google Drive with ID: 1coTylwMGLTT1Z2pa_VODMueThTnLYR7a
+2024-12-14 00:40:34,021 - INFO - Updated existing file on Drive: advising_selections.xlsx
+2024-12-14 00:40:34,021 - INFO - advising_selections.xlsx synced with Google Drive successfully.
+2024-12-14 00:40:34,026 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 00:40:34,057 - INFO - Credits advised: 0, Credits optional: 0
+2024-12-14 00:40:34,096 - INFO - Computed 'Standing' for all students.
+2024-12-14 00:40:34,466 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:40:40,874 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:40:40,877 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:40:40,882 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 00:40:40,893 - INFO - Updated advising selections for student ID 201601649.
+2024-12-14 00:40:40,943 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:40:40,944 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:40:41,858 - INFO - Found file 'courses_table.xlsx' in Google Drive with ID: 1aaQihH_haIXKnSPbA0GCl2khlzy9NhEL
+2024-12-14 00:40:43,583 - INFO - Updated existing file on Drive: courses_table.xlsx
+2024-12-14 00:40:43,584 - INFO - courses_table.xlsx synced with Google Drive successfully.
+2024-12-14 00:40:43,899 - INFO - Found file 'progress_report.xlsx' in Google Drive with ID: 1Ciz73IOKsA9yyIGG8DJeJ1LkLnIxy7_g
+2024-12-14 00:40:45,532 - INFO - Updated existing file on Drive: progress_report.xlsx
+2024-12-14 00:40:45,533 - INFO - progress_report.xlsx synced with Google Drive successfully.
+2024-12-14 00:40:45,834 - INFO - Found file 'advising_selections.xlsx' in Google Drive with ID: 1coTylwMGLTT1Z2pa_VODMueThTnLYR7a
+2024-12-14 00:40:47,682 - INFO - Updated existing file on Drive: advising_selections.xlsx
+2024-12-14 00:40:47,685 - INFO - advising_selections.xlsx synced with Google Drive successfully.
+2024-12-14 00:40:47,689 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 00:40:47,722 - INFO - Credits advised: 3, Credits optional: 0
+2024-12-14 00:40:47,758 - INFO - Computed 'Standing' for all students.
+2024-12-14 00:40:48,135 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:40:56,711 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:40:56,713 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:40:56,717 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 00:40:56,729 - INFO - Credits advised: 3, Credits optional: 0
+2024-12-14 00:40:56,760 - INFO - Computed 'Standing' for all students.
+2024-12-14 00:40:57,135 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:41:00,793 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:41:00,796 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:41:00,800 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 00:41:00,813 - INFO - Reset advising selections for student ID 201601649.
+2024-12-14 00:41:00,862 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:41:00,863 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:41:01,546 - INFO - Found file 'courses_table.xlsx' in Google Drive with ID: 1aaQihH_haIXKnSPbA0GCl2khlzy9NhEL
+2024-12-14 00:41:03,054 - INFO - Updated existing file on Drive: courses_table.xlsx
+2024-12-14 00:41:03,056 - INFO - courses_table.xlsx synced with Google Drive successfully.
+2024-12-14 00:41:03,449 - INFO - Found file 'progress_report.xlsx' in Google Drive with ID: 1Ciz73IOKsA9yyIGG8DJeJ1LkLnIxy7_g
+2024-12-14 00:41:05,178 - INFO - Updated existing file on Drive: progress_report.xlsx
+2024-12-14 00:41:05,179 - INFO - progress_report.xlsx synced with Google Drive successfully.
+2024-12-14 00:41:05,494 - INFO - Found file 'advising_selections.xlsx' in Google Drive with ID: 1coTylwMGLTT1Z2pa_VODMueThTnLYR7a
+2024-12-14 00:41:07,041 - INFO - Updated existing file on Drive: advising_selections.xlsx
+2024-12-14 00:41:07,042 - INFO - advising_selections.xlsx synced with Google Drive successfully.
+2024-12-14 00:41:07,046 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 00:41:07,077 - INFO - Credits advised: 0, Credits optional: 0
+2024-12-14 00:41:07,119 - INFO - Computed 'Standing' for all students.
+2024-12-14 00:41:07,491 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:41:10,018 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:41:10,021 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:41:10,026 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 00:41:10,039 - INFO - Credits advised: 0, Credits optional: 0
+2024-12-14 00:41:10,068 - INFO - Computed 'Standing' for all students.
+2024-12-14 00:41:10,440 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:41:13,792 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:41:13,795 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:41:13,799 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 00:41:13,813 - INFO - Reset advising selections for all students.
+2024-12-14 00:41:13,866 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:41:13,868 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 00:41:14,536 - INFO - Found file 'courses_table.xlsx' in Google Drive with ID: 1aaQihH_haIXKnSPbA0GCl2khlzy9NhEL
+2024-12-14 00:41:16,357 - INFO - Updated existing file on Drive: courses_table.xlsx
+2024-12-14 00:41:16,360 - INFO - courses_table.xlsx synced with Google Drive successfully.
+2024-12-14 00:41:16,661 - INFO - Found file 'progress_report.xlsx' in Google Drive with ID: 1Ciz73IOKsA9yyIGG8DJeJ1LkLnIxy7_g
+2024-12-14 00:41:18,213 - INFO - Updated existing file on Drive: progress_report.xlsx
+2024-12-14 00:41:18,214 - INFO - progress_report.xlsx synced with Google Drive successfully.
+2024-12-14 00:41:18,568 - INFO - Found file 'advising_selections.xlsx' in Google Drive with ID: 1coTylwMGLTT1Z2pa_VODMueThTnLYR7a
+2024-12-14 00:41:20,199 - INFO - Updated existing file on Drive: advising_selections.xlsx
+2024-12-14 00:41:20,200 - INFO - advising_selections.xlsx synced with Google Drive successfully.
+2024-12-14 00:41:20,205 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 00:41:20,235 - INFO - Credits advised: 0, Credits optional: 0
+2024-12-14 00:41:20,274 - INFO - Computed 'Standing' for all students.
+2024-12-14 00:41:20,732 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 21:24:14,813 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 21:24:16,633 - INFO - Found file 'courses_table.xlsx' in Google Drive with ID: 1aaQihH_haIXKnSPbA0GCl2khlzy9NhEL
+2024-12-14 21:24:17,557 - INFO - Downloaded file from Google Drive with ID: 1aaQihH_haIXKnSPbA0GCl2khlzy9NhEL
+2024-12-14 21:24:17,609 - INFO - Courses table loaded successfully.
+2024-12-14 21:24:17,902 - INFO - Found file 'progress_report.xlsx' in Google Drive with ID: 1Ciz73IOKsA9yyIGG8DJeJ1LkLnIxy7_g
+2024-12-14 21:24:19,322 - INFO - Downloaded file from Google Drive with ID: 1Ciz73IOKsA9yyIGG8DJeJ1LkLnIxy7_g
+2024-12-14 21:24:19,366 - INFO - Progress report loaded successfully.
+2024-12-14 21:24:19,735 - INFO - Found file 'advising_selections.xlsx' in Google Drive with ID: 1coTylwMGLTT1Z2pa_VODMueThTnLYR7a
+2024-12-14 21:24:20,659 - INFO - Downloaded file from Google Drive with ID: 1coTylwMGLTT1Z2pa_VODMueThTnLYR7a
+2024-12-14 21:24:20,682 - INFO - Advising selections loaded successfully.
+2024-12-14 21:24:20,685 - INFO - file_cache is only supported with oauth2client<4.0.0
+2024-12-14 21:24:20,698 - INFO - Computed standing for student ID 201601649: Senior
+2024-12-14 21:24:20,716 - INFO - Credits advised: 0, Credits optional: 0
+2024-12-14 21:24:20,872 - INFO - Computed 'Standing' for all students.
+2024-12-14 21:24:21,288 - INFO - file_cache is only supported with oauth2client<4.0.0
