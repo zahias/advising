@@ -19,12 +19,6 @@ def student_eligibility_view():
     """Render the Student Eligibility View tab."""
     st.header('Student Eligibility View')
 
-    # Initialize reset flags in session_state if they don't exist
-    if 'reset_student_flag' not in st.session_state:
-        st.session_state.reset_student_flag = False
-    if 'reset_all_flag' not in st.session_state:
-        st.session_state.reset_all_flag = False
-
     # Select a student
     student_list = st.session_state.progress_df['ID'].astype(str) + ' - ' + st.session_state.progress_df['NAME']
     selected_student = st.selectbox('Select a Student', student_list, help="Select a student to review.")
@@ -41,7 +35,11 @@ def student_eligibility_view():
     current_note = st.session_state.advising_selections[selected_student_id].get('note', '')
 
     # Determine academic standing based on credits
-    credits_completed = student_row.get('# of Credits Completed', 0)
+    # Updated calculation to include "# Registered"
+    credits_completed_field = student_row.get('# of Credits Completed', 0)
+    credits_registered_field = student_row.get('# Registered', 0)
+    credits_completed = (credits_completed_field if pd.notna(credits_completed_field) else 0) + \
+                        (credits_registered_field if pd.notna(credits_registered_field) else 0)
     standing = get_student_standing(credits_completed)
     log_info(f"Computed standing for student ID {selected_student_id}: {standing}")
 
@@ -64,7 +62,6 @@ def student_eligibility_view():
         if eligibility_dict[c] == 'Eligible' or c in current_advised or c in current_optional
     ]
 
-    # Begin Form
     with st.form('course_selection_form'):
         st.subheader('Select Courses')
 
@@ -99,68 +96,20 @@ def student_eligibility_view():
         note_input = st.text_area('Advisor Note (Optional)', value=current_note, key='note_field', help="Additional guidance for the student.")
 
         submitted = st.form_submit_button('Submit Selections')
+        if submitted:
+            # Overwrite advised and optional courses with current selections
+            st.session_state.advising_selections[selected_student_id]['advised'] = sorted(advised_selection)
+            st.session_state.advising_selections[selected_student_id]['optional'] = sorted(optional_selection)
+            st.session_state.advising_selections[selected_student_id]['note'] = note_input.strip()
 
-    # Handle Submit Selections
-    if submitted:
-        # Overwrite advised and optional courses with current selections
-        st.session_state.advising_selections[selected_student_id]['advised'] = sorted(advised_selection)
-        st.session_state.advising_selections[selected_student_id]['optional'] = sorted(optional_selection)
-        st.session_state.advising_selections[selected_student_id]['note'] = note_input.strip()
+            st.success('✅ Selections updated.')
+            log_info(f"Updated advising selections for student ID {selected_student_id}.")
 
-        st.success('✅ Selections updated.')
-        log_info(f"Updated advising selections for student ID {selected_student_id}.")
+            # Trigger data save to Drive
+            st.session_state.data_uploaded = True
 
-        # Trigger data save to Drive
-        st.session_state.data_uploaded = True
-
-        # Properly rerun the app to reflect changes and trigger save
-        st.rerun()
-
-    # Add Reset Buttons beside Submit Selections
-    reset_col1, reset_col2 = st.columns(2)
-    with reset_col1:
-        if st.button('Reset Selections for This Student', key='reset_student'):
-            st.session_state.reset_student_flag = True
-    with reset_col2:
-        if st.button('Reset Selections for All Students', key='reset_all'):
-            st.session_state.reset_all_flag = True
-
-    # Handle Reset Selections for This Student
-    if st.session_state.reset_student_flag:
-        with st.expander("⚠️ Confirm Reset for This Student"):
-            confirm_reset_student = st.checkbox("Are you sure you want to reset selections for this student?", key='confirm_reset_student')
-            if confirm_reset_student:
-                with st.spinner('Resetting selections for this student...'):
-                    st.session_state.advising_selections[selected_student_id] = {'advised': [], 'optional': [], 'note': ''}
-                    st.session_state.reset_student_flag = False
-                    st.session_state.data_uploaded = True  # Trigger save to Drive
-                    st.success(f'✅ Advising selections reset for student ID {selected_student_id}.')
-                    log_info(f"Reset advising selections for student ID {selected_student_id}.")
-
-                    # Rerun to update the UI
-                    st.rerun()
-            elif st.button("Cancel"):
-                st.session_state.reset_student_flag = False
-                st.warning("⚠️ Reset for this student canceled.")
-
-    # Handle Reset Selections for All Students
-    if st.session_state.reset_all_flag:
-        with st.expander("⚠️ Confirm Reset for All Students"):
-            confirm_reset_all = st.checkbox("⚠️ Are you sure you want to reset selections for ALL students?", key='confirm_reset_all')
-            if confirm_reset_all:
-                with st.spinner('Resetting selections for all students...'):
-                    for sid in st.session_state.advising_selections.keys():
-                        st.session_state.advising_selections[sid] = {'advised': [], 'optional': [], 'note': ''}
-                    st.session_state.reset_all_flag = False
-                    st.session_state.data_uploaded = True  # Trigger save to Drive
-                    st.success('✅ Advising selections reset for all students.')
-                    log_info("Reset advising selections for all students.")
-
-                    # Rerun to update the UI
-                    st.rerun()
-            elif st.button("Cancel"):
-                st.session_state.reset_all_flag = False
-                st.warning("⚠️ Reset for all students canceled.")
+            # Properly rerun the app to reflect changes and trigger save
+            st.rerun()
 
     # Calculate Credits Advised and Optional
     # Ensure 'Credits' column exists
@@ -171,13 +120,16 @@ def student_eligibility_view():
         log_error("Credits column missing", "Cannot calculate advised and optional credits.")
     else:
         # Fetch credits for advised and optional courses
+        advised_courses = st.session_state.advising_selections[selected_student_id]['advised']
+        optional_courses = st.session_state.advising_selections[selected_student_id]['optional']
+
         advised_credits = st.session_state.courses_df.loc[
-            st.session_state.courses_df['Course Code'].isin(st.session_state.advising_selections[selected_student_id]['advised']),
+            st.session_state.courses_df['Course Code'].isin(advised_courses),
             'Credits'
         ].sum()
 
         optional_credits = st.session_state.courses_df.loc[
-            st.session_state.courses_df['Course Code'].isin(st.session_state.advising_selections[selected_student_id]['optional']),
+            st.session_state.courses_df['Course Code'].isin(optional_courses),
             'Credits'
         ].sum()
         log_info(f"Credits advised: {advised_credits}, Credits optional: {optional_credits}")

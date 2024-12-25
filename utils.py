@@ -73,6 +73,12 @@ def check_eligibility(student_row, course_code, advised_courses, courses_df):
     
     reasons = []
     credits = student_row['# of Credits Completed']
+    credits_registered = student_row.get('# Registered', 0)
+    credits_completed = (credits if pd.notna(credits) else 0) + (credits_registered if pd.notna(credits_registered) else 0)
+    standing = get_student_standing(credits_completed)
+    
+    log_info(f"Checking eligibility for course '{course_code}' for student ID {student_row['ID']}:")
+    log_info(f"Total Credits Completed: {credits_completed}, Standing: {standing}")
     
     # Check if already completed
     if check_course_completed(student_row, course_code):
@@ -85,11 +91,12 @@ def check_eligibility(student_row, course_code, advised_courses, courses_df):
     # Check Prerequisites
     prerequisites = parse_requirements(course_info.get('Prerequisite', ''))
     for prereq in prerequisites:
-        if prereq.lower() == 'junior standing':
-            if get_student_standing(credits) not in ['Junior', 'Senior']:
+        prereq_lower = prereq.lower()
+        if 'junior standing' in prereq_lower:
+            if standing not in ['Junior', 'Senior']:
                 reasons.append('Junior standing not met.')
-        elif prereq.lower() == 'senior standing':
-            if get_student_standing(credits) != 'Senior':
+        elif 'senior standing' in prereq_lower:
+            if standing != 'Senior':
                 reasons.append('Senior standing not met.')
         else:
             if not check_course_completed(student_row, prereq):

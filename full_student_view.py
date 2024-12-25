@@ -29,50 +29,111 @@ def full_student_view():
             st.warning("⚠️ Progress report is not loaded.")
             return
 
+        # **New Feature: Filters Section**
+        st.sidebar.header('Filters')
+
+        # **A. Filter by Individual Course**
+        available_courses = st.session_state.courses_df['Course Code'].tolist()
+        selected_courses = st.sidebar.multiselect(
+            'Select Courses to Display',
+            options=available_courses,
+            default=available_courses  # Default to all courses
+        )
+
+        # **B. Filter by Total Credits Completed**
+        min_credits = int(st.session_state.progress_df[['# of Credits Completed', '# Registered']].fillna(0).sum(axis=1).min())
+        max_credits = int(st.session_state.progress_df[['# of Credits Completed', '# Registered']].fillna(0).sum(axis=1).max())
+        credit_range = st.sidebar.slider(
+            'Select Total Credits Completed Range',
+            min_value=min_credits,
+            max_value=max_credits,
+            value=(min_credits, max_credits),
+            step=1
+        )
+
+        # **Apply Filters to the DataFrame**
+        filtered_progress_df = st.session_state.progress_df.copy()
+
+        # Calculate Total Credits Completed
+        filtered_progress_df['Total Credits Completed'] = filtered_progress_df.apply(
+            lambda row: (row.get('# of Credits Completed', 0) if pd.notna(row.get('# of Credits Completed', 0)) else 0) +
+                        (row.get('# Registered', 0) if pd.notna(row.get('# Registered', 0)) else 0),
+            axis=1
+        )
+
+        # Filter by Total Credits Completed
+        filtered_progress_df = filtered_progress_df[
+            (filtered_progress_df['Total Credits Completed'] >= credit_range[0]) &
+            (filtered_progress_df['Total Credits Completed'] <= credit_range[1])
+        ]
+
         # Compute 'Standing' for each student
-        full_report = st.session_state.progress_df[['ID', 'NAME', '# of Credits Completed']].copy()
-        full_report['Standing'] = full_report['# of Credits Completed'].apply(get_student_standing)
-        log_info("Computed 'Standing' for all students.")
+        filtered_progress_df['Standing'] = filtered_progress_df['Total Credits Completed'].apply(get_student_standing)
+        log_info("Computed 'Standing' for all filtered students.")
 
         # Add Advising Status
         advising_statuses = []
-        for _, student in st.session_state.progress_df.iterrows():
+        for _, student in filtered_progress_df.iterrows():
             sid = str(student['ID'])
-            if sid in st.session_state.advising_selections and (st.session_state.advising_selections[sid].get('advised') or st.session_state.advising_selections[sid].get('optional')):
+            if sid in st.session_state.advising_selections and (
+                st.session_state.advising_selections[sid].get('advised') or
+                st.session_state.advising_selections[sid].get('optional')
+            ):
                 advising_statuses.append('Advised')
             else:
                 advising_statuses.append('Not Advised')
-        full_report['Advising Status'] = advising_statuses
+        filtered_progress_df['Advising Status'] = advising_statuses
 
-        # Add course status columns
-        for course_code in st.session_state.courses_df['Course Code']:
+        # Add course status columns based on selected courses
+        for course_code in selected_courses:
             statuses = []
-            for _, student in st.session_state.progress_df.iterrows():
+            for _, student in filtered_progress_df.iterrows():
                 sid = str(student['ID'])
                 course_status = 'ne'
                 if check_course_completed(student, course_code):
                     course_status = 'c'
                 else:
                     advised_for_student = st.session_state.advising_selections.get(sid, {}).get('advised', [])
-                    optional_for_student = st.session_state.advising_selections.get(sid, {}).get('optional', [])
-                    eligibility_status, _ = check_eligibility(student, course_code, advised_for_student, st.session_state.courses_df)
+                    # Calculate eligibility
+                    eligibility_status, _ = check_eligibility(
+                        student,
+                        course_code,
+                        advised_for_student,
+                        st.session_state.courses_df
+                    )
                     if course_code in advised_for_student:
                         course_status = 'a'
-                    elif course_code in optional_for_student:
-                        course_status = 'o'
                     elif eligibility_status == 'Eligible':
                         course_status = 'na'
                     else:
                         course_status = 'ne'
                 statuses.append(course_status)
-            full_report[course_code] = statuses
+            filtered_progress_df[course_code] = statuses
 
         # Reorder columns
-        cols = ['ID', 'NAME', '# of Credits Completed', 'Standing', 'Advising Status'] + list(st.session_state.courses_df['Course Code'])
-        full_report = full_report[cols]
+        base_cols = ['ID', 'NAME', '# of Credits Completed', '# Registered', 'Total Credits Completed', 'Standing', 'Advising Status']
+        full_columns = base_cols + selected_courses
+        full_report = filtered_progress_df[full_columns].copy()
 
-        st.write("*Legend:* c=Completed, a=Advised, o=Optional, na=Eligible not chosen, ne=Not Eligible")
-        st.dataframe(full_report.style.set_properties(**{'text-align': 'left'}), height=600, use_container_width=True)
+        # **C. Apply Color Coding Based on Status**
+        def color_status(val):
+            color = ''
+            if val == 'c':  # Completed
+                color = 'background-color: lightgray'
+            elif val == 'a':  # Advised
+                color = 'background-color: lightgreen'
+            elif val == 'na':  # Eligible not chosen
+                color = 'background-color: #E0FFE0'  # Light greenish
+            elif val == 'ne':  # Not Eligible
+                color = 'background-color: lightcoral'
+            return color
+
+        # Apply styling
+        styled_report = full_report.style.applymap(color_status, subset=selected_courses)
+
+        # Display the DataFrame
+        st.write("*Legend:* c=Completed, a=Advised, na=Eligible not chosen, ne=Not Eligible")
+        st.dataframe(styled_report, height=600, use_container_width=True)
 
         # Initialize Google Drive service
         service = initialize_drive_service()
@@ -110,7 +171,10 @@ def full_student_view():
         student_row = st.session_state.progress_df[st.session_state.progress_df['ID'] == int(selected_student_id)].iloc[0].to_dict()
 
         # Compute 'Standing' for the selected student
-        credits_completed = student_row.get('# of Credits Completed', 0)
+        credits_completed_field = student_row.get('# of Credits Completed', 0)
+        credits_registered_field = student_row.get('# Registered', 0)
+        credits_completed = (credits_completed_field if pd.notna(credits_completed_field) else 0) + \
+                            (credits_registered_field if pd.notna(credits_registered_field) else 0)
         standing = get_student_standing(credits_completed)
         log_info(f"Computed 'Standing' for student ID {selected_student_id}: {standing}")
 
@@ -118,30 +182,47 @@ def full_student_view():
         full_report = pd.DataFrame({
             'ID': [student_row['ID']],
             'NAME': [student_row['NAME']],
-            '# of Credits Completed': [credits_completed],
+            '# of Credits Completed': [student_row['# of Credits Completed']],
+            '# Registered': [student_row['# Registered']],
+            'Total Credits Completed': [credits_completed],
             'Standing': [standing]
         })
 
         # Add Advising Status
-        if selected_student_id in st.session_state.advising_selections and (st.session_state.advising_selections[selected_student_id].get('advised') or st.session_state.advising_selections[selected_student_id].get('optional')):
+        if selected_student_id in st.session_state.advising_selections and (
+            st.session_state.advising_selections[selected_student_id].get('advised') or
+            st.session_state.advising_selections[selected_student_id].get('optional')
+        ):
             advising_status = 'Advised'
         else:
             advising_status = 'Not Advised'
         full_report['Advising Status'] = advising_status
 
-        # Add course status columns
-        for course_code in st.session_state.courses_df['Course Code']:
+        # **New Feature: Filter Courses to Display in Individual View**
+        # Optionally, you can allow filtering by courses here as well
+        available_courses = st.session_state.courses_df['Course Code'].tolist()
+        selected_courses = st.multiselect(
+            'Select Courses to Display',
+            options=available_courses,
+            default=available_courses  # Default to all courses
+        )
+
+        # Add course status columns based on selected courses
+        for course_code in selected_courses:
             course_status = 'ne'
             if check_course_completed(student_row, course_code):
                 course_status = 'c'
             else:
                 advised_for_student = st.session_state.advising_selections.get(selected_student_id, {}).get('advised', [])
-                optional_for_student = st.session_state.advising_selections.get(selected_student_id, {}).get('optional', [])
-                eligibility_status, _ = check_eligibility(student_row, course_code, advised_for_student, st.session_state.courses_df)
+                # Calculate eligibility
+                eligibility_status, _ = check_eligibility(
+                    student_row,
+                    course_code,
+                    advised_for_student,
+                    st.session_state.courses_df
+                )
                 if course_code in advised_for_student:
                     course_status = 'a'
-                elif course_code in optional_for_student:
-                    course_status = 'o'
                 elif eligibility_status == 'Eligible':
                     course_status = 'na'
                 else:
@@ -149,11 +230,29 @@ def full_student_view():
             full_report[course_code] = course_status
 
         # Reorder columns
-        cols = ['ID', 'NAME', '# of Credits Completed', 'Standing', 'Advising Status'] + list(st.session_state.courses_df['Course Code'])
-        full_report = full_report[cols]
+        base_cols = ['ID', 'NAME', '# of Credits Completed', '# Registered', 'Total Credits Completed', 'Standing', 'Advising Status']
+        full_columns = base_cols + selected_courses
+        full_report = full_report[full_columns].copy()
 
-        st.write("*Legend:* c=Completed, a=Advised, o=Optional, na=Eligible not chosen, ne=Not Eligible")
-        st.dataframe(full_report.style.set_properties(**{'text-align': 'left'}), height=600, use_container_width=True)
+        # **Apply Color Coding Based on Status**
+        def color_status(val):
+            color = ''
+            if val == 'c':  # Completed
+                color = 'background-color: lightgray'
+            elif val == 'a':  # Advised
+                color = 'background-color: lightgreen'
+            elif val == 'na':  # Eligible not chosen
+                color = 'background-color: #E0FFE0'  # Light greenish
+            elif val == 'ne':  # Not Eligible
+                color = 'background-color: lightcoral'
+            return color
+
+        # Apply styling
+        styled_report = full_report.style.applymap(color_status, subset=selected_courses)
+
+        # Display the DataFrame
+        st.write("*Legend:* c=Completed, a=Advised, na=Eligible not chosen, ne=Not Eligible")
+        st.dataframe(styled_report, height=600, use_container_width=True)
 
         # Initialize Google Drive service
         service = initialize_drive_service()
@@ -188,8 +287,11 @@ def full_student_view():
                 for sid, sel in advised_students.items():
                     # Fetch student row
                     srow = st.session_state.progress_df[st.session_state.progress_df['ID'] == int(sid)].iloc[0].to_dict()
-                    credits = srow['# of Credits Completed']
-                    standing = get_student_standing(credits)
+                    credits_completed_field = srow.get('# of Credits Completed', 0)
+                    credits_registered_field = srow.get('# Registered', 0)
+                    credits_completed = (credits_completed_field if pd.notna(credits_completed_field) else 0) + \
+                                        (credits_registered_field if pd.notna(credits_registered_field) else 0)
+                    standing = get_student_standing(credits_completed)
                     log_info(f"Computed 'Standing' for student ID {sid}: {standing}")
 
                     eligibility_dict = {}
@@ -230,13 +332,13 @@ def full_student_view():
                             stt = 'Completed'
                         elif cc in sel.get('advised', []):
                             action = 'Advised'
-                        elif cc in sel.get('optional', []):
-                            action = 'Optional'
+                        elif stt == 'Eligible':
+                            action = 'Eligible not chosen'
                         else:
                             if stt == 'Not Eligible':
                                 action = 'Not Eligible'
                             elif stt == 'Eligible':
-                                action = 'Eligible (not chosen)'
+                                action = 'Eligible not chosen'
 
                         # For eligible courses without justification
                         if stt == 'Eligible' and just == '':
@@ -271,27 +373,27 @@ def full_student_view():
                     # Write to Excel with student info at the top
                     sheet_name = f"{srow['NAME'][:25]}"
                     student_info = pd.DataFrame({
-                        'A': ['Student Name:', 'Student ID:', '# of Credits Completed:', 'Standing:', 'Credits Advised:', 'Credits Optional:', 'Note:'],
-                        'B': [srow['NAME'], srow['ID'], credits, standing, advised_credits, optional_credits, sel.get('note', '')]
+                        'A': ['Student Name:', 'Student ID:', '# of Credits Completed:', '# Registered:', 'Total Credits Completed:', 'Standing:', 'Credits Advised:', 'Credits Optional:', 'Note:'],
+                        'B': [srow['NAME'], srow['ID'], srow['# of Credits Completed'], srow['# Registered'], credits_completed, standing, advised_credits, optional_credits, sel.get('note', '')]
                     })
                     student_info.to_excel(writer, sheet_name=sheet_name, index=False, header=False)
-                    student_df.to_excel(writer, sheet_name=sheet_name, index=False, startrow=7)
+                    student_df.to_excel(writer, sheet_name=sheet_name, index=False, startrow=9)  # Start from row 10
 
                     # Apply formatting
                     ws = writer.sheets[sheet_name]
-                    for cell in ws[8]:  # Header row is now at row 8
+                    for cell in ws[10]:  # Header row is now at row 10
                         cell.font = Font(bold=True)
 
                     # Find 'Action' column
                     action_col = None
-                    for idx, cell in enumerate(ws[8], start=1):
+                    for idx, cell in enumerate(ws[10], start=1):
                         if cell.value == 'Action':
                             action_col = idx
                             break
 
                     # Apply color fills based on Action
                     if action_col:
-                        for row in ws.iter_rows(min_row=9, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
+                        for row in ws.iter_rows(min_row=11, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
                             action_val = row[action_col-1].value
                             if action_val:
                                 fill = None
@@ -299,9 +401,7 @@ def full_student_view():
                                     fill = PatternFill(start_color='D3D3D3', end_color='D3D3D3', fill_type='solid')
                                 elif 'Advised' in action_val:
                                     fill = PatternFill(start_color='90EE90', end_color='90EE90', fill_type='solid')
-                                elif 'Optional' in action_val:
-                                    fill = PatternFill(start_color='FFFACD', end_color='FFFACD', fill_type='solid')
-                                elif 'Eligible (not chosen)' in action_val:
+                                elif 'Eligible not chosen' in action_val:
                                     fill = PatternFill(start_color='E0FFE0', end_color='E0FFE0', fill_type='solid')
                                 elif 'Not Eligible' in action_val:
                                     fill = PatternFill(start_color='F08080', end_color='F08080', fill_type='solid')

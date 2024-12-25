@@ -4,9 +4,9 @@ import pandas as pd
 from io import BytesIO
 from openpyxl.styles import PatternFill, Font
 from openpyxl import load_workbook
-from utils import check_course_completed  # Added import to resolve NameError
+from utils import check_course_completed, get_student_standing, check_eligibility  # Updated imports
 
-def apply_excel_formatting(output, student_name, student_id, credits, standing, note, advised_credits, optional_credits):
+def apply_excel_formatting(output, student_name, student_id, credits_completed, standing, note, advised_credits, optional_credits):
     """Apply formatting to the Excel report."""
     output.seek(0)
     wb = load_workbook(output)
@@ -14,13 +14,13 @@ def apply_excel_formatting(output, student_name, student_id, credits, standing, 
     ws.title = 'Advising Report'
 
     # Insert student info at the top
-    ws.insert_rows(1, 7)  # Increased to accommodate new credit fields
+    ws.insert_rows(1, 9)  # Increased to accommodate new credit fields
     ws['A1'] = 'Student Name:'
     ws['B1'] = student_name
     ws['A2'] = 'Student ID:'
     ws['B2'] = student_id
     ws['A3'] = '# of Credits Completed:'
-    ws['B3'] = credits
+    ws['B3'] = credits_completed  # Updated to include the sum
     ws['A4'] = 'Standing:'
     ws['B4'] = standing
     ws['A5'] = 'Credits Advised:'
@@ -31,7 +31,7 @@ def apply_excel_formatting(output, student_name, student_id, credits, standing, 
     ws['B7'] = note
 
     # Apply bold font to headers
-    header_row = 8
+    header_row = 9
     for cell in ws[header_row]:
         cell.font = Font(bold=True)
 
@@ -84,26 +84,39 @@ def apply_excel_formatting(output, student_name, student_id, credits, standing, 
 
 def add_summary_sheet(writer, courses_df, advising_selections, progress_df):
     """Add a summary sheet that counts statuses for each course."""
-    summary_data = []
-    status_mapping = {'c': 'Completed', 'a': 'Advised', 'na': 'Eligible not chosen', 'ne': 'Not Eligible'}
-
     # Initialize a dictionary to hold counts per course
     course_status_counts = {course: {'Completed': 0, 'Advised': 0, 'Eligible not chosen': 0, 'Not Eligible': 0} for course in courses_df['Course Code']}
 
     for _, student in progress_df.iterrows():
         sid = str(student['ID'])
         selections = advising_selections.get(sid, {})
+        # Calculate total credits completed
+        credits_completed_field = student.get('# of Credits Completed', 0)
+        credits_registered_field = student.get('# Registered', 0)
+        credits_completed = (credits_completed_field if pd.notna(credits_completed_field) else 0) + \
+                            (credits_registered_field if pd.notna(credits_registered_field) else 0)
+        standing = get_student_standing(credits_completed)
+
         for course in courses_df['Course Code']:
-            # Determine the status based on selections and completed courses
+            # Check if course is completed
             if check_course_completed(student, course):
                 course_status = 'Completed'
+            # Check if course is advised
             elif course in selections.get('advised', []):
                 course_status = 'Advised'
-            elif course in selections.get('optional', []):
-                course_status = 'Eligible not chosen'
             else:
-                # Assuming 'Not Eligible' if not completed, not advised, and not optional
-                course_status = 'Not Eligible'
+                # Determine eligibility
+                eligibility_status, _ = check_eligibility(
+                    student,
+                    course,
+                    selections.get('advised', []),
+                    courses_df
+                )
+                if eligibility_status == 'Eligible':
+                    course_status = 'Eligible not chosen'
+                else:
+                    course_status = 'Not Eligible'
+
             # Increment the count
             if course_status in course_status_counts[course]:
                 course_status_counts[course][course_status] += 1

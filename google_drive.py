@@ -80,7 +80,7 @@ def sync_file_with_drive(service, file_content, drive_file_name, mime_type, pare
             # Update existing file
             media = MediaIoBaseUpload(io.BytesIO(file_content), mimetype=mime_type, resumable=True)
             service.files().update(fileId=file_id, media_body=media).execute()
-            # Removed st.write to hide confirmation message
+            st.write(f"✅ Updated existing file: {drive_file_name}")
             log_info(f"Updated existing file on Drive: {drive_file_name}")
         except Exception as e:
             st.error(f"❌ Failed to update {drive_file_name}: {e}")
@@ -89,7 +89,7 @@ def sync_file_with_drive(service, file_content, drive_file_name, mime_type, pare
         try:
             # Upload new file
             upload_file_to_drive(service, file_content, drive_file_name, mime_type, parent_folder_id)
-            # Removed st.write to hide confirmation message
+            st.write(f"✅ Uploaded new file: {drive_file_name}")
             log_info(f"Uploaded new file to Drive: {drive_file_name}")
         except Exception as e:
             st.error(f"❌ Failed to upload {drive_file_name}: {e}")
