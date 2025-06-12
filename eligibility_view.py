@@ -19,195 +19,215 @@ def student_eligibility_view():
     """Render the Student Eligibility View tab."""
     st.header('Student Eligibility View')
 
-    # 1) Student selector
-    student_list = (
-        st.session_state.progress_df['ID'].astype(str)
-        + ' - '
-        + st.session_state.progress_df['NAME']
-    )
-    selected_student = st.selectbox(
-        'Select a Student',
-        student_list,
-        help="Select a student to review."
-    )
-    selected_id = selected_student.split(' - ')[0]
-    student_row = (
-        st.session_state.progress_df
-        .loc[st.session_state.progress_df['ID'] == int(selected_id)]
-        .iloc[0]
-        .to_dict()
-    )
+    # Select a student
+    student_list = st.session_state.progress_df['ID'].astype(str) + ' - ' + st.session_state.progress_df['NAME']
+    selected_student = st.selectbox('Select a Student', student_list, help="Select a student to review.")
 
-    # 2) Ensure session_state selections exist
-    if selected_id not in st.session_state.advising_selections:
-        st.session_state.advising_selections[selected_id] = {
-            'advised': [], 'optional': [], 'note': ''
-        }
-    cur_advised  = st.session_state.advising_selections[selected_id]['advised']
-    cur_optional = st.session_state.advising_selections[selected_id]['optional']
-    cur_note     = st.session_state.advising_selections[selected_id]['note']
+    selected_student_id = selected_student.split(' - ')[0]
+    student_row = st.session_state.progress_df[st.session_state.progress_df['ID'] == int(selected_student_id)].iloc[0].to_dict()
 
-    # 3) Compute total credits + standing
-    ccomp = student_row.get('# of Credits Completed', 0)
-    creg  = student_row.get('# Registered', 0)
-    total_cred = (ccomp if pd.notna(ccomp) else 0) + (creg if pd.notna(creg) else 0)
-    standing = get_student_standing(total_cred)
-    log_info(f"Student {selected_id} total credits {total_cred}, standing {standing}")
+    # Initialize advising selections if not present
+    if selected_student_id not in st.session_state.advising_selections:
+        st.session_state.advising_selections[selected_student_id] = {'advised': [], 'optional': [], 'note': ''}
 
-    # 4) Build eligibility map
-    eligibility = {}
-    justification = {}
-    for code in st.session_state.courses_df['Course Code']:
-        stat, just = check_eligibility(student_row, code, cur_advised,
-                                       st.session_state.courses_df)
-        eligibility[code] = stat
-        justification[code] = just
+    current_advised = st.session_state.advising_selections[selected_student_id].get('advised', [])
+    current_optional = st.session_state.advising_selections[selected_student_id].get('optional', [])
+    current_note = st.session_state.advising_selections[selected_student_id].get('note', '')
 
-    # 5) Which courses appear in the selectors?
-    eligible_list = [
+    # Determine academic standing based on credits
+    # Updated calculation to include "# Registered"
+    credits_completed_field = student_row.get('# of Credits Completed', 0)
+    credits_registered_field = student_row.get('# Registered', 0)
+    credits_completed = (credits_completed_field if pd.notna(credits_completed_field) else 0) + \
+                        (credits_registered_field if pd.notna(credits_registered_field) else 0)
+    standing = get_student_standing(credits_completed)
+    log_info(f"Computed standing for student ID {selected_student_id}: {standing}")
+
+    # Determine eligibility for each course
+    eligibility_dict = {}
+    justification_dict = {}
+    for course_code in st.session_state.courses_df['Course Code']:
+        status, justification = check_eligibility(
+            student_row,
+            course_code,
+            current_advised,
+            st.session_state.courses_df
+        )
+        eligibility_dict[course_code] = status
+        justification_dict[course_code] = justification
+
+    # Determine eligible courses for selection (Exclude 'Completed')
+    eligible_for_selection = [
         c for c in st.session_state.courses_df['Course Code']
-        if eligibility[c] == 'Eligible' or c in cur_advised or c in cur_optional
+        if eligibility_dict[c] == 'Eligible' or c in current_advised or c in current_optional
     ]
 
-    # 6) Course selection form
     with st.form('course_selection_form'):
         st.subheader('Select Courses')
 
-        # Advised
-        advised_opts = [c for c in eligible_list if eligibility[c] == 'Eligible']
-        default_adv  = [c for c in cur_advised if c in advised_opts]
-        advised_sel  = st.multiselect(
+        # Filter advised options to exclude 'Completed' and 'Not Eligible'
+        filtered_advised_options = [
+            c for c in eligible_for_selection
+            if eligibility_dict[c] == 'Eligible'
+        ]
+
+        advised_selection = st.multiselect(
             'Advised Courses',
-            options=advised_opts,
-            default=default_adv,
+            options=filtered_advised_options,
+            default=current_advised,
             key='advised_selection',
             help="Select strongly recommended courses."
         )
 
-        # Optional
-        opt_opts = [
-            c for c in eligible_list
-            if eligibility[c] == 'Eligible' and c not in advised_sel
+        # Filter optional options to exclude 'Completed', 'Not Eligible', and already advised courses
+        filtered_optional_options = [
+            c for c in eligible_for_selection
+            if eligibility_dict[c] == 'Eligible' and c not in advised_selection
         ]
-        default_opt = [c for c in cur_optional if c in opt_opts]
-        optional_sel = st.multiselect(
+
+        optional_selection = st.multiselect(
             'Optional Courses',
-            options=opt_opts,
-            default=default_opt,
+            options=filtered_optional_options,
+            default=current_optional,
             key='optional_selection',
             help="Select additional optional courses."
         )
 
-        # Note
-        note_input = st.text_area(
-            'Advisor Note (Optional)',
-            value=cur_note,
-            key='note_field',
-            help="Additional guidance for the student."
-        )
+        note_input = st.text_area('Advisor Note (Optional)', value=current_note, key='note_field', help="Additional guidance for the student.")
 
-        # Submit
         submitted = st.form_submit_button('Submit Selections')
         if submitted:
-            st.session_state.advising_selections[selected_id]['advised'] = sorted(advised_sel)
-            st.session_state.advising_selections[selected_id]['optional'] = sorted(optional_sel)
-            st.session_state.advising_selections[selected_id]['note'] = note_input.strip()
+            # Overwrite advised and optional courses with current selections
+            st.session_state.advising_selections[selected_student_id]['advised'] = sorted(advised_selection)
+            st.session_state.advising_selections[selected_student_id]['optional'] = sorted(optional_selection)
+            st.session_state.advising_selections[selected_student_id]['note'] = note_input.strip()
+
             st.success('✅ Selections updated.')
-            log_info(f"Updated selections for student {selected_id}")
+            log_info(f"Updated advising selections for student ID {selected_student_id}.")
+
+            # Trigger data save to Drive
             st.session_state.data_uploaded = True
-            st.experimental_rerun()
 
-    # 7) Credit totals
+            # Properly rerun the app to reflect changes and trigger save
+            st.rerun()
+
+    # Calculate Credits Advised and Optional
+    # Ensure 'Credits' column exists
     if 'Credits' not in st.session_state.courses_df.columns:
-        st.warning("⚠️ Missing 'Credits' column—cannot sum credits.")
-        advised_cred = optional_cred = 'N/A'
-        log_error("Missing Credits column", "Cannot compute advised/optional credits.")
+        st.warning("⚠️ The 'Credits' column is missing in the Courses Table. Please add it to calculate credit totals.")
+        advised_credits = 'N/A'
+        optional_credits = 'N/A'
+        log_error("Credits column missing", "Cannot calculate advised and optional credits.")
     else:
-        df = st.session_state.courses_df
-        advised_cred  = df.loc[df['Course Code'].isin(advised_sel),  'Credits'].sum()
-        optional_cred = df.loc[df['Course Code'].isin(optional_sel), 'Credits'].sum()
+        # Fetch credits for advised and optional courses
+        advised_courses = st.session_state.advising_selections[selected_student_id]['advised']
+        optional_courses = st.session_state.advising_selections[selected_student_id]['optional']
 
-    # 8) Display student info
+        advised_credits = st.session_state.courses_df.loc[
+            st.session_state.courses_df['Course Code'].isin(advised_courses),
+            'Credits'
+        ].sum()
+
+        optional_credits = st.session_state.courses_df.loc[
+            st.session_state.courses_df['Course Code'].isin(optional_courses),
+            'Credits'
+        ].sum()
+        log_info(f"Credits advised: {advised_credits}, Credits optional: {optional_credits}")
+
+    # Display student info with improved styling
     st.markdown("### Student Information")
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.markdown(f"**Name:** {student_row['NAME']}")
-    c2.markdown(f"**Credits Completed:** {total_cred}")
-    c3.markdown(f"**Standing:** {standing}")
-    c4.markdown(f"**Credits Advised:** {advised_cred}")
-    c5.markdown(f"**Credits Optional:** {optional_cred}")
+    col1, col2, col3, col4, col5 = st.columns(5)
 
-    # 9) Build and show eligibility table
-    rows = []
-    for code in st.session_state.courses_df['Course Code']:
-        status = eligibility.get(code, 'Not Eligible')
-        just   = justification.get(code, '')
-        # course_info
-        info   = st.session_state.courses_df.loc[
-            st.session_state.courses_df['Course Code'] == code
-        ].iloc[0]
-        offered = 'Yes' if is_course_offered(st.session_state.courses_df, code) else 'No'
-        ctype   = info['Type']
-        reqs    = build_requisites_str(info)
+    with col1:
+        st.markdown(f"**Name:** {student_row['NAME']}")
 
-        # Determine raw progress val
-        val = str(student_row.get(code,'')).strip().upper()
-        if val == 'C':
-            action, status = 'Completed', 'Completed'
-        elif val == 'NR':
-            action, status = 'Registered', 'Registered'
-        elif code in advised_sel:
+    with col2:
+        st.markdown(f"**Credits Completed:** {credits_completed}")
+
+    with col3:
+        st.markdown(f"**Standing:** {standing}")
+
+    with col4:
+        st.markdown(f"**Credits Advised:** {advised_credits}")
+
+    with col5:
+        st.markdown(f"**Credits Optional:** {optional_credits}")
+
+    # Prepare course data for display
+    courses_data = []
+    for course_code in st.session_state.courses_df['Course Code']:
+        status = eligibility_dict.get(course_code, 'Not Eligible')
+        justification = justification_dict.get(course_code, '')
+        course_info = st.session_state.courses_df[st.session_state.courses_df['Course Code'] == course_code].iloc[0]
+        offered = 'Yes' if is_course_offered(st.session_state.courses_df, course_code) else 'No'
+        ctype = course_info['Type']
+        requisites = build_requisites_str(course_info)
+
+        if check_course_completed(student_row, course_code):
+            action = 'Completed'
+            status = 'Completed'
+        elif course_code in advised_selection:
             action = 'Advised'
-        elif code in optional_sel:
+        elif course_code in optional_selection:
             action = 'Optional'
         else:
-            action = 'Eligible (not chosen)' if status=='Eligible' else 'Not Eligible'
+            if status == 'Not Eligible':
+                action = 'Not Eligible'
+            elif status == 'Eligible':
+                action = 'Eligible (not chosen)'
 
-        if status == 'Eligible' and not just:
-            just = 'All requirements met.'
+        # For eligible courses, add justification if not 'Not Eligible'
+        if status == 'Eligible' and justification == '':
+            justification = 'All requirements met.'
 
-        rows.append({
-            'Course Code': code,
+        courses_data.append({
+            'Course Code': course_code,
             'Type': ctype,
-            'Requisites': reqs,
+            'Requisites': requisites,
             'Eligibility Status': status,
-            'Justification': just,
+            'Justification': justification,
             'Offered': offered,
             'Action': action
         })
 
-    disp_df = pd.DataFrame(rows)
-    req_df  = disp_df[disp_df['Type']=='Required'].copy()
-    int_df  = disp_df[disp_df['Type']=='Intensive'].copy()
+    courses_display_df = pd.DataFrame(courses_data)
+
+    # Separate Required and Intensive courses
+    required_df = courses_display_df[courses_display_df['Type'] == 'Required'].copy()
+    intensive_df = courses_display_df[courses_display_df['Type'] == 'Intensive'].copy()
 
     st.markdown("### Course Eligibility")
-    if not req_df.empty:
-        st.markdown("**Required Courses**")
-        st.dataframe(style_df(req_df), use_container_width=True)
-    if not int_df.empty:
-        st.markdown("**Intensive Courses**")
-        st.dataframe(style_df(int_df), use_container_width=True)
 
-    # 10) Download report
+    if not required_df.empty:
+        st.markdown("**Required Courses**")
+        st.dataframe(style_df(required_df), use_container_width=True)
+
+    if not intensive_df.empty:
+        st.markdown("**Intensive Courses**")
+        st.dataframe(style_df(intensive_df), use_container_width=True)
+
+    # Download Individual Advising Report
     st.subheader('Download Advising Report')
     if st.button('Download Student Report'):
-        combined = pd.concat([req_df, int_df], ignore_index=True)
-        buf = BytesIO()
-        with pd.ExcelWriter(buf, engine='openpyxl') as w:
-            combined.to_excel(w, sheet_name='Advising Report', index=False)
-        formatted = apply_excel_formatting(
-            buf,
+        combined_df = pd.concat([required_df, intensive_df], ignore_index=True)
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            combined_df.to_excel(writer, sheet_name='Advising Report', index=False)
+        # Pass the credits counts to the formatting function
+        output = apply_excel_formatting(
+            output,
             student_row['NAME'],
             student_row['ID'],
-            total_cred,
+            credits_completed,
             standing,
-            st.session_state.advising_selections[selected_id]['note'],
-            advised_cred,
-            optional_cred
+            st.session_state.advising_selections[selected_student_id]['note'],
+            advised_credits,
+            optional_credits
         )
         st.download_button(
             label='Download Advising Report',
-            data=formatted.getvalue(),
-            file_name=f"{student_row['NAME'].replace(' ','_')}_Advising_Report.xlsx",
+            data=output.getvalue(),
+            file_name=f'{student_row["NAME"].replace(" ", "_")}_Advising_Report.xlsx',
             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
-        log_info(f"Downloaded report for student {selected_id}")
+        log_info(f"Advising report downloaded for student ID {selected_student_id}.")
