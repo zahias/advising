@@ -16,23 +16,37 @@ from utils import (
 )
 from reporting import apply_excel_formatting
 
+
+def _safe_defaults(options, defaults):
+    """Return (valid_defaults, dropped_defaults) ensuring defaults ⊆ options."""
+    defaults = defaults or []
+    optset = set(options or [])
+    valid = [d for d in defaults if d in optset]
+    dropped = [d for d in defaults if d not in optset]
+    return valid, dropped
+
+
 def student_eligibility_view():
     st.header("Student Eligibility View")
 
     student_names = st.session_state.progress_df['NAME'].tolist()
     selected_name = st.selectbox("Select student", student_names)
 
-    student_row = st.session_state.progress_df[st.session_state.progress_df['NAME'] == selected_name].iloc[0]
+    student_row = st.session_state.progress_df[
+        st.session_state.progress_df['NAME'] == selected_name
+    ].iloc[0]
     selected_student_id = student_row['ID']
 
     # Ensure session selection bucket
-    st.session_state.advising_selections.setdefault(selected_student_id, {'advised': [], 'optional': [], 'note': ''})
+    st.session_state.advising_selections.setdefault(
+        selected_student_id, {'advised': [], 'optional': [], 'note': ''}
+    )
 
     credits_completed = int(student_row['# of Credits Completed'])
     total = credits_completed + int(student_row['# Registered'])
     standing = get_student_standing(total)
 
-    # Build table
+    # Build table rows + track currently-eligible courses
     rows = []
     eligible_codes = []
     for _, course_row in st.session_state.courses_df.iterrows():
@@ -42,7 +56,8 @@ def student_eligibility_view():
         offered = 'Yes' if is_course_offered(st.session_state.courses_df, code) else 'No'
 
         status, justification = check_eligibility(student_row, course_row, standing)
-        action = ACTION_LABELS["NOT_ELIGIBLE"]
+
+        # Determine "Action" label
         if check_course_completed(student_row, code):
             action = ACTION_LABELS["COMPLETED"]
             status = "Completed"
@@ -53,6 +68,8 @@ def student_eligibility_view():
         elif status == "Eligible":
             action = ACTION_LABELS["ELIGIBLE_NOT_CHOSEN"]
             eligible_codes.append(code)
+        else:
+            action = ACTION_LABELS["NOT_ELIGIBLE"]
 
         rows.append({
             'Course Code': code,
@@ -67,13 +84,36 @@ def student_eligibility_view():
     df = pd.DataFrame(rows)
     st.dataframe(style_df(df), use_container_width=True)
 
-    # Advised/Optional controls — limited to eligible codes, never "not offered"
-    advised = st.multiselect("Advised courses", options=eligible_codes,
-                             default=st.session_state.advising_selections[selected_student_id]['advised'])
-    optional = st.multiselect("Optional courses", options=eligible_codes,
-                              default=st.session_state.advising_selections[selected_student_id]['optional'])
-    note = st.text_input("Note", value=st.session_state.advising_selections[selected_student_id]['note'])
-    st.session_state.advising_selections[selected_student_id] = {'advised': advised, 'optional': optional, 'note': note}
+    # --- Safe defaults for multiselects (prevents StreamlitAPIException) ---
+    current_sel = st.session_state.advising_selections[selected_student_id]
+    valid_advised, dropped_advised = _safe_defaults(eligible_codes, current_sel.get('advised'))
+    valid_optional, dropped_optional = _safe_defaults(eligible_codes, current_sel.get('optional'))
+
+    if dropped_advised or dropped_optional:
+        with st.expander("Previously selected but not currently eligible"):
+            if dropped_advised:
+                st.caption(f"Advised (kept in memory, not selectable now): {', '.join(dropped_advised)}")
+            if dropped_optional:
+                st.caption(f"Optional (kept in memory, not selectable now): {', '.join(dropped_optional)}")
+
+    advised = st.multiselect(
+        "Advised courses",
+        options=eligible_codes,
+        default=valid_advised,
+        help="Only courses currently eligible appear here. Previously saved but not eligible now are shown above."
+    )
+    optional = st.multiselect(
+        "Optional courses",
+        options=eligible_codes,
+        default=valid_optional
+    )
+    note = st.text_input("Note", value=current_sel.get('note') or "")
+
+    st.session_state.advising_selections[selected_student_id] = {
+        'advised': advised,
+        'optional': optional,
+        'note': note
+    }
 
     # Credits (if present)
     advised_credits = optional_credits = None

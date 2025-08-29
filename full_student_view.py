@@ -17,22 +17,22 @@ from utils import (
 )
 from reporting import apply_excel_formatting, add_summary_sheet
 from google_drive import sync_file_with_drive, initialize_drive_service
-from openpyxl.styles import PatternFill
+
+
+def _safe_defaults(options, defaults):
+    """Return (valid_defaults, dropped_defaults) ensuring defaults ⊆ options."""
+    defaults = defaults or []
+    optset = set(options or [])
+    valid = [d for d in defaults if d in optset]
+    dropped = [d for d in defaults if d not in optset]
+    return valid, dropped
+
 
 def full_student_view():
     """Render the Full Student View tab."""
     st.header('Full Student View')
 
     mode = st.radio("Mode", ["All Students", "Individual Student"], horizontal=True)
-
-    # Utility to build requisite string locally (avoids import-cycle if any)
-    def build_reqs(crow):
-        bits = []
-        for k, label in (('Prerequisite', 'Pre'), ('Concurrent', 'Con'), ('Corequisite', 'Co')):
-            raw = str(crow.get(k, '') or '').strip()
-            if raw:
-                bits.append(f"{label}: {raw}")
-        return " | ".join(bits)
 
     df_progress = st.session_state.progress_df
     courses_df = st.session_state.courses_df
@@ -45,10 +45,14 @@ def full_student_view():
     if mode == "All Students":
         st.subheader("All Students")
         # Choose which course columns to show
+        course_options = list(courses_df['Course Code'])
+        # Ensure defaults ⊆ options (defensive; normally identical)
+        default_courses, _ = _safe_defaults(course_options, course_options)
+
         course_cols = st.multiselect(
             "Choose course columns to include",
-            options=list(courses_df['Course Code']),
-            default=list(courses_df['Course Code']),
+            options=course_options,
+            default=default_courses,
         )
 
         # Slider filter for credits
@@ -81,7 +85,10 @@ def full_student_view():
             df_filtered[cc] = df_filtered.apply(lambda r: per_course_marker(r, cc), axis=1)
 
         # Display
-        st.dataframe(df_filtered[['ID', 'NAME', 'Total Credits Completed', 'Standing', 'Advising Status'] + course_cols], use_container_width=True)
+        st.dataframe(
+            df_filtered[['ID', 'NAME', 'Total Credits Completed', 'Standing', 'Advising Status'] + course_cols],
+            use_container_width=True
+        )
 
         # Download full advising report
         if st.button("Download Full Advising Report"):
@@ -98,7 +105,7 @@ def full_student_view():
                 file_name="Full_Advising_Report.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
-            # Also sync to Drive (optional; preserve your existing logic)
+            # Drive sync (best-effort)
             try:
                 service = initialize_drive_service()
                 sync_file_with_drive(service, output, "Full_Advising_Report.xlsx",
@@ -115,8 +122,7 @@ def full_student_view():
 
         standing = get_student_standing(srow['# of Credits Completed'] + srow['# Registered'])
 
-        # Build per-course eligibility/action rows
-        recs = []
+        # Precompute eligibility/justification
         eligibility_dict, justification_dict = {}, {}
         for _, cinfo in courses_df.iterrows():
             code = cinfo['Course Code']
@@ -126,10 +132,15 @@ def full_student_view():
 
         sel = st.session_state.advising_selections.get(sid, {'advised': [], 'optional': [], 'note': ''})
 
+        # Build rows
         def build_row(cinfo):
             code = cinfo['Course Code']
             ctype = cinfo['Type']
-            reqs = build_reqs(cinfo)
+            reqs = " | ".join(
+                f"{label}: {str(cinfo.get(key, '') or '').strip()}"
+                for key, label in (('Prerequisite', 'Pre'), ('Concurrent', 'Con'), ('Corequisite', 'Co'))
+                if str(cinfo.get(key, '') or '').strip()
+            )
             offered = 'Yes' if is_course_offered(courses_df, code) else 'No'
             stt = eligibility_dict[code]
             just = justification_dict[code]
@@ -160,10 +171,22 @@ def full_student_view():
         df_view = pd.DataFrame(rows)
         st.dataframe(style_df(df_view), use_container_width=True)
 
-        # Advised / Optional pickers (Eligible + not already completed)
+        # Eligible codes for pickers
         eligible_codes = [r['Course Code'] for r in rows if r['Eligibility Status'] == 'Eligible' and r['Action'] != ACTION_LABELS["COMPLETED"]]
-        advised = st.multiselect("Advised courses", options=eligible_codes, default=sel.get('advised') or [])
-        optional = st.multiselect("Optional courses", options=eligible_codes, default=sel.get('optional') or [])
+
+        # --- Safe defaults for multiselects (prevents StreamlitAPIException) ---
+        valid_advised, dropped_advised = _safe_defaults(eligible_codes, sel.get('advised'))
+        valid_optional, dropped_optional = _safe_defaults(eligible_codes, sel.get('optional'))
+
+        if dropped_advised or dropped_optional:
+            with st.expander("Previously selected but not currently eligible"):
+                if dropped_advised:
+                    st.caption(f"Advised (kept in memory, not selectable now): {', '.join(dropped_advised)}")
+                if dropped_optional:
+                    st.caption(f"Optional (kept in memory, not selectable now): {', '.join(dropped_optional)}")
+
+        advised = st.multiselect("Advised courses", options=eligible_codes, default=valid_advised)
+        optional = st.multiselect("Optional courses", options=eligible_codes, default=valid_optional)
         note = st.text_input("Note", value=sel.get('note') or "")
         st.session_state.advising_selections[sid] = {'advised': advised, 'optional': optional, 'note': note}
 
@@ -174,8 +197,7 @@ def full_student_view():
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df_out.to_excel(writer, sheet_name='Advising', index=False)
 
-            advised_credits = None
-            optional_credits = None
+            advised_credits = optional_credits = None
             if 'Credits' in courses_df.columns:
                 credits_map = dict(zip(courses_df['Course Code'], courses_df['Credits']))
                 advised_credits = sum(credits_map.get(c, 0) for c in advised)
