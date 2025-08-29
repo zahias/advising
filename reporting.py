@@ -4,218 +4,137 @@ import pandas as pd
 from io import BytesIO
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
-from utils import check_course_completed, get_student_standing, check_eligibility
+from utils import (
+    check_course_completed,
+    get_student_standing,
+    check_eligibility,
+    ACTION_LABELS,
+    STATUS_CODES,
+    COLOR_MAP,
+)
 
-def apply_excel_formatting(output, student_name, student_id, credits_completed, standing, note, advised_credits, optional_credits):
+def _fill_for(label: str) -> PatternFill:
+    color = COLOR_MAP.get(label)
+    if not color:
+        return PatternFill(fill_type=None)
+    return PatternFill(start_color=color, end_color=color, fill_type="solid")
+
+def apply_excel_formatting(
+    output: BytesIO,
+    student_name: str,
+    student_id: str,
+    credits_completed: int,
+    standing: str,
+    note: str,
+    advised_credits: int | float | None,
+    optional_credits: int | float | None,
+):
     """
     Enhances the Excel formatting for a single student's advising report.
     Inserts a student info block at the top, applies formatted header row with freeze panes,
-    cell borders, center alignment, and conditional formatting for the "Action" column.
+    borders, alignment, and conditional fills for the "Action" column using centralized colors.
     """
-    # Load the workbook from the BytesIO buffer
     output.seek(0)
     wb = load_workbook(output)
     ws = wb.active
-    ws.title = "Advising Report"
 
-    # --- Insert Student Information (Rows 1-7) ---
-    ws.insert_rows(1, 7)
+    # Insert student info block
     info = [
-        ("Student Name:", student_name),
-        ("Student ID:", student_id),
-        ("# of Credits Completed:", credits_completed),
-        ("Standing:", standing),
-        ("Credits Advised:", advised_credits),
-        ("Credits Optional:", optional_credits),
-        ("Note:", note)
+        ["Student", student_name],
+        ["ID", student_id],
+        ["Credits Completed", credits_completed],
+        ["Standing", standing],
+        ["Note", note or ""],
+        ["Advised Credits", advised_credits if advised_credits is not None else ""],
+        ["Optional Credits", optional_credits if optional_credits is not None else ""],
     ]
-    for idx, (label, value) in enumerate(info, start=1):
-        ws[f"A{idx}"] = label
-        ws[f"B{idx}"] = value
-        ws[f"A{idx}"].font = Font(bold=True, size=12)
-        ws[f"B{idx}"].font = Font(size=12)
-        ws[f"A{idx}"].alignment = Alignment(horizontal="left", vertical="center")
-        ws[f"B{idx}"].alignment = Alignment(horizontal="left", vertical="center")
+    ws.insert_rows(1, amount=len(info) + 1)
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ws.max_column)
+    ws.cell(1, 1, "Advising Report").font = Font(bold=True, size=14)
+    for r, (k, v) in enumerate(info, start=2):
+        ws.cell(r, 1, k).font = Font(bold=True)
+        ws.cell(r, 2, v)
 
-    # --- Format Header Row for the Data Table ---
-    header_row = 10  # Data table header row
-    ws.freeze_panes = f"A{header_row+1}"  # Freeze header row
-    header_fill = PatternFill(start_color="4F81BD", end_color="4F81BD", fill_type="solid")
-    header_font = Font(bold=True, color="FFFFFF", size=12)
-    header_alignment = Alignment(horizontal="center", vertical="center")
-    thick_border = Border(
-        left=Side(style="thick"),
-        right=Side(style="thick"),
-        top=Side(style="thick"),
-        bottom=Side(style="thick")
-    )
-    for cell in ws[header_row]:
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = header_alignment
-        cell.border = thick_border
+    # Header formatting
+    header_row = len(info) + 1
+    for c in range(1, ws.max_column + 1):
+        cell = ws.cell(header_row, c)
+        cell.font = Font(bold=True)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.freeze_panes = ws.cell(header_row + 1, 1)
 
-    # --- Apply Formatting for Data Cells (Rows header_row+1 onward) ---
-    thin_border = Border(
-        left=Side(style="thin"),
-        right=Side(style="thin"),
-        top=Side(style="thin"),
-        bottom=Side(style="thin")
-    )
-    data_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    for row in ws.iter_rows(min_row=header_row+1, max_row=ws.max_row):
+    # Borders
+    thin = Side(border_style="thin", color="999999")
+    for row in ws.iter_rows(min_row=header_row, max_row=ws.max_row):
         for cell in row:
-            cell.border = thin_border
-            cell.alignment = data_alignment
+            cell.border = Border(top=thin, bottom=thin, left=thin, right=thin)
+            if cell.row > header_row:
+                cell.alignment = Alignment(vertical="top")
 
-    # --- Conditional Formatting for "Action" Column ---
+    # Conditional fill for the "Action" column
     action_col_idx = None
-    for idx, cell in enumerate(ws[header_row], start=1):
-        if cell.value and "Action" in str(cell.value):
-            action_col_idx = idx
+    for c in range(1, ws.max_column + 1):
+        if str(ws.cell(header_row, c).value).strip().lower() == 'action':
+            action_col_idx = c
             break
 
-    fill_mapping = {
-        "Completed": PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid"),
-        "Advised": PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid"),
-        "Optional": PatternFill(start_color="FFFACD", end_color="FFFACD", fill_type="solid"),
-        "Eligible not chosen": PatternFill(start_color="E0FFE0", end_color="E0FFE0", fill_type="solid"),
-        "Not Eligible": PatternFill(start_color="F08080", end_color="F08080", fill_type="solid")
-    }
     if action_col_idx:
-        for row in ws.iter_rows(min_row=header_row+1, max_row=ws.max_row):
-            cell = row[action_col_idx-1]
-            if cell.value:
-                text = str(cell.value).lower()
-                if "completed" in text:
-                    cell.fill = fill_mapping["Completed"]
-                elif "advised" in text:
-                    cell.fill = fill_mapping["Advised"]
-                elif "optional" in text:
-                    cell.fill = fill_mapping["Optional"]
-                elif "eligible" in text:
-                    if "not chosen" in text or "na" in text:
-                        cell.fill = fill_mapping["Eligible not chosen"]
-                    else:
-                        cell.fill = fill_mapping["Eligible not chosen"]
-                elif "not eligible" in text:
-                    cell.fill = fill_mapping["Not Eligible"]
+        fills = {
+            ACTION_LABELS["COMPLETED"]: _fill_for(ACTION_LABELS["COMPLETED"]),
+            ACTION_LABELS["ADVISED"]: _fill_for(ACTION_LABELS["ADVISED"]),
+            ACTION_LABELS["OPTIONAL"]: _fill_for(ACTION_LABELS["OPTIONAL"]),
+            ACTION_LABELS["ELIGIBLE_NOT_CHOSEN"]: _fill_for(ACTION_LABELS["ELIGIBLE_NOT_CHOSEN"]),
+            ACTION_LABELS["NOT_ELIGIBLE"]: _fill_for(ACTION_LABELS["NOT_ELIGIBLE"]),
+        }
+        for row in ws.iter_rows(min_row=header_row + 1, max_row=ws.max_row):
+            cell = row[action_col_idx - 1]
+            if not cell.value:
+                continue
+            label = str(cell.value)
+            if "completed" in label.lower():
+                cell.fill = fills[ACTION_LABELS["COMPLETED"]]
+            elif "advised" in label.lower():
+                cell.fill = fills[ACTION_LABELS["ADVISED"]]
+            elif "optional" in label.lower():
+                cell.fill = fills[ACTION_LABELS["OPTIONAL"]]
+            elif "eligible" in label.lower():
+                cell.fill = fills[ACTION_LABELS["ELIGIBLE_NOT_CHOSEN"]]
+            elif "not eligible" in label.lower():
+                cell.fill = fills[ACTION_LABELS["NOT_ELIGIBLE"]]
 
-    # --- Auto-adjust Column Widths ---
-    for column in ws.columns:
-        max_length = 0
-        column_letter = column[0].column_letter
-        for cell in column:
-            try:
-                cell_length = len(str(cell.value))
-                if cell_length > max_length:
-                    max_length = cell_length
-            except Exception:
-                pass
-        ws.column_dimensions[column_letter].width = max_length + 2
-
-    # --- Ensure All Worksheets Are Visible ---
-    for sheet in wb.worksheets:
-        sheet.sheet_state = "visible"
-    wb.active = 0
-
+    # Save back to buffer
     new_output = BytesIO()
     wb.save(new_output)
     new_output.seek(0)
-    return new_output
-
-def apply_full_report_formatting(output, base_cols_count):
-    """
-    Applies formatting to the full advising report Excel workbook so that it
-    closely mimics the in-app view.
-    - Assumes that the first row is the header row.
-    - `base_cols_count` is the number of base columns (non-course columns).
-    """
+    output.truncate(0)
     output.seek(0)
-    wb = load_workbook(output)
-    ws = wb.active
+    output.write(new_output.read())
+    output.seek(0)
 
-    # Freeze the header row
-    ws.freeze_panes = "A2"
-
-    # Format header row (row 1)
-    header_fill = PatternFill(start_color="4F81BD", end_color="4F81BD", fill_type="solid")
-    header_font = Font(bold=True, color="FFFFFF", size=12)
-    header_alignment = Alignment(horizontal="center", vertical="center")
-    for cell in ws[1]:
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = header_alignment
-
-    # Define conditional fill mapping based on cell value (for course columns)
-    fill_mapping = {
-        "c": PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid"),      # Completed
-        "a": PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid"),      # Advised
-        "na": PatternFill(start_color="E0FFE0", end_color="E0FFE0", fill_type="solid"),     # Eligible not chosen
-        "ne": PatternFill(start_color="F08080", end_color="F08080", fill_type="solid")      # Not Eligible
+def add_summary_sheet(writer, full_df: pd.DataFrame, course_cols: list[str]):
+    """
+    Build 'Summary' across students for wide export, using centralized codes/labels.
+    Counts, per course:
+      - Completed (c)
+      - Advised (a)
+      - Eligible not chosen (na)
+      - Not Eligible (ne)
+    """
+    course_status_counts = {
+        course: {"Completed": 0, "Advised": 0, "Eligible not chosen": 0, "Not Eligible": 0}
+        for course in course_cols
     }
-
-    thin_border = Border(
-        left=Side(style="thin"),
-        right=Side(style="thin"),
-        top=Side(style="thin"),
-        bottom=Side(style="thin")
-    )
-    data_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-
-    # Apply formatting for all data cells (rows 2 onward)
-    for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
-        for cell in row:
-            cell.border = thin_border
-            cell.alignment = data_alignment
-            # For course columns (columns after the base columns), apply conditional fill
-            if cell.column > base_cols_count:
-                # Expect the value to be one of: c, a, na, ne
-                if cell.value in fill_mapping:
-                    cell.fill = fill_mapping[cell.value]
-
-    # Auto-adjust column widths
-    for column in ws.columns:
-        max_length = 0
-        column_letter = column[0].column_letter
-        for cell in column:
-            try:
-                cell_length = len(str(cell.value))
-                if cell_length > max_length:
-                    max_length = cell_length
-            except Exception:
-                pass
-        ws.column_dimensions[column_letter].width = max_length + 2
-
-    # Ensure all sheets are visible
-    for sheet in wb.worksheets:
-        sheet.sheet_state = "visible"
-    wb.active = 0
-
-    new_output = BytesIO()
-    wb.save(new_output)
-    new_output.seek(0)
-    return new_output
-
-def add_summary_sheet(writer, courses_df, advising_selections, progress_df):
-    """Add a summary sheet that aggregates course status counts across all students."""
-    course_status_counts = {course: {'Completed': 0, 'Advised': 0, 'Eligible not chosen': 0, 'Not Eligible': 0} for course in courses_df['Course Code']}
-    for _, student in progress_df.iterrows():
-        sid = str(student['ID'])
-        selections = advising_selections.get(sid, {})
-        for course in courses_df['Course Code']:
-            if check_course_completed(student, course):
-                course_status = 'Completed'
-            elif course in selections.get('advised', []):
-                course_status = 'Advised'
-            else:
-                eligibility_status, _ = check_eligibility(student, course, selections.get('advised', []), courses_df)
-                if eligibility_status == 'Eligible':
-                    course_status = 'Eligible not chosen'
-                else:
-                    course_status = 'Not Eligible'
-            if course_status in course_status_counts[course]:
-                course_status_counts[course][course_status] += 1
+    for _, row in full_df.iterrows():
+        for course in course_cols:
+            val = str(row.get(course, "")).strip().lower()
+            if val == STATUS_CODES["COMPLETED"]:
+                course_status_counts[course]["Completed"] += 1
+            elif val == STATUS_CODES["ADVISED"]:
+                course_status_counts[course]["Advised"] += 1
+            elif val == STATUS_CODES["ELIGIBLE_NOT_CHOSEN"]:
+                course_status_counts[course]["Eligible not chosen"] += 1
+            elif val == STATUS_CODES["NOT_ELIGIBLE"]:
+                course_status_counts[course]["Not Eligible"] += 1
 
     summary_list = []
     for course, statuses in course_status_counts.items():
@@ -224,7 +143,7 @@ def add_summary_sheet(writer, courses_df, advising_selections, progress_df):
             'Completed (c)': statuses['Completed'],
             'Advised (a)': statuses['Advised'],
             'Eligible not chosen (na)': statuses['Eligible not chosen'],
-            'Not Eligible (ne)': statuses['Not Eligible']
+            'Not Eligible (ne)': statuses['Not Eligible'],
         })
     summary_df = pd.DataFrame(summary_list)
     summary_df.to_excel(writer, sheet_name='Summary', index=False)
