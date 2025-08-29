@@ -3,192 +3,146 @@
 import pandas as pd
 import logging
 
-# -------------------------------
-# Centralized constants & colors
-# -------------------------------
-
-# Canonical 1-letter markers used in the wide "Full Student View"
-STATUS_CODES = {
-    "COMPLETED": "c",
-    "ADVISED": "a",
-    "ELIGIBLE_NOT_CHOSEN": "na",
-    "NOT_ELIGIBLE": "ne",
-}
-
-# Human-readable action/legend labels (used in UI & Excel)
-ACTION_LABELS = {
-    "COMPLETED": "Completed",
-    "ADVISED": "Advised",
-    "OPTIONAL": "Optional",
-    "ELIGIBLE_NOT_CHOSEN": "Eligible not chosen",
-    "NOT_ELIGIBLE": "Not Eligible",
-}
-
-# One color system for both UI tables and Excel exports
-# (hex without '#' so openpyxl PatternFill can reuse directly)
-COLOR_MAP = {
-    ACTION_LABELS["COMPLETED"]:       "C6EFCE",  # light green
-    ACTION_LABELS["ADVISED"]:         "FFF2CC",  # light yellow
-    ACTION_LABELS["OPTIONAL"]:        "FFFACD",  # lemon chiffon
-    ACTION_LABELS["ELIGIBLE_NOT_CHOSEN"]: "E0FFE0",  # pale green
-    ACTION_LABELS["NOT_ELIGIBLE"]:    "F8CBAD",  # light red
-    # Eligibility status colors for on-screen (Eligible/Not Eligible/Completed)
-    "Eligible":                       "E0FFE0",
-    "Not Eligible":                   "F8CBAD",
-    "Completed":                      "C6EFCE",
-}
-
-# -------------------------------
-# Logging
-# -------------------------------
-
+# Configure logging
 logging.basicConfig(
     filename='app.log',
     filemode='a',
     format='%(asctime)s - %(levelname)s - %(message)s',
-    level=logging.INFO,
+    level=logging.INFO
 )
+
 logger = logging.getLogger()
 
-def log_info(message: str):
-    try:
-        logger.info(message)
-    except Exception:
-        pass
+def log_info(message):
+    """Log an informational message."""
+    logger.info(message)
 
-def log_error(message: str, exc: Exception = None):
-    try:
-        if exc:
-            logger.error(f"{message}: {exc}")
-        else:
-            logger.error(message)
-    except Exception:
-        pass
+def log_error(message, error):
+    """Log an error message with exception details."""
+    logger.error(f"{message}: {error}", exc_info=True)
 
-# -------------------------------
-# Domain helpers (unchanged API)
-# -------------------------------
-
-def get_student_standing(total_credits: int) -> str:
-    """
-    Standing bands:
-      - <30   -> Sophomore
-      - 30-59 -> Junior
-      - >=60  -> Senior
-    """
-    if total_credits >= 60:
-        return "Senior"
-    if total_credits >= 30:
-        return "Junior"
-    return "Sophomore"
-
-def check_course_completed(student_row: pd.Series, course_code: str) -> bool:
-    """Return True if the progress report marks this course as completed ('c')."""
-    val = str(student_row.get(course_code, "")).strip().lower()
-    return val == STATUS_CODES["COMPLETED"]
-
-def is_course_offered(courses_df: pd.DataFrame, course_code: str) -> bool:
-    """Expect 'Offered' column to contain 'yes'/'no' (case-insensitive)."""
-    row = courses_df[courses_df['Course Code'] == course_code]
-    if row.empty:
-        return False
-    return str(row.iloc[0].get('Offered', '')).strip().lower() == 'yes'
-
-def parse_requirements(req_str: str):
-    """
-    Parse requisites text into tokens; supports comma or '/' separated lists.
-    Example: "PBHL201, PBHL202 / MATH200"
-    """
-    if not isinstance(req_str, str) or not req_str.strip():
+def parse_requirements(req_str):
+    """Parse requirement string into a list."""
+    if pd.isna(req_str) or req_str.strip().upper() == 'N/A' or req_str.strip() == '':
         return []
-    parts = []
-    for chunk in req_str.replace('/', ',').split(','):
-        code = chunk.strip()
-        if code:
-            parts.append(code)
-    return parts
+    else:
+        return [x.strip() for x in req_str.split(',')]
 
-def build_requisites_str(course_row: pd.Series) -> str:
-    """Render prerequisites/concurrent/corequisites into a single readable string."""
-    bits = []
-    for key, label in (('Prerequisite', 'Pre'), ('Concurrent', 'Con'), ('Corequisite', 'Co')):
-        raw = str(course_row.get(key, '') or '').strip()
-        if raw:
-            bits.append(f"{label}: {raw}")
-    return " | ".join(bits) if bits else ""
+def get_student_standing(credits_completed):
+    """Determine student standing based on credits."""
+    if credits_completed >= 60:
+        return 'Senior'
+    elif credits_completed >= 30:
+        return 'Junior'
+    else:
+        return 'Sophomore'
 
-def check_eligibility(
-    student_row: pd.Series,
-    course_row: pd.Series,
-    standing: str,
-) -> tuple[str, str]:
-    """
-    Core rule engine:
-    Returns (status, justification) where status in {'Eligible','Not Eligible','Completed'}.
-    """
-    code = course_row['Course Code']
+def check_course_completed(student_row, course_code):
+    """Check if the student has completed the course."""
+    return str(student_row.get(course_code, '')).lower() == 'c'
 
-    # Already completed?
-    if check_course_completed(student_row, code):
-        return "Completed", "Course already completed."
+def is_course_offered(courses_df, course_code):
+    """Check if the course is offered."""
+    if courses_df.empty:
+        return False
+    offered_val = courses_df.loc[
+        courses_df['Course Code'] == course_code, 'Offered'
+    ]
+    if offered_val.empty:
+        return False
+    return str(offered_val.values[0]).strip().lower() == 'yes'
 
-    # Offered this term?
-    offered = str(course_row.get('Offered', '')).strip().lower() == 'yes'
-    j = []
-    if not offered:
-        j.append("Course not offered.")
+def build_requisites_str(course_info):
+    """Build a requisites string from course info."""
+    pieces = []
+    for key, prefix in [('Prerequisite', 'Prereq'), ('Concurrent', 'Conc'), ('Corequisite', 'Coreq')]:
+        value = course_info.get(key, '')
+        if pd.isna(value):
+            continue
+        value = str(value).strip()
+        if value.upper() != 'N/A' and value != '':
+            pieces.append(f"{prefix}: {value}")
+    return "; ".join(pieces) if pieces else "None"
 
-    # Standing requirement (if encoded in course table, optional)
-    # Example: 'Min Standing' column with values 'Junior'/'Senior'
-    min_standing = str(course_row.get('Min Standing', '')).strip()
-    if min_standing:
-        order = {'Sophomore': 0, 'Junior': 1, 'Senior': 2}
-        if order.get(standing, 0) < order.get(min_standing, 0):
-            j.append(f"Requires {min_standing} standing.")
+def check_eligibility(student_row, course_code, advised_courses, courses_df):
+    """Check eligibility status and justification for a course."""
+    course_info = courses_df[courses_df['Course Code'] == course_code]
+    if course_info.empty:
+        return 'Not Eligible', 'Course not found in table.'
+    course_info = course_info.iloc[0]
+    
+    reasons = []
+    credits = student_row['# of Credits Completed']
+    credits_registered = student_row.get('# Registered', 0)
+    credits_completed = (credits if pd.notna(credits) else 0) + (credits_registered if pd.notna(credits_registered) else 0)
+    standing = get_student_standing(credits_completed)
+    
+    log_info(f"Checking eligibility for course '{course_code}' for student ID {student_row['ID']}:")
+    log_info(f"Total Credits Completed: {credits_completed}, Standing: {standing}")
+    
+    # Check if already completed
+    if check_course_completed(student_row, course_code):
+        return 'Completed', 'Course already completed.'
+    
+    # Check if course is offered
+    if not is_course_offered(courses_df, course_code):
+        reasons.append('Course not offered.')
+    
+    # Check Prerequisites
+    prerequisites = parse_requirements(course_info.get('Prerequisite', ''))
+    for prereq in prerequisites:
+        prereq_lower = prereq.lower()
+        if 'junior standing' in prereq_lower:
+            if standing not in ['Junior', 'Senior']:
+                reasons.append('Junior standing not met.')
+        elif 'senior standing' in prereq_lower:
+            if standing != 'Senior':
+                reasons.append('Senior standing not met.')
+        else:
+            if not check_course_completed(student_row, prereq):
+                reasons.append(f'Prerequisite {prereq} not completed.')
+    
+    # Check Concurrent Requirements
+    concurrent_courses = parse_requirements(course_info.get('Concurrent', ''))
+    for conc in concurrent_courses:
+        if not (check_course_completed(student_row, conc) or conc in advised_courses):
+            reasons.append(f'Concurrent requirement {conc} not met.')
+    
+    # Check Corequisites
+    corequisites = parse_requirements(course_info.get('Corequisite', ''))
+    for coreq in corequisites:
+        if coreq not in advised_courses:
+            reasons.append(f'Corequisite {coreq} not met.')
+    
+    if not reasons:
+        return 'Eligible', 'All requirements met.'
+    else:
+        return 'Not Eligible', '; '.join(reasons)
 
-    # Requisites
-    def has(code_):
-        return check_course_completed(student_row, code_)
+def highlight_row(row):
+    """Apply background colors based on action/status."""
+    action = row.get('Action', '')
+    status = row.get('Eligibility Status', '')
+    if 'Completed' in action:
+        return ['background-color: lightgray'] * len(row)
+    elif 'Advised' in action:
+        return ['background-color: lightgreen'] * len(row)
+    elif 'Optional' in action:
+        return ['background-color: #fffacd'] * len(row)
+    elif status == 'Eligible':
+        return ['background-color: #e0ffe0'] * len(row)
+    elif status == 'Not Eligible':
+        return ['background-color: lightcoral'] * len(row)
+    return [''] * len(row)
 
-    pre = parse_requirements(course_row.get('Prerequisite', ''))
-    con = parse_requirements(course_row.get('Concurrent', ''))
-    co  = parse_requirements(course_row.get('Corequisite', ''))
-
-    missing_pre = [c for c in pre if not has(c)]
-    # Concurrent/Coreq are advisory here; you can tighten rules if needed
-    if missing_pre:
-        j.append(f"Missing prerequisite(s): {', '.join(missing_pre)}.")
-
-    status = "Eligible" if not missing_pre else "Not Eligible"
-    if not offered and status == "Eligible":
-        # keep Eligible but with justification that it's not offered
-        pass
-    if status != "Eligible":
-        # make sure justification isn't empty
-        if not j:
-            j.append("Does not meet eligibility requirements.")
-
-    return status, " ".join(j).strip()
-
-def style_df(df: pd.DataFrame) -> pd.io.formats.style.Styler:
-    """
-    Color rows by the 'Eligibility Status' or 'Action' column using COLOR_MAP.
-    Note: Streamlit's st.dataframe ignores widths from Styler; colors are kept.
-    """
-    styled = df.style
-
-    def _row_color(row):
-        key = None
-        if 'Action' in row:
-            key = str(row['Action'])
-        elif 'Eligibility Status' in row:
-            key = str(row['Eligibility Status'])
-        color = COLOR_MAP.get(key)
-        return [f'background-color: #{color}' if color else '' for _ in row.index]
-
-    styled = styled.apply(_row_color, axis=1)
-
-    # Suggestive widths (may be ignored by st.dataframe)
+def style_df(df):
+    """Apply styling to DataFrame."""
+    styled = df.style.apply(highlight_row, axis=1)
+    styled = styled.set_properties(**{'text-align': 'left'})
+    styled = styled.set_table_styles([{
+        'selector': 'th',
+        'props': [('text-align', 'left'), ('font-weight', 'bold')]
+    }])
     widths = {
         'Course Code': '80px',
         'Type': '80px',
@@ -196,7 +150,7 @@ def style_df(df: pd.DataFrame) -> pd.io.formats.style.Styler:
         'Eligibility Status': '120px',
         'Justification': '200px',
         'Offered': '60px',
-        'Action': '150px',
+        'Action': '150px'
     }
     for col, w in widths.items():
         if col in df.columns:
