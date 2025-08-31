@@ -1,87 +1,252 @@
-# app.py
+# advising_history.py
 
-import streamlit as st
-import pandas as pd
-import os
+import json
 from io import BytesIO
+from typing import Any, Dict, List
+from uuid import uuid4
+from datetime import datetime, date
 
-from data_upload import upload_data
-from eligibility_view import student_eligibility_view
-from full_student_view import full_student_view
-from advising_history import advising_history_panel  # <-- NEW
+import pandas as pd
+import streamlit as st
+
 from google_drive import (
-    download_file_from_drive,
-    sync_file_with_drive,
     initialize_drive_service,
     find_file_in_drive,
+    download_file_from_drive,
+    sync_file_with_drive,
 )
-from utils import log_info, log_error, load_progress_excel
+from utils import (
+    log_info,
+    log_error,
+    check_course_completed,
+    check_course_registered,
+    is_course_offered,
+    check_eligibility,
+    build_requisites_str,
+    get_student_standing,
+)
 
-st.set_page_config(page_title="Advising Dashboard", layout="wide")
+__all__ = ["advising_history_panel"]  # <-- explicit export (for clarity)
 
-# ---------- Header / Logo ----------
-if os.path.exists("pu_logo.png"):
-    st.image("pu_logo.png", width=160)
-st.title("Advising Dashboard")
+_SESSIONS_FILENAME = "advising_sessions.json"
 
-# ---------- Init session state ----------
-for key, default in [
-    ("courses_df", pd.DataFrame()),
-    ("progress_df", pd.DataFrame()),
-    ("advising_selections", {}),
-]:
-    if key not in st.session_state:
-        st.session_state[key] = default
-
-# ---------- Google Drive bootstrap ----------
-service = initialize_drive_service()
-
-def _load_from_drive_safe(filename: str) -> bytes | None:
+def _load_sessions_from_drive() -> List[Dict[str, Any]]:
     try:
-        file_id = find_file_in_drive(service, filename, st.secrets["google"]["folder_id"])
+        service = initialize_drive_service()
+        folder_id = st.secrets["google"]["folder_id"]
+        file_id = find_file_in_drive(service, _SESSIONS_FILENAME, folder_id)
         if not file_id:
-            return None
-        return download_file_from_drive(service, file_id)
+            return []
+        payload = download_file_from_drive(service, file_id)
+        try:
+            sessions = json.loads(payload.decode("utf-8"))
+            return sessions if isinstance(sessions, list) else []
+        except Exception:
+            return []
     except Exception as e:
-        log_error(f"Drive load failed for {filename}", e)
-        return None
+        log_error("Failed to load advising sessions from Drive", e)
+        return []
 
-# Courses table
-if st.session_state.courses_df.empty:
-    courses_bytes = _load_from_drive_safe("courses_table.xlsx")
-    if courses_bytes:
+def _save_sessions_to_drive(sessions: List[Dict[str, Any]]) -> None:
+    try:
+        service = initialize_drive_service()
+        folder_id = st.secrets["google"]["folder_id"]
+        data_bytes = json.dumps(sessions, ensure_ascii=False, indent=2).encode("utf-8")
+        sync_file_with_drive(
+            service=service,
+            file_content=data_bytes,
+            drive_file_name=_SESSIONS_FILENAME,
+            mime_type="application/json",
+            parent_folder_id=folder_id,
+        )
+        log_info("Advising sessions saved to Drive.")
+    except Exception as e:
+        log_error("Failed to save advising sessions to Drive", e)
+        raise
+
+def _ensure_sessions_loaded() -> None:
+    if "advising_sessions" not in st.session_state:
+        st.session_state.advising_sessions = _load_sessions_from_drive()
+
+def _serialize_current_selections() -> Dict[str, Any]:
+    selections = st.session_state.get("advising_selections", {}) or {}
+    out: Dict[str, Any] = {}
+    for sid, payload in selections.items():
+        key = str(sid)
+        out[key] = {
+            "advised": list(payload.get("advised", [])),
+            "optional": list(payload.get("optional", [])),
+            "note": payload.get("note", ""),
+        }
+    return out
+
+def _restore_selections(saved_obj: Dict[str, Any]) -> None:
+    restored: Dict[int, Dict[str, Any]] = {}
+    for sid_str, payload in (saved_obj or {}).items():
         try:
-            st.session_state.courses_df = pd.read_excel(BytesIO(courses_bytes))
-            st.success("✅ Courses table loaded from Google Drive.")
-            log_info("Courses table loaded from Drive.")
-        except Exception as e:
-            st.error(f"❌ Error loading courses table: {e}")
-            log_error("Error loading courses table (Drive)", e)
+            sid = int(sid_str)
+        except Exception:
+            sid = sid_str  # type: ignore[assignment]
+        restored[sid] = {
+            "advised": list(payload.get("advised", [])),
+            "optional": list(payload.get("optional", [])),
+            "note": payload.get("note", ""),
+        }
+    st.session_state.advising_selections = restored
 
-# Progress report (merge sheets if present)
-if st.session_state.progress_df.empty:
-    prog_bytes = _load_from_drive_safe("progress_report.xlsx")
-    if prog_bytes:
-        try:
-            st.session_state.progress_df = load_progress_excel(prog_bytes)
-            st.success("✅ Progress report loaded from Google Drive (Required + Intensive merged).")
-            log_info("Progress report loaded & merged from Drive.")
-        except Exception as e:
-            st.error(f"❌ Error loading progress report: {e}")
-            log_error("Error loading progress report (Drive)", e)
+def _snapshot_courses_table() -> List[Dict[str, Any]]:
+    courses_df = st.session_state.get("courses_df", pd.DataFrame())
+    if courses_df.empty:
+        return []
+    cols = ["Course Code", "Type", "Offered", "Prerequisite", "Concurrent", "Corequisite"]
+    if "Credits" in courses_df.columns:
+        cols.append("Credits")
+    cols = [c for c in cols if c in courses_df.columns]
+    return courses_df[cols].fillna("").to_dict(orient="records")
 
-# ---------- Sidebar Uploads ----------
-upload_data()
+def _snapshot_student_course_rows(student_row: pd.Series, advised: List[str], optional: List[str]) -> List[Dict[str, Any]]:
+    courses_df = st.session_state.courses_df
+    rows: List[Dict[str, Any]] = []
+    for course_code in courses_df["Course Code"]:
+        info = courses_df.loc[courses_df["Course Code"] == course_code].iloc[0]
+        offered = "Yes" if is_course_offered(courses_df, course_code) else "No"
 
-# ---------- Main ----------
-if not st.session_state.progress_df.empty and not st.session_state.courses_df.empty:
-    tab1, tab2 = st.tabs(["Student Eligibility View", "Full Student View"])
-    with tab1:
-        student_eligibility_view()
-    with tab2:
-        full_student_view()
+        status, justification = check_eligibility(student_row, course_code, advised, courses_df)
 
-    # NEW: Advising Sessions panel at the end of the dashboard
-    advising_history_panel()
-else:
-    st.info("📝 Please upload both the progress report and courses table to continue.")
+        if check_course_completed(student_row, course_code):
+            action = "Completed"; status = "Completed"
+        elif check_course_registered(student_row, course_code):
+            action = "Registered"
+        elif course_code in advised:
+            action = "Advised"
+        elif course_code in optional:
+            action = "Optional"
+        elif status == "Not Eligible":
+            action = "Not Eligible"
+        else:
+            action = "Eligible (not chosen)"
+
+        rows.append({
+            "Course Code": course_code,
+            "Type": info.get("Type", ""),
+            "Requisites": build_requisites_str(info),
+            "Offered": offered,
+            "Eligibility Status": status,
+            "Justification": justification,
+            "Action": action,
+        })
+    return rows
+
+def _build_full_session_snapshot() -> Dict[str, Any]:
+    progress_df = st.session_state.get("progress_df", pd.DataFrame())
+    courses_df = st.session_state.get("courses_df", pd.DataFrame())
+    selections = st.session_state.get("advising_selections", {}) or {}
+
+    if progress_df.empty or courses_df.empty:
+        return {"courses_table": [], "students": []}
+
+    students: List[Dict[str, Any]] = []
+    for _, srow in progress_df.iterrows():
+        sid = int(srow.get("ID"))
+        sname = str(srow.get("NAME"))
+        credits_completed = float(srow.get("# of Credits Completed", 0) or 0)
+        credits_registered = float(srow.get("# Registered", 0) or 0)
+        standing = get_student_standing(credits_completed + credits_registered)
+
+        sel = selections.get(sid, {})
+        advised = list(sel.get("advised", []))
+        optional = list(sel.get("optional", []))
+        note = sel.get("note", "")
+
+        course_rows = _snapshot_student_course_rows(srow, advised, optional)
+
+        students.append({
+            "ID": sid,
+            "NAME": sname,
+            "# of Credits Completed": credits_completed,
+            "# Registered": credits_registered,
+            "Standing": standing,
+            "advised": advised,
+            "optional": optional,
+            "note": note,
+            "courses": course_rows,
+        })
+
+    return {
+        "courses_table": _snapshot_courses_table(),
+        "students": students,
+    }
+
+def advising_history_panel():
+    if "courses_df" not in st.session_state or st.session_state.courses_df.empty:
+        return
+    if "progress_df" not in st.session_state or st.session_state.progress_df.empty:
+        return
+
+    _ensure_sessions_loaded()
+
+    st.markdown("---")
+    st.subheader("Advising Sessions")
+
+    col1, col2, col3, col4 = st.columns([2, 2, 2, 2])
+    with col1:
+        advisor_name = st.text_input("Advisor Name", key="adv_hist_name")
+    with col2:
+        session_date: date = st.date_input("Session Date", key="adv_hist_date")
+    with col3:
+        semester = st.selectbox("Semester", ["Fall", "Spring", "Summer"], key="adv_hist_sem")
+    with col4:
+        year = st.number_input("Year", min_value=2000, max_value=2100, value=datetime.now().year, step=1, key="adv_hist_year")
+
+    save_col, load_col = st.columns([1, 2])
+
+    with save_col:
+        if st.button("💾 Save Advising Session", use_container_width=True):
+            if not advisor_name:
+                st.error("Please enter Advisor Name.")
+            else:
+                try:
+                    full_snapshot = _build_full_session_snapshot()
+                    snapshot = {
+                        "id": str(uuid4()),
+                        "advisor": advisor_name,
+                        "session_date": session_date.isoformat() if isinstance(session_date, date) else str(session_date),
+                        "semester": semester,
+                        "year": int(year),
+                        "created_at": datetime.utcnow().isoformat() + "Z",
+                        "selections": _serialize_current_selections(),
+                        "snapshot": full_snapshot,
+                    }
+                    sessions = st.session_state.advising_sessions or []
+                    sessions.append(snapshot)
+                    _save_sessions_to_drive(sessions)
+                    st.session_state.advising_sessions = sessions
+                    st.success("✅ Advising session saved (full snapshot).")
+                except Exception as e:
+                    st.error(f"❌ Failed to save advising session: {e}")
+
+    with load_col:
+        sessions = st.session_state.advising_sessions or []
+        if not sessions:
+            st.info("No saved advising sessions found.")
+            return
+
+        def _label(s: Dict[str, Any]) -> str:
+            return f"{s.get('session_date','')} — {s.get('semester','')} {s.get('year','')} — {s.get('advisor','')}"
+
+        idx = st.selectbox(
+            "Retrieve a previous session",
+            options=list(range(len(sessions))),
+            format_func=lambda i: _label(sessions[i]),
+            key="adv_hist_select",
+            index=len(sessions) - 1,
+        )
+        if st.button("↩️ Load Selected Session", use_container_width=True):
+            try:
+                chosen = sessions[idx]
+                _restore_selections(chosen.get("selections", {}))
+                st.session_state["advising_loaded_snapshot"] = chosen.get("snapshot", {})
+                st.success("✅ Advising session loaded. The dashboard will refresh.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Failed to load advising session: {e}")
