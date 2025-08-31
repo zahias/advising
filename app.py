@@ -1,120 +1,254 @@
-# app.py
+# eligibility_view.py
 
-import os
-from io import BytesIO
-import importlib
-
-import pandas as pd
 import streamlit as st
-
-from data_upload import upload_data
-from eligibility_view import student_eligibility_view
-from full_student_view import full_student_view
-from google_drive import (
-    download_file_from_drive,
-    initialize_drive_service,
-    find_file_in_drive,
+import pandas as pd
+from io import BytesIO
+from utils import (
+    check_course_completed,
+    check_course_registered,
+    is_course_offered,
+    check_eligibility,
+    build_requisites_str,
+    style_df,
+    get_student_standing,
+    log_info,
+    log_error
 )
-from utils import log_info, log_error, load_progress_excel
+from reporting import apply_excel_formatting
 
-st.set_page_config(page_title="Advising Dashboard", layout="wide")
 
-# ---------- Header / Logo ----------
-if os.path.exists("pu_logo.png"):
-    st.image("pu_logo.png", width=160)
-st.title("Advising Dashboard")
-
-# ---------- Init session state ----------
-for key, default in [
-    ("courses_df", pd.DataFrame()),
-    ("progress_df", pd.DataFrame()),
-    ("advising_selections", {}),
-]:
-    if key not in st.session_state:
-        st.session_state[key] = default
-
-# ---------- Google Drive bootstrap (optional) ----------
-service = None
-try:
-    service = initialize_drive_service()
-except Exception as e:
-    # Don’t block the app — continue in local-only mode
-    st.sidebar.warning("Google Drive not configured or unreachable. You can still upload files locally.")
-    log_error("initialize_drive_service failed", e)
-
-def _load_from_drive_safe(filename: str) -> bytes | None:
-    if service is None:
-        return None
-    try:
-        file_id = find_file_in_drive(service, filename, st.secrets["google"]["folder_id"])
-        if not file_id:
-            return None
-        return download_file_from_drive(service, file_id)
-    except Exception as e:
-        log_error(f"Drive load failed for {filename}", e)
-        return None
-
-# ---------- Preload from Drive when possible ----------
-if st.session_state.courses_df.empty:
-    courses_bytes = _load_from_drive_safe("courses_table.xlsx")
-    if courses_bytes:
-        try:
-            st.session_state.courses_df = pd.read_excel(BytesIO(courses_bytes))
-            st.success("✅ Courses table loaded from Google Drive.")
-            log_info("Courses table loaded from Drive.")
-        except Exception as e:
-            st.error(f"❌ Error loading courses table: {e}")
-            log_error("Error loading courses table (Drive)", e)
-
-if st.session_state.progress_df.empty:
-    prog_bytes = _load_from_drive_safe("progress_report.xlsx")
-    if prog_bytes:
-        try:
-            st.session_state.progress_df = load_progress_excel(prog_bytes)
-            st.success("✅ Progress report loaded from Google Drive (Required + Intensive merged).")
-            log_info("Progress report loaded & merged from Drive.")
-        except Exception as e:
-            st.error(f"❌ Error loading progress report: {e}")
-            log_error("Error loading progress report (Drive)", e)
-
-# ---------- Sidebar Uploads (always available) ----------
-upload_data()
-
-# ---------- Safe loader for Advising Sessions panel ----------
-def _render_advising_panel_safely():
+def student_eligibility_view():
     """
-    Try to load and render the Advising Sessions panel without ever breaking the page.
-    Works whether advising_history is a module or a package.
+    Per-student advising & eligibility page.
     """
-    try:
-        mod = importlib.import_module("advising_history")
-        mod = importlib.reload(mod)
-        panel = getattr(mod, "advising_history_panel", None)
-        if panel is None:
-            try:
-                sub = importlib.import_module("advising_history.advising_history")
-                sub = importlib.reload(sub)
-                panel = getattr(sub, "advising_history_panel", None)
-            except Exception:
-                panel = None
-        if callable(panel):
-            panel()
+    if "courses_df" not in st.session_state or st.session_state.courses_df.empty:
+        st.warning("Courses table not loaded.")
+        return
+    if "progress_df" not in st.session_state or st.session_state.progress_df.empty:
+        st.warning("Progress report not loaded.")
+        return
+    if "advising_selections" not in st.session_state:
+        st.session_state.advising_selections = {}
+
+    # ---- Student picker (compact header) ----
+    students_df = st.session_state.progress_df.copy()
+    students_df["DISPLAY"] = students_df["NAME"].astype(str) + " — " + students_df["ID"].astype(str)
+    st.markdown("#### Select Student")
+    choice = st.selectbox("", students_df["DISPLAY"].tolist(), label_visibility="collapsed")
+    selected_student_id = int(students_df.loc[students_df["DISPLAY"] == choice, "ID"].iloc[0])
+    student_row = students_df.loc[students_df["ID"] == selected_student_id].iloc[0]
+
+    # Ensure selection bucket
+    slot = st.session_state.advising_selections.setdefault(
+        selected_student_id, {"advised": [], "optional": [], "note": ""}
+    )
+
+    # Header card
+    credits_completed = float(student_row.get("# of Credits Completed", 0) or 0)
+    credits_registered = float(student_row.get("# Registered", 0) or 0)
+    total_credits = credits_completed + credits_registered
+    standing = get_student_standing(total_credits)
+
+    with st.container():
+        st.markdown(
+            f"""
+            <div class="section-card">
+              <div><strong>Name:</strong> {student_row['NAME']} &nbsp; | &nbsp;
+              <strong>ID:</strong> {selected_student_id} &nbsp; | &nbsp;
+              <strong>Credits:</strong> {int(total_credits)} &nbsp; | &nbsp;
+              <strong>Standing:</strong> {standing}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("")  # small spacer
+
+    # ---------- Build eligibility + justifications dicts ----------
+    status_dict: dict[str, str] = {}
+    justification_dict: dict[str, str] = {}
+
+    current_advised_for_checks = list(slot.get("advised", []))  # for engine only
+
+    for course_code in st.session_state.courses_df["Course Code"]:
+        status, justification = check_eligibility(
+            student_row, str(course_code), current_advised_for_checks, st.session_state.courses_df
+        )
+        status_dict[str(course_code)] = status
+        justification_dict[str(course_code)] = justification
+
+    # ---------- Build display dataframe ----------
+    rows = []
+    for course_code in st.session_state.courses_df["Course Code"]:
+        code = str(course_code)
+        info = st.session_state.courses_df.loc[
+            st.session_state.courses_df["Course Code"] == course_code
+        ].iloc[0]
+        offered = "Yes" if is_course_offered(st.session_state.courses_df, code) else "No"
+        status = status_dict.get(code, "")
+
+        if check_course_completed(student_row, code):
+            action = "Completed"; status = "Completed"
+        elif check_course_registered(student_row, code):
+            action = "Registered"
+        elif code in (slot.get("advised", []) or []):
+            action = "Advised"
+        elif code in (slot.get("optional", []) or []):
+            action = "Optional"
+        elif status == "Not Eligible":
+            action = "Not Eligible"
         else:
-            st.warning("Advising Sessions panel not found. The rest of the dashboard is available.")
-    except Exception as e:
-        st.error("Advising Sessions panel failed to load. The rest of the dashboard is available.")
-        st.exception(e)
-        log_error("Advising Sessions panel error", e)
+            action = "Eligible (not chosen)"
 
-# ---------- Main ----------
-if not st.session_state.progress_df.empty and not st.session_state.courses_df.empty:
-    tab1, tab2 = st.tabs(["Student Eligibility View", "Full Student View"])
-    with tab1:
-        student_eligibility_view()
-    with tab2:
-        full_student_view()
+        rows.append(
+            {
+                "Course Code": code,
+                "Type": info.get("Type", ""),
+                "Requisites": build_requisites_str(info),
+                "Eligibility Status": status,
+                "Justification": justification_dict.get(code, ""),
+                "Offered": offered,
+                "Action": action,
+            }
+        )
 
-    # Advising Sessions panel (robust import & never blocks page)
-    _render_advising_panel_safely()
-else:
-    st.info("📝 Please upload both the progress report and courses table to continue.")
+    courses_display_df = pd.DataFrame(rows)
+    req_df = courses_display_df[courses_display_df["Type"] == "Required"].copy()
+    int_df = courses_display_df[courses_display_df["Type"] == "Intensive"].copy()
+
+    # ---------- Two-column layout: left tables, right form ----------
+    left, right = st.columns([7, 5], gap="large")
+
+    with left:
+        st.markdown("#### Course Eligibility")
+
+        if not req_df.empty:
+            with st.expander("Required Courses", expanded=True):
+                st.dataframe(style_df(req_df), use_container_width=True)
+        if not int_df.empty:
+            with st.expander("Intensive Courses", expanded=False):
+                st.dataframe(style_df(int_df), use_container_width=True)
+
+    with right:
+        st.markdown("#### Advising Selections")
+
+        # Offered set
+        offered_set = set(
+            map(
+                str,
+                st.session_state.courses_df.loc[
+                    st.session_state.courses_df["Offered"].astype(str).str.lower() == "yes",
+                    "Course Code",
+                ].tolist(),
+            )
+        )
+
+        def _eligible_for_selection() -> list[str]:
+            elig: list[str] = []
+            for c in map(str, st.session_state.courses_df["Course Code"].tolist()):
+                if c not in offered_set:
+                    continue
+                if check_course_completed(student_row, c) or check_course_registered(student_row, c):
+                    continue
+                if status_dict.get(c) == "Eligible":
+                    elig.append(c)
+            return sorted(elig)
+
+        eligible_options: list[str] = _eligible_for_selection()
+        opts_set = set(eligible_options)
+
+        # Sanitize defaults
+        saved_advised = [str(x) for x in (slot.get("advised", []) or [])]
+        saved_optional = [str(x) for x in (slot.get("optional", []) or [])]
+
+        default_advised = [c for c in saved_advised if c in opts_set]
+        dropped_advised = sorted(set(saved_advised) - set(default_advised))
+
+        opt_space_now = [c for c in eligible_options if c not in default_advised]
+        opt_space_set = set(opt_space_now)
+        default_optional = [c for c in saved_optional if c in opt_space_set]
+        dropped_optional = sorted(set(saved_optional) - set(default_optional))
+
+        with st.form(key=f"advise_form_{selected_student_id}"):
+            advised_selection = st.multiselect(
+                "Advised Courses",
+                options=eligible_options,
+                default=default_advised,
+                key=f"advised_ms_{selected_student_id}",
+            )
+            opt_options_live = [c for c in eligible_options if c not in advised_selection]
+            optional_selection = st.multiselect(
+                "Optional Courses",
+                options=opt_options_live,
+                default=[c for c in default_optional if c in opt_options_live],
+                key=f"optional_ms_{selected_student_id}",
+            )
+            note_input = st.text_area(
+                "Advisor Note (optional)",
+                value=slot.get("note", ""),
+                key=f"note_{selected_student_id}",
+                height=90,
+            )
+
+            if dropped_advised or dropped_optional:
+                with st.expander("Some saved selections aren’t available this term"):
+                    if dropped_advised:
+                        st.write("**Advised (saved but unavailable now):** ", ", ".join(dropped_advised))
+                    if dropped_optional:
+                        st.write("**Optional (saved but unavailable now):** ", ", ".join(dropped_optional))
+                    st.caption(
+                        "Courses not shown could be not offered, already completed/registered, or removed from the current courses table."
+                    )
+
+            submitted = st.form_submit_button("Save Selections")
+            if submitted:
+                st.session_state.advising_selections[selected_student_id] = {
+                    "advised": advised_selection,
+                    "optional": optional_selection,
+                    "note": note_input,
+                }
+                st.success("Selections saved.")
+                log_info(f"Saved selections for {selected_student_id}")
+                st.rerun()
+
+        st.markdown("#### Download Report")
+        if st.button("Download Student Report", use_container_width=True):
+            report_df = courses_display_df.copy()
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                report_df.to_excel(writer, index=False, sheet_name="Advising")
+            apply_excel_formatting(
+                output=output,
+                student_name=str(student_row["NAME"]),
+                student_id=selected_student_id,
+                credits_completed=int(credits_completed),
+                standing=standing,
+                note=st.session_state.advising_selections[selected_student_id].get("note", ""),
+                advised_credits=int(
+                    st.session_state.courses_df.set_index("Course Code")
+                    .reindex(advised_selection)
+                    .get("Credits", pd.Series(0))
+                    .fillna(0)
+                    .astype(float)
+                    .sum()
+                )
+                if "Credits" in st.session_state.courses_df.columns
+                else 0,
+                optional_credits=int(
+                    st.session_state.courses_df.set_index("Course Code")
+                    .reindex(optional_selection)
+                    .get("Credits", pd.Series(0))
+                    .fillna(0)
+                    .astype(float)
+                    .sum()
+                )
+                if "Credits" in st.session_state.courses_df.columns
+                else 0,
+            )
+            st.download_button(
+                "Download Excel",
+                data=output.getvalue(),
+                file_name=f"Advising_{selected_student_id}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
