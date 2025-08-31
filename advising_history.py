@@ -1,10 +1,11 @@
 # advising_history.py
-# Save/load advising sessions.
+# Save/load advising sessions (full snapshots).
 # Retrieval is READ-ONLY from the frozen snapshot.
-# Now includes deletion of saved sessions (single and bulk).
+# Includes delete (single & bulk).
+# UI refined: two tabs (Save Session / Sessions), compact controls.
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from uuid import uuid4
 from datetime import datetime, date
 
@@ -132,8 +133,7 @@ def _snapshot_student_course_rows(
 
         # Derive Action exactly like the UI
         if check_course_completed(student_row, course_code):
-            action = "Completed"
-            status  = "Completed"
+            action = "Completed"; status  = "Completed"
         elif check_course_registered(student_row, course_code):
             action = "Registered"
         elif course_code in advised:
@@ -224,7 +224,7 @@ def _render_archived_session_view(snapshot: Dict[str, Any], meta: Dict[str, Any]
         st.info("No students captured in this snapshot.")
         return
 
-    # Build a small picker from the archived list
+    # Compact student picker
     labels = [f"{s.get('NAME','')} — {s.get('ID','')}" for s in students]
     idx = st.selectbox(
         "View student",
@@ -262,7 +262,6 @@ def _render_archived_session_view(snapshot: Dict[str, Any], meta: Dict[str, Any]
 def _delete_sessions_by_ids(ids: List[str]) -> bool:
     """Delete sessions with matching 'id' fields; return True if saved successfully."""
     sessions = st.session_state.advising_sessions or []
-    # Fallback: if any session lacks an id, allow deletion by keeping those not selected
     remaining = [s for s in sessions if str(s.get("id", "")) not in set(ids)]
     try:
         _save_sessions_to_drive(remaining)
@@ -274,134 +273,139 @@ def _delete_sessions_by_ids(ids: List[str]) -> bool:
         return False
 
 
-# ---------------------- Panel (save, view, delete) ----------------------
+# ---------------------- Panel (two tabs; same functionality) ----------------------
+
+def _format_label(s: Dict[str, Any]) -> str:
+    date_s = s.get("session_date","")
+    sem = s.get("semester","")
+    yr = s.get("year","")
+    adv = s.get("advisor","")
+    return f"{date_s} — {sem} {yr} — {adv}"
 
 def advising_history_panel():
     """
-    Advising Sessions panel:
-      - Save current advising snapshot (full snapshot is embedded)
-      - Retrieve a session -> VIEW ONLY from the frozen snapshot (no edits; does not touch live selections)
-      - Delete saved sessions (single or bulk)
+    Advising Sessions panel (clean UI):
+      - Tab 1: Save Session (unchanged logic)
+      - Tab 2: Sessions (retrieve view-only + delete / delete-all)
     """
     _ensure_sessions_loaded()
 
     st.markdown("---")
     st.subheader("Advising Sessions")
 
-    # ---- Save block (enabled only if live data is present) ----
-    can_save = ("courses_df" in st.session_state and not st.session_state.courses_df.empty and
-                "progress_df" in st.session_state and not st.session_state.progress_df.empty)
+    tab_save, tab_sessions = st.tabs(["Save Session", "Sessions"])
 
-    col1, col2, col3, col4 = st.columns([2, 2, 2, 2])
-    with col1:
-        advisor_name = st.text_input("Advisor Name", key="adv_hist_name")
-    with col2:
-        session_date: date = st.date_input("Session Date", key="adv_hist_date")
-    with col3:
-        semester = st.selectbox("Semester", ["Fall", "Spring", "Summer"], key="adv_hist_sem")
-    with col4:
-        year = st.number_input("Year", min_value=2000, max_value=2100, value=datetime.now().year, step=1, key="adv_hist_year")
+    # ------------------ Tab: Save Session ------------------
+    with tab_save:
+        # Save enabled only if live data is present (unchanged)
+        can_save = ("courses_df" in st.session_state and not st.session_state.courses_df.empty and
+                    "progress_df" in st.session_state and not st.session_state.progress_df.empty)
 
-    save_col, load_col = st.columns([1, 2])
+        # Compact header row
+        c1, c2, c3, c4 = st.columns([2, 2, 1.5, 1])
+        with c1:
+            advisor_name = st.text_input("Advisor Name", key="adv_hist_name")
+        with c2:
+            session_date: date = st.date_input("Session Date", key="adv_hist_date")
+        with c3:
+            semester = st.selectbox("Semester", ["Fall", "Spring", "Summer"], key="adv_hist_sem")
+        with c4:
+            year = st.number_input("Year", min_value=2000, max_value=2100, value=datetime.now().year, step=1, key="adv_hist_year")
 
-    with save_col:
-        disabled_msg = None
+        st.markdown("")  # small spacing
+        save_button_col = st.columns([1, 6, 1])[1]
+        with save_button_col:
+            if st.button("💾 Save Advising Session", use_container_width=True, disabled=not can_save):
+                if not advisor_name:
+                    st.error("Please enter Advisor Name.")
+                else:
+                    try:
+                        full_snapshot = _build_full_session_snapshot()
+                        snapshot = {
+                            "id": str(uuid4()),
+                            "advisor": advisor_name,
+                            "session_date": session_date.isoformat() if isinstance(session_date, date) else str(session_date),
+                            "semester": semester,
+                            "year": int(year),
+                            "created_at": datetime.utcnow().isoformat() + "Z",
+                            "selections": _serialize_current_selections(),
+                            "snapshot": full_snapshot,
+                        }
+                        sessions = st.session_state.advising_sessions or []
+                        sessions.append(snapshot)
+                        _save_sessions_to_drive(sessions)
+                        st.session_state.advising_sessions = sessions
+                        st.success("✅ Advising session saved (full snapshot).")
+                    except Exception as e:
+                        st.error(f"❌ Failed to save advising session: {e}")
+
         if not can_save:
-            disabled_msg = "Upload current Courses & Progress files to enable saving."
-        if st.button("💾 Save Advising Session", use_container_width=True, disabled=not can_save):
-            if not advisor_name:
-                st.error("Please enter Advisor Name.")
-            else:
-                try:
-                    full_snapshot = _build_full_session_snapshot()
-                    snapshot = {
-                        "id": str(uuid4()),
-                        "advisor": advisor_name,
-                        "session_date": session_date.isoformat() if isinstance(session_date, date) else str(session_date),
-                        "semester": semester,
-                        "year": int(year),
-                        "created_at": datetime.utcnow().isoformat() + "Z",
-                        # Maintain lightweight selections & full snapshot
-                        "selections": _serialize_current_selections(),
-                        "snapshot": full_snapshot,
-                    }
-                    sessions = st.session_state.advising_sessions or []
-                    sessions.append(snapshot)
-                    _save_sessions_to_drive(sessions)
-                    st.session_state.advising_sessions = sessions
-                    st.success("✅ Advising session saved (full snapshot).")
-                except Exception as e:
-                    st.error(f"❌ Failed to save advising session: {e}")
-        if disabled_msg:
-            st.caption(disabled_msg)
+            st.caption("Upload current Courses & Progress files to enable saving.")
 
-    # ---- Retrieve & Delete block ----
-    with load_col:
+    # ------------------ Tab: Sessions (retrieve + delete) ------------------
+    with tab_sessions:
         sessions = st.session_state.advising_sessions or []
         if not sessions:
             st.info("No saved advising sessions found.")
-        else:
-            def _label(s: Dict[str, Any]) -> str:
-                date_s = s.get("session_date","")
-                sem = s.get("semester","")
-                yr = s.get("year","")
-                adv = s.get("advisor","")
-                return f"{date_s} — {sem} {yr} — {adv}"
+            return
 
-            # Build a stable map of ID -> label; fall back to index if id missing
-            ids = [str(s.get("id", i)) for i, s in enumerate(sessions)]
-            labels = [_label(s) for s in sessions]
-            id_to_label = dict(zip(ids, labels))
+        # Build stable ids and labels
+        ids = [str(s.get("id", i)) for i, s in enumerate(sessions)]
+        labels = [_format_label(s) for s in sessions]
 
-            # Select ONE to open/delete
+        # Selection row
+        s1, s2 = st.columns([3, 2])
+        with s1:
             selected_label = st.selectbox(
-                "Retrieve / Delete a session",
+                "Saved sessions",
                 options=labels,
-                key="adv_hist_select_label",
                 index=len(labels) - 1,
+                key="adv_hist_select_label",
             )
-            # Resolve back to id
-            selected_idx = labels.index(selected_label)
-            selected_id = ids[selected_idx]
+        selected_idx = labels.index(selected_label)
+        selected_id = ids[selected_idx]
+        chosen = sessions[selected_idx]
 
-            # Action buttons side by side
-            bcol1, bcol2 = st.columns([1, 1])
-            with bcol1:
-                if st.button("📂 Open Selected Session (view-only)", use_container_width=True, key="open_selected_session"):
-                    chosen = sessions[selected_idx]
-                    st.session_state["advising_loaded_snapshot"] = chosen.get("snapshot", {})
-                    st.session_state["advising_loaded_meta"] = {
-                        "advisor": chosen.get("advisor",""),
-                        "session_date": chosen.get("session_date",""),
-                        "semester": chosen.get("semester",""),
-                        "year": chosen.get("year",""),
-                    }
-                    st.success("Loaded archived session below (read-only).")
-            with bcol2:
-                confirm_delete = st.checkbox("Confirm delete", key="confirm_delete_session", value=False)
-                if st.button("🗑️ Delete Selected Session", use_container_width=True, disabled=not confirm_delete, key="delete_selected_session"):
-                    ok = _delete_sessions_by_ids([selected_id])
-                    if ok:
-                        st.success("🗑️ Selected session deleted.")
-                        # Clear any loaded snapshot that might reference the deleted id
-                        st.session_state.pop("advising_loaded_snapshot", None)
-                        st.session_state.pop("advising_loaded_meta", None)
-                        st.rerun()
+        # Action buttons row (centered)
+        ab1, ab2, ab3 = st.columns([2, 2, 2])
+        with ab1:
+            if st.button("📂 Open (view-only)", use_container_width=True, key="open_selected_session"):
+                st.session_state["advising_loaded_snapshot"] = chosen.get("snapshot", {})
+                st.session_state["advising_loaded_meta"] = {
+                    "advisor": chosen.get("advisor",""),
+                    "session_date": chosen.get("session_date",""),
+                    "semester": chosen.get("semester",""),
+                    "year": chosen.get("year",""),
+                }
+                st.success("Loaded archived session below (read-only).")
+        with ab2:
+            # Compact confirm inline; keeps UI tidy
+            confirm = st.checkbox("Confirm", key="confirm_delete_session", value=False)
+            if st.button("🗑️ Delete selected", use_container_width=True, disabled=not confirm, key="delete_selected_session"):
+                ok = _delete_sessions_by_ids([selected_id])
+                if ok:
+                    st.success("🗑️ Selected session deleted.")
+                    st.session_state.pop("advising_loaded_snapshot", None)
+                    st.session_state.pop("advising_loaded_meta", None)
+                    st.rerun()
 
-            # Bulk delete (optional) inside an expander with strong confirmation
-            with st.expander("Danger zone: Delete ALL sessions"):
+        # Danger zone (bulk delete) — tucked away
+        with st.expander("Danger zone: Delete ALL sessions"):
+            dz1, dz2 = st.columns([3, 1.2])
+            with dz1:
                 confirm_text = st.text_input("Type DELETE to confirm", key="bulk_delete_confirm")
-                if st.button("🧨 Delete ALL Sessions", use_container_width=True, disabled=(confirm_text.strip() != "DELETE"), key="bulk_delete_all"):
-                    ok = _delete_sessions_by_ids(ids)  # delete by all known ids
+            with dz2:
+                if st.button("🧨 Delete ALL", use_container_width=True, disabled=(confirm_text.strip() != "DELETE"), key="bulk_delete_all"):
+                    ok = _delete_sessions_by_ids(ids)
                     if ok:
                         st.success("🧨 All sessions deleted.")
                         st.session_state.pop("advising_loaded_snapshot", None)
                         st.session_state.pop("advising_loaded_meta", None)
                         st.rerun()
 
-    # ---- Archived viewer (if any snapshot is loaded) ----
-    if "advising_loaded_snapshot" in st.session_state:
-        _render_archived_session_view(
-            st.session_state.get("advising_loaded_snapshot", {}),
-            st.session_state.get("advising_loaded_meta", {}),
-        )
+        # Archived viewer (appears only when loaded)
+        if "advising_loaded_snapshot" in st.session_state:
+            _render_archived_session_view(
+                st.session_state.get("advising_loaded_snapshot", {}),
+                st.session_state.get("advising_loaded_meta", {}),
+            )
