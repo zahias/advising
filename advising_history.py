@@ -1,8 +1,8 @@
 # advising_history.py
-# Panel for saving/loading advising sessions (with full, self-contained snapshots)
+# Save/load advising sessions. Retrieval is now READ-ONLY and uses the frozen snapshot.
 
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 from datetime import datetime, date
 
@@ -18,15 +18,16 @@ from google_drive import (
 from utils import (
     log_info,
     log_error,
-    check_course_completed,
-    check_course_registered,
-    is_course_offered,
-    check_eligibility,
-    build_requisites_str,
-    get_student_standing,
+    check_course_completed,    # kept for backward-compat in snapshot builder
+    check_course_registered,   # kept for backward-compat in snapshot builder
+    is_course_offered,         # kept for backward-compat in snapshot builder
+    check_eligibility,         # kept for backward-compat in snapshot builder
+    build_requisites_str,      # kept for backward-compat in snapshot builder
+    get_student_standing,      # kept for backward-compat in snapshot builder
+    style_df,                  # used to style archived per-course grid
 )
 
-__all__ = ["advising_history_panel"]  # make the symbol explicit for imports
+__all__ = ["advising_history_panel"]
 
 _SESSIONS_FILENAME = "advising_sessions.json"
 
@@ -96,23 +97,8 @@ def _serialize_current_selections() -> Dict[str, Any]:
         }
     return out
 
-def _restore_selections(saved_obj: Dict[str, Any]) -> None:
-    """Replace current selections with a saved snapshot (string IDs -> ints when possible)."""
-    restored: Dict[int, Dict[str, Any]] = {}
-    for sid_str, payload in (saved_obj or {}).items():
-        try:
-            sid = int(sid_str)
-        except Exception:
-            sid = sid_str  # type: ignore[assignment]
-        restored[sid] = {
-            "advised": list(payload.get("advised", [])),
-            "optional": list(payload.get("optional", [])),
-            "note": payload.get("note", ""),
-        }
-    st.session_state.advising_selections = restored
 
-
-# ---------------------- Full snapshot builder ----------------------
+# ---------------------- Full snapshot builder (unchanged) ----------------------
 
 def _snapshot_courses_table() -> List[Dict[str, Any]]:
     """Minimal but complete copy of the courses table to preserve context."""
@@ -158,7 +144,7 @@ def _snapshot_student_course_rows(
             action = "Eligible (not chosen)"
 
         rows.append({
-            "Course Code": course_code,
+            "Course Code": str(course_code),
             "Type": info.get("Type", ""),
             "Requisites": build_requisites_str(info),
             "Offered": offered,
@@ -214,24 +200,80 @@ def _build_full_session_snapshot() -> Dict[str, Any]:
     }
 
 
-# ---------------------- Panel (UI) ----------------------
+# ---------------------- Archived viewer (read-only) ----------------------
+
+def _render_archived_session_view(snapshot: Dict[str, Any], meta: Dict[str, Any]) -> None:
+    """Render the archived session from its own snapshot only (no dependency on current files)."""
+    if not snapshot or "students" not in snapshot:
+        st.info("This session doesn’t contain a full snapshot (older save).")
+        return
+
+    st.markdown("### Archived Session (read-only)")
+    with st.container(border=True):
+        st.write(
+            f"**Advisor:** {meta.get('advisor','')}  |  "
+            f"**Date:** {meta.get('session_date','')}  |  "
+            f"**Semester:** {meta.get('semester','')}  |  "
+            f"**Year:** {meta.get('year','')}"
+        )
+
+    students = snapshot.get("students", [])
+    if not students:
+        st.info("No students captured in this snapshot.")
+        return
+
+    # Build a small picker from the archived list
+    labels = [f"{s.get('NAME','')} — {s.get('ID','')}" for s in students]
+    idx = st.selectbox(
+        "View student",
+        options=list(range(len(students))),
+        format_func=lambda i: labels[i],
+        key="archived_view_student_idx",
+    )
+    s = students[idx]
+
+    # Student header
+    st.write(
+        f"**Name:** {s.get('NAME','')}  |  **ID:** {s.get('ID','')}  |  "
+        f"**Credits:** {int((s.get('# of Credits Completed',0) or 0) + (s.get('# Registered',0) or 0))}  |  "
+        f"**Standing:** {s.get('Standing','')}"
+    )
+    if s.get("note"):
+        with st.expander("Advisor Note"):
+            st.write(s["note"])
+
+    # Per-course grid exactly as saved
+    course_rows = s.get("courses", [])
+    if not course_rows:
+        st.info("No course rows were stored for this student in the snapshot.")
+        return
+
+    df = pd.DataFrame(course_rows)
+    # Keep a consistent column order if present
+    preferred_cols = ["Course Code","Type","Requisites","Offered","Eligibility Status","Justification","Action"]
+    cols = [c for c in preferred_cols if c in df.columns] + [c for c in df.columns if c not in preferred_cols]
+    df = df[cols]
+
+    st.dataframe(style_df(df), use_container_width=True)
+
+
+# ---------------------- Panel (save & view) ----------------------
 
 def advising_history_panel():
     """
     Advising Sessions panel:
-      - Advisor name, session date, semester, year
       - Save current advising snapshot (full snapshot is embedded)
-      - Retrieve previously saved sessions (restores selections; snapshot kept read-only)
+      - Retrieve a session -> VIEW ONLY from the frozen snapshot (no edits; does not touch live selections)
     """
-    if "courses_df" not in st.session_state or st.session_state.courses_df.empty:
-        return
-    if "progress_df" not in st.session_state or st.session_state.progress_df.empty:
-        return
-
+    # live data not required for viewing (we render from snapshots), but required for saving
     _ensure_sessions_loaded()
 
     st.markdown("---")
     st.subheader("Advising Sessions")
+
+    # ---- Save block (enabled only if live data is present) ----
+    can_save = ("courses_df" in st.session_state and not st.session_state.courses_df.empty and
+                "progress_df" in st.session_state and not st.session_state.progress_df.empty)
 
     col1, col2, col3, col4 = st.columns([2, 2, 2, 2])
     with col1:
@@ -245,9 +287,11 @@ def advising_history_panel():
 
     save_col, load_col = st.columns([1, 2])
 
-    # Save current advising state + full snapshot
     with save_col:
-        if st.button("💾 Save Advising Session", use_container_width=True):
+        disabled_msg = None
+        if not can_save:
+            disabled_msg = "Upload current Courses & Progress files to enable saving."
+        if st.button("💾 Save Advising Session", use_container_width=True, disabled=not can_save):
             if not advisor_name:
                 st.error("Please enter Advisor Name.")
             else:
@@ -260,8 +304,7 @@ def advising_history_panel():
                         "semester": semester,
                         "year": int(year),
                         "created_at": datetime.utcnow().isoformat() + "Z",
-                        # Keep lightweight selections for fast restore of live UI,
-                        # also persist full snapshot for historical integrity.
+                        # Maintain lightweight selections & full snapshot
                         "selections": _serialize_current_selections(),
                         "snapshot": full_snapshot,
                     }
@@ -272,31 +315,40 @@ def advising_history_panel():
                     st.success("✅ Advising session saved (full snapshot).")
                 except Exception as e:
                     st.error(f"❌ Failed to save advising session: {e}")
+        if disabled_msg:
+            st.caption(disabled_msg)
 
-    # Retrieve previously saved session (restores selections only)
+    # ---- Retrieve block -> set the archived snapshot in memory and render viewer ----
     with load_col:
         sessions = st.session_state.advising_sessions or []
         if not sessions:
             st.info("No saved advising sessions found.")
-            return
+        else:
+            def _label(s: Dict[str, Any]) -> str:
+                return f"{s.get('session_date','')} — {s.get('semester','')} {s.get('year','')} — {s.get('advisor','')}"
 
-        def _label(s: Dict[str, Any]) -> str:
-            return f"{s.get('session_date','')} — {s.get('semester','')} {s.get('year','')} — {s.get('advisor','')}"
-
-        idx = st.selectbox(
-            "Retrieve a previous session",
-            options=list(range(len(sessions))),
-            format_func=lambda i: _label(sessions[i]),
-            key="adv_hist_select",
-            index=len(sessions) - 1,
-        )
-        if st.button("↩️ Load Selected Session", use_container_width=True):
-            try:
-                chosen = sessions[idx]
-                _restore_selections(chosen.get("selections", {}))
-                # keep full snapshot in memory if you want to inspect it elsewhere
+            sel_idx = st.selectbox(
+                "Retrieve a previous session (view-only)",
+                options=list(range(len(sessions))),
+                format_func=lambda i: _label(sessions[i]),
+                key="adv_hist_select",
+                index=len(sessions) - 1,
+            )
+            # Save chosen snapshot/meta in session and render (no rerun; no mutation of live advising selections)
+            if st.button("📂 Open Selected Session (view-only)", use_container_width=True):
+                chosen = sessions[sel_idx]
                 st.session_state["advising_loaded_snapshot"] = chosen.get("snapshot", {})
-                st.success("✅ Advising session loaded. The dashboard will refresh.")
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ Failed to load advising session: {e}")
+                st.session_state["advising_loaded_meta"] = {
+                    "advisor": chosen.get("advisor",""),
+                    "session_date": chosen.get("session_date",""),
+                    "semester": chosen.get("semester",""),
+                    "year": chosen.get("year",""),
+                }
+                st.success("Loaded archived session below (read-only).")
+
+    # ---- Archived viewer (if any snapshot is loaded) ----
+    if "advising_loaded_snapshot" in st.session_state:
+        _render_archived_session_view(
+            st.session_state.get("advising_loaded_snapshot", {}),
+            st.session_state.get("advising_loaded_meta", {}),
+        )
