@@ -10,7 +10,6 @@ from eligibility_view import student_eligibility_view
 from full_student_view import full_student_view
 from google_drive import (
     download_file_from_drive,
-    sync_file_with_drive,
     initialize_drive_service,
     find_file_in_drive,
 )
@@ -28,6 +27,7 @@ for key, default in [
     ("courses_df", pd.DataFrame()),
     ("progress_df", pd.DataFrame()),
     ("advising_selections", {}),
+    ("advising_history_df", pd.DataFrame()),  # NEW: holds saved advising sessions
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -68,6 +68,18 @@ if st.session_state.progress_df.empty:
         except Exception as e:
             st.error(f"❌ Error loading progress report: {e}")
             log_error("Error loading progress report (Drive)", e)
+
+# Advising history (optional; if file exists)
+if st.session_state.advising_history_df.empty:
+    hist_bytes = _load_from_drive_safe("advising_history.xlsx")
+    if hist_bytes:
+        try:
+            st.session_state.advising_history_df = pd.read_excel(BytesIO(hist_bytes))
+            st.success("✅ Advising history loaded from Google Drive.")
+            log_info("Advising history loaded from Drive.")
+        except Exception as e:
+            st.warning("Advising history not loaded (file may not exist yet).")
+            log_error("Error loading advising history (Drive)", e)
 
 # ---------- Sidebar Uploads ----------
 upload_data()
