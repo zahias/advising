@@ -25,6 +25,15 @@ _HISTORY_COLUMNS = [
     "Advised", "Optional", "Note", "Saved At"
 ]
 
+def _ensure_history_df(df: pd.DataFrame | None) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame(columns=_HISTORY_COLUMNS)
+    # Add any missing columns without disturbing existing data
+    for c in _HISTORY_COLUMNS:
+        if c not in df.columns:
+            df[c] = None
+    return df[_HISTORY_COLUMNS]
+
 def _load_history_df_from_drive(service) -> pd.DataFrame:
     """Fetch advising history file if present, else empty DataFrame with schema."""
     try:
@@ -33,11 +42,7 @@ def _load_history_df_from_drive(service) -> pd.DataFrame:
             return pd.DataFrame(columns=_HISTORY_COLUMNS)
         content = download_file_from_drive(service, file_id)
         df = pd.read_excel(BytesIO(content))
-        # Ensure schema columns exist
-        for c in _HISTORY_COLUMNS:
-            if c not in df.columns:
-                df[c] = None
-        return df[_HISTORY_COLUMNS]
+        return _ensure_history_df(df)
     except Exception as e:
         log_error("Failed to load advising history from Drive", e)
         return pd.DataFrame(columns=_HISTORY_COLUMNS)
@@ -186,34 +191,45 @@ def student_eligibility_view():
         st.markdown("**Intensive Courses**")
         st.dataframe(style_df(int_df), use_container_width=True)
 
-    # ---- Advising History: Save / Retrieve ----
+    # ---- Advising Session: ENTER / SAVE / PREVIOUS / RETRIEVE ----
     st.markdown("---")
     st.subheader("Advising Session")
 
+    # Load or initialize history df
+    st.session_state.advising_history_df = _ensure_history_df(st.session_state.get("advising_history_df"))
+    service = initialize_drive_service()
+    if st.session_state.advising_history_df.empty:
+        # Try to pull from Drive once if empty locally
+        st.session_state.advising_history_df = _load_history_df_from_drive(service)
+
+    # Input fields (visible)
     col1, col2, col3, col4 = st.columns([2, 2, 2, 2])
     with col1:
         advisor_name = st.text_input("Advisor Name", value=st.session_state.get("advisor_name", ""))
     with col2:
         session_date = st.date_input("Session Date", value=st.session_state.get("session_date", date.today()))
     with col3:
-        semester = st.selectbox("Semester", options=["Fall", "Spring", "Summer"], index=["Fall","Spring","Summer"].index(st.session_state.get("semester","Fall")) if st.session_state.get("semester") in ["Fall","Spring","Summer"] else 0)
+        semester = st.selectbox(
+            "Semester",
+            options=["Fall", "Spring", "Summer"],
+            index=["Fall", "Spring", "Summer"].index(st.session_state.get("semester", "Fall"))
+            if st.session_state.get("semester") in ["Fall", "Spring", "Summer"] else 0
+        )
     with col4:
         year_default = st.session_state.get("year", date.today().year)
         year = st.number_input("Year", value=int(year_default), min_value=2000, max_value=2100, step=1)
 
-    # persist quick inputs in session for convenience
+    # Persist quick inputs
     st.session_state["advisor_name"] = advisor_name
     st.session_state["session_date"] = session_date
     st.session_state["semester"] = semester
     st.session_state["year"] = year
 
-    save_col, load_col = st.columns([1, 3])
-    with save_col:
+    col_save, col_prev = st.columns([1, 3])
+
+    # Save current session
+    with col_save:
         if st.button("Save Advising Session"):
-            # build row
-            advised_str = ", ".join(current_advised)
-            optional_str = ", ".join(current_optional)
-            note_str = st.session_state.advising_selections[selected_student_id].get("note", "")
             payload = {
                 "ID": int(selected_student_id),
                 "NAME": str(student_row["NAME"]),
@@ -221,42 +237,56 @@ def student_eligibility_view():
                 "Session Date": session_date.isoformat() if isinstance(session_date, date) else str(session_date),
                 "Semester": semester,
                 "Year": int(year),
-                "Advised": advised_str,
-                "Optional": optional_str,
-                "Note": note_str,
+                "Advised": ", ".join(current_advised),
+                "Optional": ", ".join(current_optional),
+                "Note": st.session_state.advising_selections[selected_student_id].get("note", ""),
                 "Saved At": datetime.now().isoformat(timespec="seconds"),
             }
-
-            # load history (from session or Drive if empty), append, save back to Drive
-            service = initialize_drive_service()
-            hist_df = st.session_state.advising_history_df
-            if hist_df is None or hist_df.empty:
-                hist_df = _load_history_df_from_drive(service)
-
+            hist_df = _ensure_history_df(st.session_state.advising_history_df)
             new_hist_df = pd.concat([hist_df, pd.DataFrame([payload])], ignore_index=True)
             st.session_state.advising_history_df = new_hist_df[_HISTORY_COLUMNS]
-
             _save_history_df_to_drive(service, st.session_state.advising_history_df)
+            st.rerun()
 
-    with load_col:
+    # Previous sessions + retrieve
+    with col_prev:
         st.markdown("**Previous Sessions for this student**")
-        hist = st.session_state.advising_history_df
-        student_hist = hist.loc[hist["ID"] == selected_student_id].copy() if not hist.empty else pd.DataFrame(columns=_HISTORY_COLUMNS)
+        hist = _ensure_history_df(st.session_state.advising_history_df)
+        student_hist = hist.loc[hist["ID"] == selected_student_id].copy()
+
         if not student_hist.empty:
-            # sort by Session Date (desc) then Saved At (desc)
-            def _dt(s):
-                try:
-                    return pd.to_datetime(s)
-                except Exception:
-                    return pd.NaT
-            student_hist["__order"] = student_hist["Session Date"].apply(_dt).fillna(pd.Timestamp(1970,1,1))
-            student_hist["__saved"] = student_hist["Saved At"].apply(_dt).fillna(pd.Timestamp(1970,1,1))
-            student_hist = student_hist.sort_values(by=["__order","__saved"], ascending=[False, False]).drop(columns=["__order","__saved"])
+            # order newest first
+            student_hist["__order"] = pd.to_datetime(student_hist["Session Date"], errors="coerce")
+            student_hist["__saved"] = pd.to_datetime(student_hist["Saved At"], errors="coerce")
+            student_hist = student_hist.sort_values(by=["__order", "__saved"], ascending=[False, False])
+
+            # Table preview
             st.dataframe(
                 student_hist[["Session Date","Semester","Year","Advisor","Advised","Optional","Note","Saved At"]],
                 use_container_width=True,
                 height=240
             )
+
+            # Retrieve selector
+            labels = student_hist.apply(
+                lambda r: f"{r['Session Date']} • {r['Semester']} {int(r['Year'])} • {r['Advisor']}".strip(),
+                axis=1
+            ).tolist()
+            idx = st.selectbox("Retrieve a saved session", options=list(range(len(labels))), format_func=lambda i: labels[i])
+
+            if st.button("Load Selected Session into Current Selections"):
+                chosen = student_hist.iloc[int(idx)]
+                # Parse advised/optional back into lists
+                new_advised = [c.strip() for c in str(chosen["Advised"] or "").split(",") if c.strip()]
+                new_optional = [c.strip() for c in str(chosen["Optional"] or "").split(",") if c.strip()]
+                # Update current student's selection
+                st.session_state.advising_selections[selected_student_id] = {
+                    "advised": new_advised,
+                    "optional": new_optional,
+                    "note": str(chosen.get("Note") or ""),
+                }
+                st.success("Session loaded into current selections.")
+                st.rerun()
         else:
             st.info("No previous sessions found for this student.")
 

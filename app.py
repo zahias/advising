@@ -27,7 +27,7 @@ for key, default in [
     ("courses_df", pd.DataFrame()),
     ("progress_df", pd.DataFrame()),
     ("advising_selections", {}),
-    ("advising_history_df", pd.DataFrame()),  # NEW: holds saved advising sessions
+    ("advising_history_df", pd.DataFrame()),  # NEW: advising history store
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -78,7 +78,7 @@ if st.session_state.advising_history_df.empty:
             st.success("✅ Advising history loaded from Google Drive.")
             log_info("Advising history loaded from Drive.")
         except Exception as e:
-            st.warning("Advising history not loaded (file may not exist yet).")
+            # File might not exist yet; just proceed silently
             log_error("Error loading advising history (Drive)", e)
 
 # ---------- Sidebar Uploads ----------
