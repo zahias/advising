@@ -23,7 +23,7 @@ def student_eligibility_view():
     Expects in st.session_state:
       - courses_df
       - progress_df
-      - advising_selections (dict: ID -> {'advised':[],'optional':[],'note':str})
+      - advising_selections (dict: ID -> {'advised':[],'optional':[],'excluded':[],'note':str})
     """
     if "courses_df" not in st.session_state or st.session_state.courses_df.empty:
         st.warning("Courses table not loaded.")
@@ -41,10 +41,12 @@ def student_eligibility_view():
     selected_student_id = int(students_df.loc[students_df["DISPLAY"] == choice, "ID"].iloc[0])
     student_row = students_df.loc[students_df["ID"] == selected_student_id].iloc[0]
 
-    # Ensure selection bucket
+    # Ensure selection bucket (backward-compatible default keys)
     slot = st.session_state.advising_selections.setdefault(
-        selected_student_id, {"advised": [], "optional": [], "note": ""}
+        selected_student_id, {"advised": [], "optional": [], "excluded": [], "note": ""}
     )
+    if "excluded" not in slot:
+        slot["excluded"] = []
 
     # Credits/Standing
     credits_completed = float(student_row.get("# of Credits Completed", 0) or 0)
@@ -57,23 +59,33 @@ def student_eligibility_view():
         f"**Credits:** {int(total_credits)}  |  **Standing:** {standing}"
     )
 
-    # ---------- Build eligibility + justifications dicts ----------
+    # Convenience: course code lists
+    all_course_codes = [str(c) for c in st.session_state.courses_df["Course Code"].tolist()]
+    excluded_set = set([str(x) for x in (slot.get("excluded") or [])])
+
+    # ---------- Build eligibility + justifications dicts (for non-excluded only) ----------
     status_dict: dict[str, str] = {}
     justification_dict: dict[str, str] = {}
 
     current_advised_for_checks = list(slot.get("advised", []))  # used only for eligibility engine
 
     for course_code in st.session_state.courses_df["Course Code"]:
+        code = str(course_code)
+        if code in excluded_set:
+            continue
         status, justification = check_eligibility(
-            student_row, str(course_code), current_advised_for_checks, st.session_state.courses_df
+            student_row, code, current_advised_for_checks, st.session_state.courses_df
         )
-        status_dict[str(course_code)] = status
-        justification_dict[str(course_code)] = justification
+        status_dict[code] = status
+        justification_dict[code] = justification
 
-    # ---------- Build display dataframe ----------
+    # ---------- Build display dataframe (skip excluded) ----------
     rows = []
     for course_code in st.session_state.courses_df["Course Code"]:
         code = str(course_code)
+        if code in excluded_set:
+            continue
+
         info = st.session_state.courses_df.loc[
             st.session_state.courses_df["Course Code"] == course_code
         ].iloc[0]
@@ -121,7 +133,7 @@ def student_eligibility_view():
         st.markdown("**Intensive Courses**")
         st.dataframe(style_df(int_df), use_container_width=True)
 
-    # ---------- Advising selections form (robust defaults) ----------
+    # ---------- Advising selections form (advised / optional / excluded) ----------
     # Offered set from the current courses table
     offered_set = set(
         map(
@@ -134,9 +146,11 @@ def student_eligibility_view():
     )
 
     def _eligible_for_selection() -> list[str]:
-        # Must be offered, not completed, not registered, and eligible
+        # Must be offered, not completed, not registered, eligible, and NOT excluded
         elig: list[str] = []
         for c in map(str, st.session_state.courses_df["Course Code"].tolist()):
+            if c in excluded_set:
+                continue
             if c not in offered_set:
                 continue
             if check_course_completed(student_row, c) or check_course_registered(student_row, c):
@@ -146,11 +160,11 @@ def student_eligibility_view():
         return sorted(elig)
 
     eligible_options: list[str] = _eligible_for_selection()
-    opts_set = set(eligible_options)  # for fast membership checks
+    opts_set = set(eligible_options)
 
     # Sanitize saved defaults -> ensure list[str], intersect with current options
-    saved_advised = [str(x) for x in (slot.get("advised", []) or [])]
-    saved_optional = [str(x) for x in (slot.get("optional", []) or [])]
+    saved_advised = [str(x) for x in (slot.get("advised", []) or []) if str(x) not in excluded_set]
+    saved_optional = [str(x) for x in (slot.get("optional", []) or []) if str(x) not in excluded_set]
 
     default_advised = [c for c in saved_advised if c in opts_set]
     dropped_advised = sorted(set(saved_advised) - set(default_advised))
@@ -161,14 +175,20 @@ def student_eligibility_view():
     default_optional = [c for c in saved_optional if c in opt_space_set]
     dropped_optional = sorted(set(saved_optional) - set(default_optional))
 
+    # Excluded multiselect (options = all course codes)
+    saved_excluded = [str(x) for x in (slot.get("excluded", []) or [])]
+    all_codes_sorted = sorted(all_course_codes)
+    default_excluded = [c for c in saved_excluded if c in all_codes_sorted]
+    dropped_excluded = sorted(set(saved_excluded) - set(default_excluded))
+
     with st.form(key=f"advise_form_{selected_student_id}"):
+        # Advised / Optional
         advised_selection = st.multiselect(
             "Advised Courses",
             options=eligible_options,
             default=default_advised,
-            key=f"advised_ms_{selected_student_id}",  # stable key per student -> avoids stale widget state
+            key=f"advised_ms_{selected_student_id}",
         )
-        # recompute optional space after advised changed in the widget
         opt_options_live = [c for c in eligible_options if c not in advised_selection]
         optional_selection = st.multiselect(
             "Optional Courses",
@@ -176,6 +196,17 @@ def student_eligibility_view():
             default=[c for c in default_optional if c in opt_options_live],
             key=f"optional_ms_{selected_student_id}",
         )
+
+        # Excluded (hidden-from-view) — under an expander to keep UI tidy
+        with st.expander("Courses not required for this student (Excluded)"):
+            excluded_selection = st.multiselect(
+                "Exclude courses (they will not appear in this student's tables or reports)",
+                options=all_codes_sorted,
+                default=default_excluded,
+                key=f"excluded_ms_{selected_student_id}",
+            )
+            st.caption("Tip: use search to find courses fast. Exclusions persist in saved sessions.")
+
         note_input = st.text_area(
             "Advisor Note (optional)",
             value=slot.get("note", ""),
@@ -183,15 +214,17 @@ def student_eligibility_view():
         )
 
         # Non-blocking notice if anything was dropped from defaults
-        if dropped_advised or dropped_optional:
-            with st.expander("Some saved selections aren’t available this term"):
+        if dropped_advised or dropped_optional or dropped_excluded:
+            with st.expander("Some saved items aren’t available now"):
                 if dropped_advised:
-                    st.write("**Advised (previously saved but not available now):** ", ", ".join(dropped_advised))
+                    st.write("**Advised (no longer eligible/available):** ", ", ".join(dropped_advised))
                 if dropped_optional:
-                    st.write("**Optional (previously saved but not available now):** ", ", ".join(dropped_optional))
+                    st.write("**Optional (no longer eligible/available):** ", ", ".join(dropped_optional))
+                if dropped_excluded:
+                    st.write("**Excluded (not found in current course list):** ", ", ".join(dropped_excluded))
                 st.caption(
-                    "Courses not shown could be not offered, already completed/registered, or removed from the current courses table. "
-                    "Your older advising session remains saved as-is."
+                    "This can happen if the course list changed or the course is not present this term. "
+                    "Your saved session remains intact."
                 )
 
         submitted = st.form_submit_button("Save Selections")
@@ -199,19 +232,24 @@ def student_eligibility_view():
             st.session_state.advising_selections[selected_student_id] = {
                 "advised": advised_selection,
                 "optional": optional_selection,
+                "excluded": excluded_selection,
                 "note": note_input,
             }
             st.success("Selections saved.")
             log_info(f"Saved selections for {selected_student_id}")
             st.rerun()
 
-    # ---------- Download report ----------
+    # ---------- Download report (already respects exclusions via courses_display_df) ----------
     st.subheader("Download Advising Report")
     if st.button("Download Student Report"):
         report_df = courses_display_df.copy()
         output = BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             report_df.to_excel(writer, index=False, sheet_name="Advising")
+        # credits computation uses only advised/optional shown (excluded already filtered from selects)
+        advised_selection = st.session_state.advising_selections[selected_student_id].get("advised", [])
+        optional_selection = st.session_state.advising_selections[selected_student_id].get("optional", [])
+
         apply_excel_formatting(
             output=output,
             student_name=str(student_row["NAME"]),
