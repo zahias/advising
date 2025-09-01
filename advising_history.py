@@ -1,8 +1,7 @@
 # advising_history.py
-# Save/load advising sessions (full snapshots).
+# Multi-major aware: sessions are saved/loaded per major file.
 # Retrieval is READ-ONLY from the frozen snapshot.
-# Includes delete (single & bulk).
-# UI refined: two tabs (Save Session / Sessions), compact controls.
+# Includes delete (single & bulk). UI tidy (Save Session / Sessions tabs).
 
 import json
 from typing import Any, Dict, List
@@ -21,28 +20,29 @@ from google_drive import (
 from utils import (
     log_info,
     log_error,
-    check_course_completed,    # used in snapshot builder
-    check_course_registered,   # used in snapshot builder
-    is_course_offered,         # used in snapshot builder
-    check_eligibility,         # used in snapshot builder
-    build_requisites_str,      # used in snapshot builder
-    get_student_standing,      # used in snapshot builder
-    style_df,                  # used to style archived per-course grid
+    check_course_completed,
+    check_course_registered,
+    is_course_offered,
+    check_eligibility,
+    build_requisites_str,
+    get_student_standing,
+    style_df,
 )
 
 __all__ = ["advising_history_panel"]
 
-_SESSIONS_FILENAME = "advising_sessions.json"
-
+def _sessions_filename() -> str:
+    major = st.session_state.get("current_major", "DEFAULT")
+    return f"advising_sessions_{major}.json"
 
 # ---------------------- Drive I/O ----------------------
 
 def _load_sessions_from_drive() -> List[Dict[str, Any]]:
-    """Load sessions list from Google Drive; returns [] if file missing or invalid."""
     try:
         service = initialize_drive_service()
         folder_id = st.secrets["google"]["folder_id"]
-        file_id = find_file_in_drive(service, _SESSIONS_FILENAME, folder_id)
+        fname = _sessions_filename()
+        file_id = find_file_in_drive(service, fname, folder_id)
         if not file_id:
             return []
         payload = download_file_from_drive(service, file_id)  # bytes
@@ -56,7 +56,6 @@ def _load_sessions_from_drive() -> List[Dict[str, Any]]:
         return []
 
 def _save_sessions_to_drive(sessions: List[Dict[str, Any]]) -> None:
-    """Overwrite the sessions file in Google Drive with provided list."""
     try:
         service = initialize_drive_service()
         folder_id = st.secrets["google"]["folder_id"]
@@ -64,31 +63,35 @@ def _save_sessions_to_drive(sessions: List[Dict[str, Any]]) -> None:
         sync_file_with_drive(
             service=service,
             file_content=data_bytes,
-            drive_file_name=_SESSIONS_FILENAME,
+            drive_file_name=_sessions_filename(),
             mime_type="application/json",
             parent_folder_id=folder_id,
         )
-        log_info("Advising sessions saved to Drive.")
+        log_info(f"Advising sessions saved to Drive ({_sessions_filename()}).")
     except Exception as e:
         log_error("Failed to save advising sessions to Drive", e)
         raise
 
-
 # ---------------------- Session state helpers ----------------------
 
 def _ensure_sessions_loaded() -> None:
-    """Ensure st.session_state.advising_sessions exists."""
-    if "advising_sessions" not in st.session_state:
+    """Ensure st.session_state.majors[major]['advising_sessions'] exists & is active."""
+    major = st.session_state.get("current_major", "DEFAULT")
+    # load on first use per major
+    if "majors" in st.session_state:
+        bucket = st.session_state.majors.setdefault(major, {"advising_sessions": []})
+        if not bucket.get("advising_sessions"):
+            bucket["advising_sessions"] = _load_sessions_from_drive()
+        st.session_state.advising_sessions = bucket["advising_sessions"]
+    else:
         st.session_state.advising_sessions = _load_sessions_from_drive()
 
+def _persist_sessions_to_bucket():
+    major = st.session_state.get("current_major", "DEFAULT")
+    if "majors" in st.session_state:
+        st.session_state.majors[major]["advising_sessions"] = st.session_state.get("advising_sessions", [])
+
 def _serialize_current_selections() -> Dict[str, Any]:
-    """
-    Current advising selections -> JSON-safe dict (keys become strings).
-    {
-      "12345": {"advised": [...], "optional": [...], "note": "..."},
-      ...
-    }
-    """
     selections = st.session_state.get("advising_selections", {}) or {}
     out: Dict[str, Any] = {}
     for sid, payload in selections.items():
@@ -100,11 +103,9 @@ def _serialize_current_selections() -> Dict[str, Any]:
         }
     return out
 
-
-# ---------------------- Full snapshot builder (unchanged) ----------------------
+# ---------------------- Snapshot builder (unchanged logic) ----------------------
 
 def _snapshot_courses_table() -> List[Dict[str, Any]]:
-    """Minimal but complete copy of the courses table to preserve context."""
     courses_df = st.session_state.get("courses_df", pd.DataFrame())
     if courses_df.empty:
         return []
@@ -114,15 +115,7 @@ def _snapshot_courses_table() -> List[Dict[str, Any]]:
     cols = [c for c in cols if c in courses_df.columns]
     return courses_df[cols].fillna("").to_dict(orient="records")
 
-def _snapshot_student_course_rows(
-    student_row: pd.Series,
-    advised: List[str],
-    optional: List[str],
-) -> List[Dict[str, Any]]:
-    """
-    For each course, capture:
-      Course Code, Type, Requisites, Offered, Eligibility Status, Justification, Action
-    """
+def _snapshot_student_course_rows(student_row: pd.Series, advised: List[str], optional: List[str]) -> List[Dict[str, Any]]:
     courses_df = st.session_state.courses_df
     rows: List[Dict[str, Any]] = []
     for course_code in courses_df["Course Code"]:
@@ -131,9 +124,8 @@ def _snapshot_student_course_rows(
 
         status, justification = check_eligibility(student_row, course_code, advised, courses_df)
 
-        # Derive Action exactly like the UI
         if check_course_completed(student_row, course_code):
-            action = "Completed"; status  = "Completed"
+            action = "Completed"; status = "Completed"
         elif check_course_registered(student_row, course_code):
             action = "Registered"
         elif course_code in advised:
@@ -157,11 +149,6 @@ def _snapshot_student_course_rows(
     return rows
 
 def _build_full_session_snapshot() -> Dict[str, Any]:
-    """
-    Self-contained snapshot:
-      - courses_table: minimal copy
-      - students: full per-student + per-course advising state
-    """
     progress_df = st.session_state.get("progress_df", pd.DataFrame())
     courses_df = st.session_state.get("courses_df", pd.DataFrame())
     selections = st.session_state.get("advising_selections", {}) or {}
@@ -201,11 +188,9 @@ def _build_full_session_snapshot() -> Dict[str, Any]:
         "students": students,
     }
 
-
 # ---------------------- Archived viewer (read-only) ----------------------
 
 def _render_archived_session_view(snapshot: Dict[str, Any], meta: Dict[str, Any]) -> None:
-    """Render the archived session from its own snapshot only (no dependency on current files)."""
     if not snapshot or "students" not in snapshot:
         st.info("This session doesn’t contain a full snapshot (older save).")
         return
@@ -224,7 +209,6 @@ def _render_archived_session_view(snapshot: Dict[str, Any], meta: Dict[str, Any]
         st.info("No students captured in this snapshot.")
         return
 
-    # Compact student picker
     labels = [f"{s.get('NAME','')} — {s.get('ID','')}" for s in students]
     idx = st.selectbox(
         "View student",
@@ -234,7 +218,6 @@ def _render_archived_session_view(snapshot: Dict[str, Any], meta: Dict[str, Any]
     )
     s = students[idx]
 
-    # Student header
     st.write(
         f"**Name:** {s.get('NAME','')}  |  **ID:** {s.get('ID','')}  |  "
         f"**Credits:** {int((s.get('# of Credits Completed',0) or 0) + (s.get('# Registered',0) or 0))}  |  "
@@ -244,36 +227,30 @@ def _render_archived_session_view(snapshot: Dict[str, Any], meta: Dict[str, Any]
         with st.expander("Advisor Note"):
             st.write(s["note"])
 
-    # Per-course grid exactly as saved
-    course_rows = s.get("courses", [])
-    if not course_rows:
+    df = pd.DataFrame(s.get("courses", []))
+    if df.empty:
         st.info("No course rows were stored for this student in the snapshot.")
         return
-
-    df = pd.DataFrame(course_rows)
     preferred_cols = ["Course Code","Type","Requisites","Offered","Eligibility Status","Justification","Action"]
     cols = [c for c in preferred_cols if c in df.columns] + [c for c in df.columns if c not in preferred_cols]
-    df = df[cols]
-    st.dataframe(style_df(df), use_container_width=True)
-
+    st.dataframe(style_df(df[cols]), use_container_width=True)
 
 # ---------------------- Delete helpers ----------------------
 
 def _delete_sessions_by_ids(ids: List[str]) -> bool:
-    """Delete sessions with matching 'id' fields; return True if saved successfully."""
     sessions = st.session_state.advising_sessions or []
     remaining = [s for s in sessions if str(s.get("id", "")) not in set(ids)]
     try:
         _save_sessions_to_drive(remaining)
         st.session_state.advising_sessions = remaining
+        _persist_sessions_to_bucket()
         return True
     except Exception as e:
         st.error(f"❌ Failed to delete session(s): {e}")
         log_error("Failed to delete advising sessions", e)
         return False
 
-
-# ---------------------- Panel (two tabs; same functionality) ----------------------
+# ---------------------- Panel (two tabs; per-major) ----------------------
 
 def _format_label(s: Dict[str, Any]) -> str:
     date_s = s.get("session_date","")
@@ -284,24 +261,22 @@ def _format_label(s: Dict[str, Any]) -> str:
 
 def advising_history_panel():
     """
-    Advising Sessions panel (clean UI):
-      - Tab 1: Save Session (unchanged logic)
-      - Tab 2: Sessions (retrieve view-only + delete / delete-all)
+    Advising Sessions panel (per major):
+      - Tab 1: Save Session (unchanged logic; saves to a major-specific file)
+      - Tab 2: Sessions (retrieve view-only + delete / delete-all for that major)
     """
     _ensure_sessions_loaded()
 
     st.markdown("---")
-    st.subheader("Advising Sessions")
+    st.subheader(f"Advising Sessions — {st.session_state.get('current_major','')}")
 
     tab_save, tab_sessions = st.tabs(["Save Session", "Sessions"])
 
     # ------------------ Tab: Save Session ------------------
     with tab_save:
-        # Save enabled only if live data is present (unchanged)
         can_save = ("courses_df" in st.session_state and not st.session_state.courses_df.empty and
                     "progress_df" in st.session_state and not st.session_state.progress_df.empty)
 
-        # Compact header row
         c1, c2, c3, c4 = st.columns([2, 2, 1.5, 1])
         with c1:
             advisor_name = st.text_input("Advisor Name", key="adv_hist_name")
@@ -312,7 +287,7 @@ def advising_history_panel():
         with c4:
             year = st.number_input("Year", min_value=2000, max_value=2100, value=datetime.now().year, step=1, key="adv_hist_year")
 
-        st.markdown("")  # small spacing
+        st.markdown("")
         save_button_col = st.columns([1, 6, 1])[1]
         with save_button_col:
             if st.button("💾 Save Advising Session", use_container_width=True, disabled=not can_save):
@@ -328,6 +303,7 @@ def advising_history_panel():
                             "semester": semester,
                             "year": int(year),
                             "created_at": datetime.utcnow().isoformat() + "Z",
+                            "major": st.session_state.get("current_major",""),
                             "selections": _serialize_current_selections(),
                             "snapshot": full_snapshot,
                         }
@@ -335,6 +311,7 @@ def advising_history_panel():
                         sessions.append(snapshot)
                         _save_sessions_to_drive(sessions)
                         st.session_state.advising_sessions = sessions
+                        _persist_sessions_to_bucket()
                         st.success("✅ Advising session saved (full snapshot).")
                     except Exception as e:
                         st.error(f"❌ Failed to save advising session: {e}")
@@ -342,32 +319,24 @@ def advising_history_panel():
         if not can_save:
             st.caption("Upload current Courses & Progress files to enable saving.")
 
-    # ------------------ Tab: Sessions (retrieve + delete) ------------------
+    # ------------------ Tab: Sessions ------------------
     with tab_sessions:
         sessions = st.session_state.advising_sessions or []
         if not sessions:
-            st.info("No saved advising sessions found.")
+            st.info("No saved advising sessions found for this major.")
             return
 
-        # Build stable ids and labels
         ids = [str(s.get("id", i)) for i, s in enumerate(sessions)]
         labels = [_format_label(s) for s in sessions]
 
-        # Selection row
         s1, s2 = st.columns([3, 2])
         with s1:
-            selected_label = st.selectbox(
-                "Saved sessions",
-                options=labels,
-                index=len(labels) - 1,
-                key="adv_hist_select_label",
-            )
+            selected_label = st.selectbox("Saved sessions", options=labels, index=len(labels) - 1, key="adv_hist_select_label")
         selected_idx = labels.index(selected_label)
         selected_id = ids[selected_idx]
         chosen = sessions[selected_idx]
 
-        # Action buttons row (centered)
-        ab1, ab2, ab3 = st.columns([2, 2, 2])
+        ab1, ab2, _ = st.columns([2, 2, 2])
         with ab1:
             if st.button("📂 Open (view-only)", use_container_width=True, key="open_selected_session"):
                 st.session_state["advising_loaded_snapshot"] = chosen.get("snapshot", {})
@@ -379,7 +348,6 @@ def advising_history_panel():
                 }
                 st.success("Loaded archived session below (read-only).")
         with ab2:
-            # Compact confirm inline; keeps UI tidy
             confirm = st.checkbox("Confirm", key="confirm_delete_session", value=False)
             if st.button("🗑️ Delete selected", use_container_width=True, disabled=not confirm, key="delete_selected_session"):
                 ok = _delete_sessions_by_ids([selected_id])
@@ -389,8 +357,7 @@ def advising_history_panel():
                     st.session_state.pop("advising_loaded_meta", None)
                     st.rerun()
 
-        # Danger zone (bulk delete) — tucked away
-        with st.expander("Danger zone: Delete ALL sessions"):
+        with st.expander("Danger zone: Delete ALL sessions (this major)"):
             dz1, dz2 = st.columns([3, 1.2])
             with dz1:
                 confirm_text = st.text_input("Type DELETE to confirm", key="bulk_delete_confirm")
