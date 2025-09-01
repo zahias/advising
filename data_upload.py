@@ -7,7 +7,10 @@ from google_drive import initialize_drive_service, sync_file_with_drive
 from utils import log_info, log_error, load_progress_excel
 
 def upload_data():
-    """Handle uploading of courses table, progress report, and advising selections for the CURRENT major."""
+    """
+    Handle uploading of courses table, progress report, and advising selections
+    for the CURRENT major. Syncs to Drive using major-specific filenames.
+    """
     st.sidebar.header("Upload Data")
 
     current_major = st.session_state.get("current_major")
@@ -23,7 +26,7 @@ def upload_data():
         st.sidebar.info("Drive sync disabled. Local uploads still work.")
         log_error("initialize_drive_service failed in upload_data", e)
 
-    # Upload Courses Table (per-major)
+    # ---------- Upload Courses Table (per-major) ----------
     courses_file = st.sidebar.file_uploader(
         f"[{current_major}] Upload Courses Table ({current_major}_courses_table.xlsx)",
         type=["xlsx"],
@@ -34,13 +37,17 @@ def upload_data():
             courses_file.seek(0)
             df = pd.read_excel(courses_file)
             st.session_state.courses_df = df
-            # write back to bucket
+            # write back to bucket for current major
             st.session_state.majors[current_major]["courses_df"] = df
             st.sidebar.success("✅ Courses table loaded.")
             log_info(f"Courses table uploaded via sidebar ({current_major}).")
 
-            # Optional Drive sync
-            if service and st.sidebar.checkbox(f"Sync to Drive ({current_major}_courses_table.xlsx)", value=False, key=f"sync_courses_{current_major}"):
+            # Optional Drive sync with major-specific name
+            if service and st.sidebar.checkbox(
+                f"Sync to Drive as {current_major}_courses_table.xlsx",
+                value=False,
+                key=f"sync_courses_{current_major}",
+            ):
                 courses_file.seek(0)
                 sync_file_with_drive(
                     service=service,
@@ -56,7 +63,7 @@ def upload_data():
             st.sidebar.error(f"Error loading courses table: {e}")
             log_error("Error loading courses table", e)
 
-    # Upload Progress Report (per-major; may contain 'Required' + 'Intensive')
+    # ---------- Upload Progress Report (per-major; merges Required + Intensive) ----------
     progress_file = st.sidebar.file_uploader(
         f"[{current_major}] Upload Progress Report ({current_major}_progress_report.xlsx)",
         type=["xlsx"],
@@ -72,7 +79,12 @@ def upload_data():
             st.sidebar.success("✅ Progress report loaded (Required + Intensive merged).")
             log_info(f"Progress report uploaded and merged via sidebar ({current_major}).")
 
-            if service and st.sidebar.checkbox(f"Sync to Drive ({current_major}_progress_report.xlsx)", value=False, key=f"sync_progress_{current_major}"):
+            # Optional Drive sync with major-specific name
+            if service and st.sidebar.checkbox(
+                f"Sync to Drive as {current_major}_progress_report.xlsx",
+                value=False,
+                key=f"sync_progress_{current_major}",
+            ):
                 sync_file_with_drive(
                     service=service,
                     file_content=content,
@@ -87,9 +99,9 @@ def upload_data():
             st.sidebar.error(f"Error loading progress report: {e}")
             log_error("Error loading progress report", e)
 
-    # Upload Advising Selections (optional, per-major)
+    # ---------- Upload Advising Selections (optional, per-major) ----------
     sel_file = st.sidebar.file_uploader(
-        f"[{current_major}] Upload Advising Selections (CSV/XLSX)",
+        f"[{current_major}] Upload Advising Selections (CSV/XLSX; columns: ID, Advised, Optional, Note)",
         type=["xlsx", "csv"],
         key=f"sel_upload_{current_major}",
     )
@@ -118,7 +130,7 @@ def upload_data():
             st.sidebar.error(f"Error loading advising selections: {e}")
             log_error("Error loading advising selections", e)
 
-    # Sidebar status badges
+    # ---------- Sidebar status badges ----------
     st.sidebar.markdown("---")
     st.sidebar.write(f"**Status for {current_major}**")
     st.sidebar.success("Courses table loaded.") if not st.session_state.courses_df.empty else st.sidebar.warning("Courses table not uploaded.")
