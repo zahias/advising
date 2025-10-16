@@ -1,15 +1,30 @@
 # data_upload.py
+# Auto-syncs uploads to Drive with per-major filenames (replaces existing files).
 
 import streamlit as st
 import pandas as pd
 
-from google_drive import initialize_drive_service, sync_file_with_drive
+from google_drive import initialize_drive_service, sync_file_with_drive, GoogleAuthError
 from utils import log_info, log_error, load_progress_excel
+
+
+def _drive_service_or_none():
+    try:
+        return initialize_drive_service()
+    except GoogleAuthError as e:
+        # Clear message once in the sidebar; app still works locally
+        st.sidebar.warning(
+            "Google Drive sync unavailable: " + str(e) +
+            "\n\nFix: Re-authorize and update google.refresh_token in your Streamlit Secrets."
+        )
+        log_error("Drive init failed", e)
+        return None
+
 
 def upload_data():
     """
     Handle uploading of courses table, progress report, and advising selections
-    for the CURRENT major. Syncs to Drive using major-specific filenames.
+    for the CURRENT major. Automatically syncs to Drive (replace by name).
     """
     st.sidebar.header("Upload Data")
 
@@ -18,13 +33,9 @@ def upload_data():
         st.sidebar.warning("Select a major to upload files.")
         return
 
-    # Drive optional
-    service = None
-    try:
-        service = initialize_drive_service()
-    except Exception as e:
-        st.sidebar.info("Drive sync disabled. Local uploads still work.")
-        log_error("initialize_drive_service failed in upload_data", e)
+    # Try Drive (optional; local still works)
+    service = _drive_service_or_none()
+    folder_id = st.secrets.get("google", {}).get("folder_id", "")
 
     # ---------- Upload Courses Table (per-major) ----------
     courses_file = st.sidebar.file_uploader(
@@ -37,26 +48,21 @@ def upload_data():
             courses_file.seek(0)
             df = pd.read_excel(courses_file)
             st.session_state.courses_df = df
-            # write back to bucket for current major
             st.session_state.majors[current_major]["courses_df"] = df
             st.sidebar.success("✅ Courses table loaded.")
             log_info(f"Courses table uploaded via sidebar ({current_major}).")
 
-            # Optional Drive sync with major-specific name
-            if service and st.sidebar.checkbox(
-                f"Sync to Drive as {current_major}_courses_table.xlsx",
-                value=False,
-                key=f"sync_courses_{current_major}",
-            ):
+            # Auto-sync to Drive (replace by name)
+            if service and folder_id:
                 courses_file.seek(0)
                 sync_file_with_drive(
                     service=service,
                     file_content=courses_file.read(),
                     drive_file_name=f"{current_major}_courses_table.xlsx",
                     mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    parent_folder_id=st.secrets["google"]["folder_id"],
+                    parent_folder_id=folder_id,
                 )
-                st.sidebar.success("Synced to Drive.")
+                st.sidebar.info("☁️ Synced to Google Drive (replaced existing).")
         except Exception as e:
             st.session_state.courses_df = pd.DataFrame()
             st.session_state.majors[current_major]["courses_df"] = pd.DataFrame()
@@ -79,20 +85,16 @@ def upload_data():
             st.sidebar.success("✅ Progress report loaded (Required + Intensive merged).")
             log_info(f"Progress report uploaded and merged via sidebar ({current_major}).")
 
-            # Optional Drive sync with major-specific name
-            if service and st.sidebar.checkbox(
-                f"Sync to Drive as {current_major}_progress_report.xlsx",
-                value=False,
-                key=f"sync_progress_{current_major}",
-            ):
+            # Auto-sync to Drive (replace by name)
+            if service and folder_id:
                 sync_file_with_drive(
                     service=service,
                     file_content=content,
                     drive_file_name=f"{current_major}_progress_report.xlsx",
                     mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    parent_folder_id=st.secrets["google"]["folder_id"],
+                    parent_folder_id=folder_id,
                 )
-                st.sidebar.success("Synced to Drive.")
+                st.sidebar.info("☁️ Synced to Google Drive (replaced existing).")
         except Exception as e:
             st.session_state.progress_df = pd.DataFrame()
             st.session_state.majors[current_major]["progress_df"] = pd.DataFrame()
@@ -130,7 +132,7 @@ def upload_data():
             st.sidebar.error(f"Error loading advising selections: {e}")
             log_error("Error loading advising selections", e)
 
-    # ---------- Sidebar status badges ----------
+    # ---------- Status ----------
     st.sidebar.markdown("---")
     st.sidebar.write(f"**Status for {current_major}**")
     st.sidebar.success("Courses table loaded.") if not st.session_state.courses_df.empty else st.sidebar.warning("Courses table not uploaded.")
