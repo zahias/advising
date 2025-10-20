@@ -14,6 +14,7 @@ from google_drive import (
     download_file_from_drive,
     initialize_drive_service,
     find_file_in_drive,
+    GoogleAuthError,  # <-- add this import
 )
 from utils import log_info, log_error, load_progress_excel
 
@@ -62,6 +63,10 @@ _sync_globals_from_bucket()
 service = None
 try:
     service = initialize_drive_service()
+except GoogleAuthError as e:  # <-- show precise auth cause
+    st.sidebar.warning("Google Drive not configured or unreachable. You can still upload files locally.")
+    st.sidebar.error(str(e))
+    log_error("initialize_drive_service failed", e)
 except Exception as e:
     st.sidebar.warning("Google Drive not configured or unreachable. You can still upload files locally.")
     log_error("initialize_drive_service failed", e)

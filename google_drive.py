@@ -1,5 +1,6 @@
 # google_drive.py
 # Google Drive helpers with robust token refresh + update-or-create sync.
+# Scope-agnostic refresh (avoids invalid_scope) and corrected files().list query.
 
 from __future__ import annotations
 
@@ -15,11 +16,9 @@ from google.auth.transport.requests import Request
 
 
 GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token"
-DRIVE_SCOPE = ["https://www.googleapis.com/auth/drive.file"]  # access within app-folder
-
 
 class GoogleAuthError(Exception):
-    """Raised when Google auth/refresh fails (e.g. invalid_grant)."""
+    """Raised when Google auth/refresh fails (e.g. invalid_grant, invalid_scope)."""
 
 
 def _secrets() -> dict:
@@ -41,26 +40,30 @@ def _build_credentials() -> Credentials:
             "Please set google.client_id, google.client_secret, google.refresh_token."
         )
 
-    # Start with no access token; rely on refresh flow
+    # IMPORTANT: Do NOT pin scopes here; let the refresh token carry the granted scopes.
     creds = Credentials(
         token=None,
         refresh_token=refresh_token,
         token_uri=GOOGLE_TOKEN_URI,
         client_id=client_id,
         client_secret=client_secret,
-        scopes=DRIVE_SCOPE,
     )
 
-    # Force refresh now; if refresh token is expired/revoked, this will raise
+    # Force refresh now; normalize common errors for clearer UI.
     try:
         creds.refresh(Request())
     except Exception as e:
-        # Normalize common OAuth error
         msg = str(e)
         if "invalid_grant" in msg or "Token has been expired or revoked" in msg:
             raise GoogleAuthError(
                 "Google token refresh failed: invalid_grant (token expired or revoked). "
                 "Re-authorize and update google.refresh_token in Streamlit Secrets."
+            ) from e
+        if "invalid_scope" in msg:
+            raise GoogleAuthError(
+                "Google token refresh failed: invalid_scope. "
+                "Re-mint the refresh token using the SAME client_id/client_secret currently in Streamlit Secrets "
+                "and grant Drive access (e.g., drive.file) — then paste the new refresh_token."
             ) from e
         raise GoogleAuthError(f"Google auth refresh failed: {e}") from e
 
@@ -78,18 +81,17 @@ def initialize_drive_service():
 
 
 def find_file_in_drive(service, filename: str, parent_folder_id: str) -> Optional[str]:
-    """Return fileId for `filename` within `parent_folder_id`, else None."""
+    """Return fileId for `filename` inside `parent_folder_id`, else None."""
     try:
-        q = "name = @name and '{}' in parents and trashed = false".format(parent_folder_id)
+        # Correct v3 query: match by name + parent
+        query = f"name = '{filename}' and '{parent_folder_id}' in parents and trashed = false"
         resp = service.files().list(
-            q=q,
+            q=query,
             spaces="drive",
             fields="files(id, name)",
             pageSize=10,
-            corpora="user",
             includeItemsFromAllDrives=False,
             supportsAllDrives=False,
-            parameters={"name": filename},  # named parameter for @name
         ).execute()
         for f in resp.get("files", []):
             if f.get("name") == filename:
@@ -130,7 +132,6 @@ def sync_file_with_drive(
     try:
         file_id = find_file_in_drive(service, drive_file_name, parent_folder_id)
         if file_id:
-            # Update existing
             updated = service.files().update(
                 fileId=file_id,
                 media_body=media,
@@ -139,7 +140,6 @@ def sync_file_with_drive(
             ).execute()
             return updated.get("id", file_id)
         else:
-            # Create new
             created = service.files().create(
                 body=body,
                 media_body=media,
