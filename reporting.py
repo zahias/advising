@@ -2,83 +2,60 @@
 
 import pandas as pd
 from io import BytesIO
+from typing import List, Optional
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
-from typing import List, Optional
 
+# ============================================================
+# Helpers (shared)
+# ============================================================
 
-def _find_header_row(ws) -> Optional[int]:
-    """
-    Find the header row by scanning for a row containing 'Course Code' and 'Action'.
-    Falls back to row 10 if not found.
-    """
-    for r in range(1, min(25, ws.max_row) + 1):
-        vals = [str(c.value or "").strip().lower() for c in ws[r]]
-        if "course code" in vals and "action" in vals:
-            return r
-    return 10 if ws.max_row >= 10 else 1
+def _thin_border():
+    return Border(
+        left=Side(style="thin", color="CCCCCC"),
+        right=Side(style="thin", color="CCCCCC"),
+        top=Side(style="thin", color="CCCCCC"),
+        bottom=Side(style="thin", color="CCCCCC"),
+    )
 
-
-def _apply_header_style(ws, header_row: int) -> None:
+def _style_header_row(ws, row_idx: int) -> None:
+    """Style the header row with a blue background and white bold text."""
     hdr_fill = PatternFill("solid", fgColor="4F81BD")
     hdr_font = Font(bold=True, color="FFFFFF")
     hdr_align = Alignment(horizontal="center", vertical="center")
-    for cell in ws[header_row]:
+    for cell in ws[row_idx]:
         cell.fill = hdr_fill
         cell.font = hdr_font
         cell.alignment = hdr_align
 
+def _auto_filter(ws, header_row: int) -> None:
+    ws.auto_filter.ref = f"A{header_row}:{get_column_letter(ws.max_column)}{ws.max_row}"
 
-def _add_borders(ws, start_row: int) -> None:
-    thin = Side(style="thin", color="CCCCCC")
-    max_row = ws.max_row
-    max_col = ws.max_column
-    for r in range(start_row, max_row + 1):
-        for c in range(1, max_col + 1):
-            ws.cell(row=r, column=c).border = Border(left=thin, right=thin, top=thin, bottom=thin)
+def _apply_borders(ws, start_row: int) -> None:
+    b = _thin_border()
+    for r in range(start_row, ws.max_row + 1):
+        for c in range(1, ws.max_column + 1):
+            ws.cell(row=r, column=c).border = b
 
-
-def _set_column_widths(ws, header_row: int) -> None:
-    header_map = {str(ws.cell(row=header_row, column=c).value or ""): c for c in range(1, ws.max_column + 1)}
-    def _w(name: str, width: float):
-        c = header_map.get(name)
-        if c:
-            ws.column_dimensions[get_column_letter(c)].width = width
-
-    _w("Course Code", 18)
-    _w("Action", 16)
-    _w("Eligibility Status", 28)
-    _w("Justification", 80)
-
-    # Wrap Justification
-    j = header_map.get("Justification")
-    if j:
-        for r in range(header_row + 1, ws.max_row + 1):
-            ws.cell(row=r, column=j).alignment = Alignment(wrap_text=True, vertical="top")
-
-
-def _color_action_cells(ws, header_row: int) -> None:
-    """
-    Color only Advised / Optional in Action column.
-    """
-    action_col = None
-    for idx, cell in enumerate(ws[header_row], start=1):
-        if str(cell.value).strip().lower() == "action":
-            action_col = idx
-            break
-    if not action_col:
-        return
-    fills = {
-        "Advised": PatternFill("solid", fgColor="FFF2CC"),
-        "Optional": PatternFill("solid", fgColor="FFE699"),
-    }
+def _wrap_and_top_align(ws, col_idx: int, header_row: int) -> None:
     for r in range(header_row + 1, ws.max_row + 1):
-        val = str(ws.cell(row=r, column=action_col).value or "")
-        fill = fills.get(val)
-        if fill:
-            ws.cell(row=r, column=action_col).fill = fill
+        ws.cell(row=r, column=col_idx).alignment = Alignment(wrap_text=True, vertical="top")
 
+def _find_header_row(ws) -> Optional[int]:
+    """
+    Try to find the table header by scanning for a row that contains 'Course Code'.
+    Fall back to row 10 (common after we insert 8 rows).
+    """
+    for r in range(1, min(25, ws.max_row) + 1):
+        vals = [str(c.value or "").strip().lower() for c in ws[r]]
+        if "course code" in vals:
+            return r
+    return 10 if ws.max_row >= 10 else 1
+
+# ============================================================
+# Single-student advising sheet (used by Eligibility "Download")
+# ============================================================
 
 def apply_excel_formatting(
     output: BytesIO,
@@ -91,15 +68,18 @@ def apply_excel_formatting(
     optional_credits: int,
 ) -> None:
     """
-    Enhances the single-student advising report.
-    Adds a header block (student info), formats header, freezes panes,
-    adds AutoFilter, wraps justification, sets widths, and colors Action (Advised/Optional).
+    Enhance the single-student advising workbook:
+      - Insert a header block with student details
+      - Style header row, freeze panes
+      - Add AutoFilter and borders
+      - Wrap 'Justification', set readable widths
+      - Color 'Action' for Advised / Optional
     """
     output.seek(0)
     wb = load_workbook(output)
-    ws = wb.active  # sheet name: "Advising"
+    ws = wb.active  # sheet name is "Advising"
 
-    # Insert student info block
+    # Insert info block above the table
     ws.insert_rows(1, amount=8)
     ws["A1"] = "Student Advising Report"
     ws["A3"] = "Name:"; ws["B3"] = student_name
@@ -111,20 +91,117 @@ def apply_excel_formatting(
     ws["A1"].font = Font(size=14, bold=True)
 
     header_row = _find_header_row(ws)
-    _apply_header_style(ws, header_row)
-    ws.freeze_panes = f"A{header_row+1}"
-    _add_borders(ws, header_row)
-    _color_action_cells(ws, header_row)
+    _style_header_row(ws, header_row)
+    ws.freeze_panes = f"A{header_row + 1}"
+    _auto_filter(ws, header_row)
+    _apply_borders(ws, header_row)
 
-    from openpyxl.utils import get_column_letter as _gcl
-    ws.auto_filter.ref = f"A{header_row}:{_gcl(ws.max_column)}{ws.max_row}"
+    # Column widths + wrapping for Justification
+    header_map = {str(ws.cell(row=header_row, column=c).value or ""): c for c in range(1, ws.max_column + 1)}
+    def _w(name: str, width: float):
+        col = header_map.get(name)
+        if col:
+            ws.column_dimensions[get_column_letter(col)].width = width
 
-    _set_column_widths(ws, header_row)
+    _w("Course Code", 18)
+    _w("Action", 16)
+    _w("Eligibility Status", 28)
+    _w("Justification", 80)
+
+    jcol = header_map.get("Justification")
+    if jcol:
+        _wrap_and_top_align(ws, jcol, header_row)
+
+    # Color ONLY Advised / Optional in Action
+    action_col = header_map.get("Action")
+    if action_col:
+        fills = {
+            "Advised": PatternFill("solid", fgColor="FFF2CC"),
+            "Optional": PatternFill("solid", fgColor="FFE699"),
+        }
+        for r in range(header_row + 1, ws.max_row + 1):
+            v = str(ws.cell(row=r, column=action_col).value or "")
+            if v in fills:
+                ws.cell(row=r, column=action_col).fill = fills[v]
 
     output.seek(0)
     wb.save(output)
     output.seek(0)
 
+# ============================================================
+# Full cohort: “All Students” exports (used by full_student_view)
+# Keep these to satisfy the imports from full_student_view.py
+# ============================================================
+
+# Code -> fill color for status grid in cohort exports
+_CODE_FILL = {
+    "c":  "C6E0B4",  # Completed
+    "r":  "BDD7EE",  # Registered
+    "a":  "FFF2CC",  # Advised
+    "na": "E1F0FF",  # Eligible not chosen
+    "ne": "F8CECC",  # Not Eligible
+}
+
+def _apply_code_grid_colors(ws, course_cols: List[str], header_row: int = 1) -> None:
+    """Color cells that contain status codes (c/r/a/na/ne) for the given course columns."""
+    header = [str(c.value or "") for c in ws[header_row]]
+    name_to_idx = {name: i + 1 for i, name in enumerate(header)}
+    targets = [name_to_idx[c] for c in course_cols if c in name_to_idx]
+    for r in range(header_row + 1, ws.max_row + 1):
+        for c in targets:
+            val = str(ws.cell(row=r, column=c).value or "").strip().lower()
+            if val in _CODE_FILL:
+                ws.cell(row=r, column=c).fill = PatternFill("solid", fgColor=_CODE_FILL[val])
+
+def apply_full_report_formatting(*, output: BytesIO, sheet_name: str, course_cols: List[str]) -> None:
+    """
+    Format the 'Full Report' sheet used by the All Students export:
+      - Style first row as header
+      - Freeze panes below header
+      - Borders
+      - Color code c/r/a/na/ne in the provided course columns
+    """
+    output.seek(0)
+    wb = load_workbook(output)
+    ws = wb[sheet_name]
+
+    header_row = 1
+    _style_header_row(ws, header_row)
+    ws.freeze_panes = f"A{header_row + 1}"
+    _apply_borders(ws, header_row)
+    _apply_code_grid_colors(ws, course_cols, header_row)
+    _auto_filter(ws, header_row)
+
+    output.seek(0)
+    wb.save(output)
+    output.seek(0)
+
+def apply_individual_compact_formatting(*, output: BytesIO, sheet_name: str, course_cols: List[str]) -> None:
+    """
+    Format the 'Student' sheet used by the Individual Student compact export:
+      - Style first row as header
+      - Freeze panes below header
+      - Borders
+      - Color code c/r/a/na/ne in the provided course columns
+    """
+    output.seek(0)
+    wb = load_workbook(output)
+    ws = wb[sheet_name]
+
+    header_row = 1
+    _style_header_row(ws, header_row)
+    ws.freeze_panes = f"A{header_row + 1}"
+    _apply_borders(ws, header_row)
+    _apply_code_grid_colors(ws, course_cols, header_row)
+    _auto_filter(ws, header_row)
+
+    output.seek(0)
+    wb.save(output)
+    output.seek(0)
+
+# ============================================================
+# Summary sheet for cohort export (unchanged)
+# ============================================================
 
 def add_summary_sheet(writer, full_report: pd.DataFrame, course_cols: List[str]) -> None:
     """
