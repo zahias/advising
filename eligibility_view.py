@@ -1,5 +1,6 @@
 # eligibility_view.py
 # Adds live credit counters & per-major limits; preserves all previous behavior.
+# (Minor addition: stores current_student_id in session for per-student save.)
 
 from __future__ import annotations
 
@@ -23,15 +24,6 @@ from course_exclusions import ensure_loaded as ensure_exclusions_loaded, get_for
 
 
 def _get_limits_for_major(major: str) -> dict:
-    """
-    Read optional credit limits from secrets (per major).
-    Example in .streamlit/secrets.toml:
-
-    [advising.credit_limits.PBHL]
-    advised_max = 18
-    optional_max = 12
-    total_max   = 21
-    """
     try:
         conf = st.secrets.get("advising", {}).get("credit_limits", {})
         return dict(conf.get(major, {}))
@@ -45,7 +37,6 @@ def _sum_credits(codes: list[str], courses_df: pd.DataFrame) -> int:
     if not codes:
         return 0
     lookup = courses_df.set_index(courses_df["Course Code"].astype(str))["Credits"]
-    # Be robust to missing codes / NaNs
     total = 0.0
     for c in codes:
         try:
@@ -57,14 +48,6 @@ def _sum_credits(codes: list[str], courses_df: pd.DataFrame) -> int:
 
 
 def student_eligibility_view():
-    """
-    Per-student advising & eligibility page with live credit counters and optional limits.
-    Requires in st.session_state:
-      - courses_df
-      - progress_df
-      - advising_selections (dict: ID -> {'advised':[],'optional':[],'note':str})
-      - course_exclusions handled via course_exclusions.ensure_loaded()
-    """
     if "courses_df" not in st.session_state or st.session_state.courses_df.empty:
         st.warning("Courses table not loaded.")
         return
@@ -74,7 +57,6 @@ def student_eligibility_view():
     if "advising_selections" not in st.session_state:
         st.session_state.advising_selections = {}
 
-    # Load per-student exclusions (from Drive if first time this major)
     ensure_exclusions_loaded()
 
     # ---------- Student picker ----------
@@ -84,15 +66,15 @@ def student_eligibility_view():
     selected_student_id = int(students_df.loc[students_df["DISPLAY"] == choice, "ID"].iloc[0])
     student_row = students_df.loc[students_df["ID"] == selected_student_id].iloc[0]
 
-    # Current hidden courses for this student
+    # NEW: make selected student visible to other panels (e.g., Save Session)
+    st.session_state["current_student_id"] = selected_student_id  # <---- ONLY NEW LINE
+
     hidden_for_student = set(map(str, get_for_student(selected_student_id)))
 
-    # Ensure selection bucket
     slot = st.session_state.advising_selections.setdefault(
         selected_student_id, {"advised": [], "optional": [], "note": ""}
     )
 
-    # Credits/Standing
     credits_completed = float(student_row.get("# of Credits Completed", 0) or 0)
     credits_registered = float(student_row.get("# Registered", 0) or 0)
     total_credits = credits_completed + credits_registered
@@ -103,11 +85,10 @@ def student_eligibility_view():
         f"**Credits:** {int(total_credits)}  |  **Standing:** {standing}"
     )
 
-    # ---------- Build eligibility + justifications dicts (skip hidden) ----------
     status_dict: dict[str, str] = {}
     justification_dict: dict[str, str] = {}
 
-    current_advised_for_checks = list(slot.get("advised", []))  # used only by eligibility engine
+    current_advised_for_checks = list(slot.get("advised", []))
 
     for course_code in st.session_state.courses_df["Course Code"]:
         code = str(course_code)
@@ -119,7 +100,6 @@ def student_eligibility_view():
         status_dict[code] = status
         justification_dict[code] = justification
 
-    # ---------- Build display dataframe (skip hidden) ----------
     rows = []
     for course_code in st.session_state.courses_df["Course Code"]:
         code = str(course_code)
@@ -158,13 +138,10 @@ def student_eligibility_view():
         )
 
     courses_display_df = pd.DataFrame(rows)
-
-    # Split by Type
     req_df = courses_display_df[courses_display_df["Type"] == "Required"].copy()
     int_df = courses_display_df[courses_display_df["Type"] == "Intensive"].copy()
 
     st.markdown("### Course Eligibility")
-
     if not req_df.empty:
         st.markdown("**Required Courses**")
         st.dataframe(style_df(req_df), use_container_width=True)
@@ -172,8 +149,6 @@ def student_eligibility_view():
         st.markdown("**Intensive Courses**")
         st.dataframe(style_df(int_df), use_container_width=True)
 
-    # ---------- Advising selections (live selectors, no form; Save button below) ----------
-    # Offered set
     offered_set = set(
         map(
             str,
@@ -206,7 +181,6 @@ def student_eligibility_view():
     default_advised = [c for c in saved_advised if c in opts_set]
     dropped_advised = sorted(set(saved_advised) - set(default_advised))
 
-    # Advised selector (live)
     advised_selection = st.multiselect(
         "Advised Courses",
         options=eligible_options,
@@ -214,7 +188,6 @@ def student_eligibility_view():
         key=f"advised_ms_{selected_student_id}",
     )
 
-    # Optional selector depends on current advised
     opt_options_live = [c for c in eligible_options if c not in advised_selection]
     opt_space_set = set(opt_options_live)
     default_optional = [c for c in saved_optional if c in opt_space_set]
@@ -233,7 +206,6 @@ def student_eligibility_view():
         key=f"note_{selected_student_id}",
     )
 
-    # Show if something saved previously is no longer available now
     if dropped_advised or dropped_optional:
         with st.expander("Some previously saved selections aren’t available this term"):
             if dropped_advised:
@@ -245,9 +217,8 @@ def student_eligibility_view():
                 "or removed from the current courses table."
             )
 
-    # ---------- NEW: Live credit counters + per-major limits ----------
     major = st.session_state.get("current_major", "")
-    limits = _get_limits_for_major(major)  # may be empty if not configured
+    limits = _get_limits_for_major(major)
 
     advised_credits = _sum_credits(advised_selection, st.session_state.courses_df)
     optional_credits = _sum_credits(optional_selection, st.session_state.courses_df)
@@ -274,7 +245,6 @@ def student_eligibility_view():
             "advised_max = 18\noptional_max = 12\ntotal_max = 21"
         )
 
-    # ---------- Save selections ----------
     if st.button("Save Selections", key=f"save_{selected_student_id}"):
         st.session_state.advising_selections[selected_student_id] = {
             "advised": advised_selection,
@@ -285,7 +255,6 @@ def student_eligibility_view():
         log_info(f"Saved selections for {selected_student_id}")
         st.rerun()
 
-    # ---------- Per-student hidden courses (persisted to Drive) ----------
     with st.expander("Hidden courses for this student"):
         all_codes = sorted(map(str, st.session_state.courses_df["Course Code"].tolist()))
         default_hidden = [c for c in all_codes if c in hidden_for_student]
@@ -301,7 +270,6 @@ def student_eligibility_view():
             st.success("Hidden courses saved for this student.")
             st.rerun()
 
-    # ---------- Download report ----------
     st.subheader("Download Advising Report")
     if st.button("Download Student Report"):
         report_df = courses_display_df.copy()

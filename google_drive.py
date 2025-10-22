@@ -1,11 +1,12 @@
 # google_drive.py
 # Google Drive helpers with robust token refresh + update-or-create sync.
 # Scope-agnostic refresh (avoids invalid_scope) and corrected files().list query.
+# Added helpers: list_files_with_prefix, download_file_by_name, delete_file_by_name.
 
 from __future__ import annotations
 
 import io
-from typing import Optional
+from typing import Optional, List, Dict
 
 import streamlit as st
 from googleapiclient.discovery import build
@@ -40,7 +41,7 @@ def _build_credentials() -> Credentials:
             "Please set google.client_id, google.client_secret, google.refresh_token."
         )
 
-    # IMPORTANT: Do NOT pin scopes here; let the refresh token carry the granted scopes.
+    # Do NOT pin scopes here; let the refresh token carry the granted scopes.
     creds = Credentials(
         token=None,
         refresh_token=refresh_token,
@@ -49,7 +50,7 @@ def _build_credentials() -> Credentials:
         client_secret=client_secret,
     )
 
-    # Force refresh now; normalize common errors for clearer UI.
+    # Force refresh now; normalize common errors.
     try:
         creds.refresh(Request())
     except Exception as e:
@@ -62,7 +63,7 @@ def _build_credentials() -> Credentials:
         if "invalid_scope" in msg:
             raise GoogleAuthError(
                 "Google token refresh failed: invalid_scope. "
-                "Re-mint the refresh token using the SAME client_id/client_secret currently in Streamlit Secrets "
+                "Re-mint the refresh token using the SAME client_id/client_secret in Streamlit Secrets "
                 "and grant Drive access (e.g., drive.file) — then paste the new refresh_token."
             ) from e
         raise GoogleAuthError(f"Google auth refresh failed: {e}") from e
@@ -83,7 +84,6 @@ def initialize_drive_service():
 def find_file_in_drive(service, filename: str, parent_folder_id: str) -> Optional[str]:
     """Return fileId for `filename` inside `parent_folder_id`, else None."""
     try:
-        # Correct v3 query: match by name + parent
         query = f"name = '{filename}' and '{parent_folder_id}' in parents and trashed = false"
         resp = service.files().list(
             q=query,
@@ -149,3 +149,46 @@ def sync_file_with_drive(
             return created.get("id")
     except HttpError as e:
         raise RuntimeError(f"Drive sync failed: {e}")
+
+
+# ----------------- New small helpers -----------------
+
+def list_files_with_prefix(service, parent_folder_id: str, prefix: str, page_size: int = 100) -> List[Dict]:
+    """
+    List files in folder whose name contains `prefix`, newest first.
+    Returns list of dicts with keys: id, name, modifiedTime.
+    """
+    try:
+        query = f"name contains '{prefix}' and '{parent_folder_id}' in parents and trashed = false"
+        resp = service.files().list(
+            q=query,
+            spaces="drive",
+            fields="files(id, name, modifiedTime)",
+            pageSize=page_size,
+            orderBy="modifiedTime desc",
+            includeItemsFromAllDrives=False,
+            supportsAllDrives=False,
+        ).execute()
+        return resp.get("files", [])
+    except HttpError as e:
+        raise RuntimeError(f"Drive list failed: {e}")
+
+
+def download_file_by_name(service, parent_folder_id: str, filename: str) -> Optional[bytes]:
+    """Find by exact name in folder and download."""
+    fid = find_file_in_drive(service, filename, parent_folder_id)
+    if not fid:
+        return None
+    return download_file_from_drive(service, fid)
+
+
+def delete_file_by_name(service, parent_folder_id: str, filename: str) -> bool:
+    """Delete a file by name if it exists. Returns True if deleted or not present."""
+    try:
+        fid = find_file_in_drive(service, filename, parent_folder_id)
+        if not fid:
+            return True
+        service.files().delete(fileId=fid).execute()
+        return True
+    except HttpError:
+        return False
