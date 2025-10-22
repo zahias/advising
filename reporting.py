@@ -6,9 +6,6 @@ from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from typing import List
 
-# -----------------------------
-# Existing single-student Advising formatting (kept)
-# -----------------------------
 def apply_excel_formatting(
     output: BytesIO,
     student_name: str,
@@ -96,7 +93,7 @@ def add_summary_sheet(writer, full_report: pd.DataFrame, course_cols: List[str])
     """
     summary_rows = []
     for c in course_cols:
-        counts = full_report[c].value_counts(dropna=False).to_dict() if c in full_report.columns else {}
+        counts = full_report[c].value_counts(dropna=False).to_dict()
         summary_rows.append({
             "Course": c,
             "Completed (c)": int(counts.get("c", 0)),
@@ -106,81 +103,3 @@ def add_summary_sheet(writer, full_report: pd.DataFrame, course_cols: List[str])
             "Not Eligible (ne)": int(counts.get("ne", 0)),
         })
     pd.DataFrame(summary_rows).to_excel(writer, index=False, sheet_name="Summary")
-
-# -----------------------------
-# NEW: Formatting for Full Student View exports (colors for c/r/a/na/ne)
-# -----------------------------
-
-# Code -> fill color (hex)
-_CODE_FILL = {
-    "c":  "C6E0B4",  # Completed
-    "r":  "BDD7EE",  # Registered
-    "a":  "FFF2CC",  # Advised
-    "na": "E1F0FF",  # Eligible not chosen
-    "ne": "F8CECC",  # Not Eligible
-}
-
-def _style_header(ws):
-    header_fill = PatternFill("solid", fgColor="4F81BD")
-    header_font = Font(bold=True, color="FFFFFF")
-    header_align = Alignment(horizontal="center", vertical="center")
-    for cell in ws[1]:
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = header_align
-
-def _add_borders(ws):
-    thin = Side(style="thin", color="CCCCCC")
-    max_row = ws.max_row
-    max_col = ws.max_column
-    for r in range(1, max_row + 1):
-        for c in range(1, max_col + 1):
-            ws.cell(row=r, column=c).border = Border(left=thin, right=thin, top=thin, bottom=thin)
-
-def _apply_code_colors(ws, course_cols: List[str]):
-    # Build map: column name -> index
-    header = [str(c.value) for c in ws[1]]
-    col_idx = {name: i+1 for i, name in enumerate(header)}
-    target_cols = [col_idx[c] for c in course_cols if c in col_idx]
-    for r in range(2, ws.max_row + 1):
-        for c in target_cols:
-            val = str(ws.cell(row=r, column=c).value or "").strip().lower()
-            fill_hex = _CODE_FILL.get(val)
-            if fill_hex:
-                ws.cell(row=r, column=c).fill = PatternFill("solid", fgColor=fill_hex)
-
-def apply_full_report_formatting(*, output: BytesIO, sheet_name: str, course_cols: List[str]) -> None:
-    """
-    Apply header, borders, freeze panes, and color codes for c/r/a/na/ne
-    on the 'Full Report' sheet (All Students export).
-    """
-    output.seek(0)
-    wb = load_workbook(output)
-    ws = wb[sheet_name]
-
-    _style_header(ws)
-    _apply_code_colors(ws, course_cols)
-    ws.freeze_panes = "A2"
-    _add_borders(ws)
-
-    output.seek(0)
-    wb.save(output)
-    output.seek(0)
-
-def apply_individual_compact_formatting(*, output: BytesIO, sheet_name: str, course_cols: List[str]) -> None:
-    """
-    Apply header, borders, freeze panes, and color codes for c/r/a/na/ne
-    on the 'Student' sheet (Individual Student export).
-    """
-    output.seek(0)
-    wb = load_workbook(output)
-    ws = wb[sheet_name]
-
-    _style_header(ws)
-    _apply_code_colors(ws, course_cols)
-    ws.freeze_panes = "A2"
-    _add_borders(ws)
-
-    output.seek(0)
-    wb.save(output)
-    output.seek(0)
