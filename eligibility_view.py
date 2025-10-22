@@ -1,7 +1,7 @@
 # eligibility_view.py
 # - Live credit counters & limits preserved.
 # - On "Save Selections": writes selections and AUTO-SAVES a per-student session
-#   (new simplified meta/title).
+#   (new simplified meta/title); no separate "Save Session" anywhere.
 
 from __future__ import annotations
 
@@ -151,7 +151,6 @@ def student_eligibility_view():
         st.markdown("**Intensive Courses**")
         st.dataframe(style_df(int_df), use_container_width=True)
 
-    # ---------- Advising selections form (robust defaults; skip hidden) ----------
     offered_set = set(
         map(
             str,
@@ -289,23 +288,24 @@ def student_eligibility_view():
             st.success("Hidden courses saved for this student.")
             st.rerun()
 
-    # ---------- Download student report (keeps color formatting) ----------
+    # ---------- Download student report (now keeps color formatting) ----------
     st.subheader("Download Advising Report")
     if st.button("Download Student Report"):
         report_df = courses_display_df.copy()
         output = BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             report_df.to_excel(writer, index=False, sheet_name="Advising")
-        # Enhanced formatting (colors, header, borders, panes, and NOTE)
+        # Enhanced formatting (colors, header, note included)
+        from reporting import apply_excel_formatting
         apply_excel_formatting(
             output=output,
             student_name=str(student_row["NAME"]),
-            student_id=int(selected_student_id),
+            student_id=selected_student_id,
             credits_completed=int(credits_completed),
             standing=standing,
-            note=str(note_input or ""),
-            advised_credits=int(advised_credits),
-            optional_credits=int(optional_credits),
+            note=st.session_state.advising_selections[selected_student_id].get("note", ""),
+            advised_credits=advised_credits,
+            optional_credits=optional_credits,
         )
         st.download_button(
             "Download Excel",

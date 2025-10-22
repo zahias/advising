@@ -157,4 +157,56 @@ def _render_individual_student():
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
-    # (The bulk download block remains as in your version; unchanged)
+    # Download sheets for all advised students into one workbook + sync to Drive (unchanged)
+    if st.button("Download All Advised Students Reports"):
+        all_sel = [(int(k), v) for k, v in st.session_state.advising_selections.items() if v.get("advised")]
+        if not all_sel:
+            st.info("No advised students found.")
+            return
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            for sid_, sel in all_sel:
+                srow = st.session_state.progress_df.loc[st.session_state.progress_df["ID"] == sid_].iloc[0]
+                data = {"Course Code": [], "Action": [], "Eligibility Status": [], "Justification": []}
+                # Build same grid used in eligibility view for this student (compact)
+                for cc in st.session_state.courses_df["Course Code"]:
+                    status, just = check_eligibility(srow, cc, sel.get("advised", []), st.session_state.courses_df)
+                    if check_course_completed(srow, cc):
+                        action = "Completed"; status = "Completed"
+                    elif check_course_registered(srow, cc):
+                        action = "Registered"
+                    elif cc in sel.get("advised", []):
+                        action = "Advised"
+                    else:
+                        action = "Eligible not chosen" if status == "Eligible" else "Not Eligible"
+                    data["Course Code"].append(cc)
+                    data["Action"].append(action)
+                    data["Eligibility Status"].append(status)
+                    data["Justification"].append(just)
+                pd.DataFrame(data).to_excel(writer, index=False, sheet_name=str(sid_))
+            # Add an index sheet with names/IDs
+            index_df = st.session_state.progress_df.loc[st.session_state.progress_df["ID"].isin([sid for sid,_ in all_sel]), ["ID", "NAME"]]
+            index_df.to_excel(writer, index=False, sheet_name="Index")
+
+        st.download_button(
+            "Download All (Excel)",
+            data=output.getvalue(),
+            file_name="All_Advised_Students.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+        # Also sync to Drive (preserving original behavior)
+        try:
+            service = initialize_drive_service()
+            sync_file_with_drive(
+                service=service,
+                file_content=output.getvalue(),
+                drive_file_name="All_Advised_Students.xlsx",
+                mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                parent_folder_id=st.secrets["google"]["folder_id"],
+            )
+            st.success("✅ All Advised Students Reports synced with Google Drive successfully!")
+            log_info("All Advised Students Reports synced with Google Drive successfully.")
+        except Exception as e:
+            st.error(f"❌ Error syncing All Advised Students Reports: {e}")
+            log_error("Error syncing All Advised Students Reports", e)
