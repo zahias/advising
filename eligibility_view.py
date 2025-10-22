@@ -118,19 +118,13 @@ def student_eligibility_view():
         offered = str(info.get("Offered", "")).strip().lower() == "yes"
         status = status_dict.get(code, "Not Eligible")
 
-        if check_course_completed(student_row, code):
-            action = "Completed"
-            status = "Completed"
-        elif check_course_registered(student_row, code):
-            action = "Registered"
-        elif code in (slot.get("advised", []) or []):
+        # IMPORTANT: Show ONLY Advised/Optional in the Action column on screen
+        if code in (slot.get("advised", []) or []):
             action = "Advised"
         elif code in (slot.get("optional", []) or []):
             action = "Optional"
-        elif status == "Not Eligible":
-            action = "Not Eligible"
         else:
-            action = "Eligible (not chosen)"
+            action = ""  # blank for completed/registered/eligible/not-eligible
 
         rows.append(
             {
@@ -279,7 +273,7 @@ def student_eligibility_view():
             options=all_codes,
             default=default_hidden,
             key=f"hidden_ms_{selected_student_id}",
-            help="Hidden courses will not appear in tables or selection lists, and this choice is saved to Drive.",
+            help="Hidden courses will not appear in tables or selection lists, and this choice is saved.",
         )
         if st.button("Save Hidden Courses", key=f"save_hidden_{selected_student_id}"):
             set_for_student(selected_student_id, new_hidden)
@@ -289,10 +283,17 @@ def student_eligibility_view():
     # ---------- Download student report (keeps color formatting) ----------
     st.subheader("Download Advising Report")
     if st.button("Download Student Report"):
+        # Start from what the user sees (Action already only Advised/Optional)
         report_df = courses_display_df.copy()
+        # Drop columns the user asked to remove from export
+        for col in ["Type", "Requisites"]:
+            if col in report_df.columns:
+                report_df.drop(columns=[col], inplace=True)
+
         output = BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             report_df.to_excel(writer, index=False, sheet_name="Advising")
+
         apply_excel_formatting(
             output=output,
             student_name=str(student_row["NAME"]),
