@@ -5,10 +5,12 @@
 # - Restore environment to the versioned files used at save time
 # - Reuse selections in current advising (per-student or all)
 # - Search / filter / sort; Excel export package
+# - NEW: autosave_current_student_session() for per-student autosaves
 # Backward-compat: auto-imports legacy advising_sessions_{MAJOR}.json into the new layout.
 
 from __future__ import annotations
 
+import io
 import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
@@ -40,7 +42,7 @@ from utils import (
     style_df,
 )
 
-__all__ = ["advising_history_panel"]
+__all__ = ["advising_history_panel", "autosave_current_student_session"]
 
 
 # ------------- Naming helpers -------------
@@ -270,7 +272,7 @@ def _build_single_student_snapshot(student_id: int) -> Dict[str, Any]:
             "Standing": standing,
             "advised": advised,
             "optional": optional,
-            "note": note,
+            "note": note,                       # NOTE SAVED HERE
             "courses": course_rows,
         }],
     }
@@ -302,7 +304,7 @@ def _build_full_snapshot() -> Dict[str, Any]:
             "Standing": standing,
             "advised": advised,
             "optional": optional,
-            "note": note,
+            "note": note,                       # NOTE SAVED HERE
             "courses": _snapshot_student_courses(srow, advised, optional),
         })
 
@@ -319,7 +321,6 @@ def _latest_versioned_names(major: str) -> Tuple[Optional[str], Optional[str]]:
         service = initialize_drive_service()
         folder_id = st.secrets["google"]["folder_id"]
 
-        # Look for e.g., PBHL_courses_table_YYYYMMDD-HHMM.xlsx
         courses_list = list_files_with_prefix(service, folder_id, f"{major}_courses_table_")
         progress_list = list_files_with_prefix(service, folder_id, f"{major}_progress_report_")
 
@@ -332,7 +333,7 @@ def _latest_versioned_names(major: str) -> Tuple[Optional[str], Optional[str]]:
 
 
 def _restore_environment_from_versioned(courses_name: Optional[str], progress_name: Optional[str]) -> bool:
-    """Load given versioned files into session_state; return True if both loaded."""
+    """Load given versioned files into session_state; return True if at least one loaded."""
     ok_any = False
     try:
         service = initialize_drive_service()
@@ -349,7 +350,7 @@ def _restore_environment_from_versioned(courses_name: Optional[str], progress_na
         if courses_name:
             content = download_file_by_name(service, folder_id, courses_name)
             if content:
-                df = pd.read_excel(io.BytesIO(content))  # type: ignore[name-defined]
+                df = pd.read_excel(io.BytesIO(content))
                 st.session_state.courses_df = df
                 st.session_state.majors[major]["courses_df"] = df
                 ok_any = True
@@ -385,6 +386,113 @@ def _sum_selections_credits(snapshot: Dict[str, Any]) -> Tuple[int, int]:
         for code in (s.get("optional") or []):
             o += lookup.get(str(code), 0.0)
     return int(a), int(o)
+
+
+# ------------- PUBLIC: autosave current student session -------------
+
+def _guess_semester_year(today: date) -> tuple[str, int]:
+    m = today.month
+    if m in (1,2,3,4,5): sem = "Spring"
+    elif m in (6,7):     sem = "Summer"
+    else:                sem = "Fall"
+    return sem, today.year
+
+def autosave_current_student_session(
+    advisor_name: Optional[str] = None,
+    session_date: Optional[date] = None,
+    semester: Optional[str] = None,
+    year: Optional[int] = None,
+) -> Optional[str]:
+    """
+    Programmatic save of a per-student advising session using the currently selected student.
+    Returns the new session_id on success, or None on failure.
+    """
+    try:
+        # Resolve student
+        current_sid = st.session_state.get("current_student_id", None)
+        if current_sid is None:
+            return None
+
+        major = st.session_state.get("current_major", "")
+        # Resolve meta
+        today = datetime.now().date()
+        if session_date is None:
+            session_date = today
+        if not semester or not year:
+            sem_guess, yr_guess = _guess_semester_year(today)
+            semester = semester or sem_guess
+            year = year or yr_guess
+
+        # Try to infer advisor name from session (login/name fields), fallback
+        advisor_name = (
+            advisor_name
+            or st.session_state.get("advisor_name")           # if you store advisor name somewhere
+            or st.session_state.get("current_user")
+            or st.session_state.get("login_user")
+            or st.session_state.get("username")
+            or "AutoSave"
+        )
+
+        # Build snapshot (includes the student's NOTE)
+        snapshot = _build_single_student_snapshot(int(current_sid))
+
+        # Quick sums for index preview
+        advised_sum, optional_sum = _sum_selections_credits(snapshot)
+
+        # Record latest versioned files for provenance (if present)
+        courses_ver, progress_ver = _latest_versioned_names(major)
+
+        sid = str(uuid4())
+        meta = {
+            "advisor": advisor_name,
+            "session_date": session_date.isoformat(),
+            "semester": semester,
+            "year": int(year),
+            "created_at": datetime.utcnow().isoformat() + "Z",
+            "major": major,
+            "scope": "single",
+            "student_id": int(current_sid),
+            "student_name": str(
+                st.session_state.progress_df.loc[st.session_state.progress_df["ID"] == int(current_sid)]["NAME"].iloc[0]
+            ) if ("progress_df" in st.session_state and not st.session_state.progress_df.empty) else "",
+            "courses_version": courses_ver or "",
+            "progress_version": progress_ver or "",
+        }
+
+        # Ensure index in session
+        if "advising_index" not in st.session_state:
+            st.session_state.advising_index = _load_index()
+
+        # Persist payload + index row
+        _save_session_payload(sid, snapshot, meta)
+
+        index_row = {
+            "id": sid,
+            "advisor": meta["advisor"],
+            "session_date": meta["session_date"],
+            "semester": meta["semester"],
+            "year": meta["year"],
+            "created_at": meta["created_at"],
+            "major": meta["major"],
+            "scope": meta["scope"],
+            "student_id": meta["student_id"],
+            "student_name": meta["student_name"],
+            "session_file": _session_filename(sid),
+            "students_count": len(snapshot.get("students", [])),
+            "advised_sum": advised_sum,
+            "optional_sum": optional_sum,
+            "courses_version": meta.get("courses_version",""),
+            "progress_version": meta.get("progress_version",""),
+        }
+        st.session_state.advising_index.append(index_row)
+        _save_index(st.session_state.advising_index)
+
+        log_info(f"Auto-saved advising session for student {meta['student_id']} ({meta['student_name']}).")
+        return sid
+
+    except Exception as e:
+        log_error("Auto-save advising session failed", e)
+        return None
 
 
 # ------------- Panel UI -------------
@@ -689,7 +797,6 @@ def _render_archived_view(payload: Dict[str, Any]) -> None:
 def _make_excel_package(payload: Dict[str, Any]) -> bytes:
     """Return an .xlsx (bytes) with Summary + per-student sheets."""
     import io
-    from openpyxl.utils import get_column_letter
     meta = payload.get("meta", {})
     snap = payload.get("snapshot", {})
     students = snap.get("students", [])
@@ -722,7 +829,6 @@ def _make_excel_package(payload: Dict[str, Any]) -> bytes:
             sid = str(s.get("ID",""))
             sheet = f"{name}_{sid}"[:31]  # Excel sheet name limit
             if df.empty:
-                # minimal sheet
                 pd.DataFrame([{
                     "ID": sid, "NAME": name, "Standing": s.get("Standing",""),
                     "Note": s.get("note",""), "Advised": ",".join(map(str, s.get("advised") or [])),

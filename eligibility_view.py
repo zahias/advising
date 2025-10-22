@@ -1,6 +1,6 @@
 # eligibility_view.py
 # Adds live credit counters & per-major limits; preserves all previous behavior.
-# (Minor addition: stores current_student_id in session for per-student save.)
+# (Also stores current_student_id in session and AUTO-SAVES a per-student advising session on "Save Selections".)
 
 from __future__ import annotations
 
@@ -66,8 +66,8 @@ def student_eligibility_view():
     selected_student_id = int(students_df.loc[students_df["DISPLAY"] == choice, "ID"].iloc[0])
     student_row = students_df.loc[students_df["ID"] == selected_student_id].iloc[0]
 
-    # NEW: make selected student visible to other panels (e.g., Save Session)
-    st.session_state["current_student_id"] = selected_student_id  # <---- ONLY NEW LINE
+    # Make selected student visible elsewhere (e.g., autosave in advising_history)
+    st.session_state["current_student_id"] = selected_student_id
 
     hidden_for_student = set(map(str, get_for_student(selected_student_id)))
 
@@ -245,16 +245,33 @@ def student_eligibility_view():
             "advised_max = 18\noptional_max = 12\ntotal_max = 21"
         )
 
+    # ---------- Save selections + AUTO-SAVE per-student session ----------
     if st.button("Save Selections", key=f"save_{selected_student_id}"):
+        # 1) Persist selections (includes NOTE) in session state
         st.session_state.advising_selections[selected_student_id] = {
             "advised": advised_selection,
             "optional": optional_selection,
             "note": note_input,
         }
-        st.success("Selections saved.")
         log_info(f"Saved selections for {selected_student_id}")
+
+        # 2) Auto-save a per-student session to Drive (index + per-session JSON)
+        try:
+            from advising_history import autosave_current_student_session
+            session_id = autosave_current_student_session()
+            if session_id:
+                st.toast("✅ Auto-saved advising session", icon="💾")
+            else:
+                st.toast("Saved selections (session auto-save skipped)", icon="ℹ️")
+        except Exception as e:
+            # Never block the user if autosave fails
+            st.toast("Saved selections (session auto-save failed)", icon="⚠️")
+            log_error("Autosave advising session failed", e)
+
+        st.success("Selections saved.")
         st.rerun()
 
+    # ---------- Per-student hidden courses (persisted to Drive) ----------
     with st.expander("Hidden courses for this student"):
         all_codes = sorted(map(str, st.session_state.courses_df["Course Code"].tolist()))
         default_hidden = [c for c in all_codes if c in hidden_for_student]
@@ -270,6 +287,7 @@ def student_eligibility_view():
             st.success("Hidden courses saved for this student.")
             st.rerun()
 
+    # ---------- Download report ----------
     st.subheader("Download Advising Report")
     if st.button("Download Student Report"):
         report_df = courses_display_df.copy()
