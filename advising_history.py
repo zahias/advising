@@ -1,16 +1,11 @@
 # advising_history.py
-# Sessions are created AUTOMATICALLY when the advisor clicks "Save Selections"
-# in the eligibility view. This panel only lists, opens (read-only), exports, and deletes.
-# - Per-student snapshots only (no legacy "save all", no semester/year, no restore).
-# - Title format: "YYYY-MM-DD HH:MM — NAME (ID)" in Asia/Beirut local time.
-# - Index + per-session JSON on Drive. If Drive write fails, we still add to
-#   in-memory index so the session appears immediately (best-effort).
+# Sessions are created AUTOMATICALLY when the advisor clicks "Save Selections".
+# Panel: list / open (read-only) / delete (index only). Per-student snapshots.
 
 from __future__ import annotations
 
-import io
 import json
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 from datetime import datetime
 
@@ -39,7 +34,7 @@ try:
     from zoneinfo import ZoneInfo
     _LOCAL_TZ = ZoneInfo("Asia/Beirut")
 except Exception:
-    _LOCAL_TZ = None  # fallback to naive local time
+    _LOCAL_TZ = None
 
 __all__ = ["advising_history_panel", "autosave_current_student_session"]
 
@@ -72,11 +67,15 @@ def _load_index() -> List[Dict[str, Any]]:
         return []
 
 def _save_index(index_items: List[Dict[str, Any]]) -> None:
-    service = initialize_drive_service()
-    folder_id = st.secrets["google"]["folder_id"]
-    data = json.dumps(index_items, ensure_ascii=False, indent=2).encode("utf-8")
-    sync_file_with_drive(service, data, _index_name(), "application/json", folder_id)
-    log_info(f"Index saved: {_index_name()}")
+    try:
+        service = initialize_drive_service()
+        folder_id = st.secrets["google"]["folder_id"]
+        data = json.dumps(index_items, ensure_ascii=False, indent=2).encode("utf-8")
+        sync_file_with_drive(service, data, _index_name(), "application/json", folder_id)
+        log_info(f"Index saved: {_index_name()}")
+    except Exception as e:
+        log_error("Failed to save advising index", e)
+        # keep local index; do not raise
 
 def _save_session_payload(session_id: str, snapshot: Dict[str, Any], meta: Dict[str, Any]) -> None:
     service = initialize_drive_service()
@@ -103,33 +102,23 @@ def _load_session_payload_by_id(session_id: str) -> Optional[Dict[str, Any]]:
 # ----------------- Snapshot helpers -----------------
 
 def _snapshot_courses_table() -> List[Dict[str, Any]]:
-    """
-    Store a light copy of the courses table to make old sessions resilient
-    to future table/report changes.
-    """
-    if "courses_df" not in st.session_state or st.session_state.courses_df.empty:
+    df = st.session_state.get("courses_df", pd.DataFrame())
+    if df.empty:
         return []
-    cols = [
-        "Course Code", "Type", "Credits", "Offered",
-        "Prerequisite", "Concurrent", "Corequisite"
-    ]
-    df = st.session_state.courses_df.copy()
-    keep = [c for c in cols if c in df.columns]
-    return df[keep].to_dict(orient="records")
+    cols = ["Course Code", "Type", "Credits", "Offered", "Prerequisite", "Concurrent", "Corequisite"]
+    cols = [c for c in cols if c in df.columns]
+    return df[cols].fillna("").to_dict(orient="records")
 
 def _snapshot_student_courses(student_row: pd.Series, advised: List[str], optional: List[str]) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
-    for _, info in st.session_state.courses_df.iterrows():
+    cdf = st.session_state.courses_df
+    for _, info in cdf.iterrows():
         code = str(info["Course Code"])
-        offered = is_course_offered(st.session_state.courses_df, code)
-        status, justification = check_eligibility(
-            student_row, code, advised, st.session_state.courses_df
-        )
+        offered = "Yes" if is_course_offered(cdf, code) else "No"
+        status, justification = check_eligibility(student_row, code, advised, cdf)
 
-        # Action (we save the **true** state in the snapshot for fidelity)
         if check_course_completed(student_row, code):
-            action = "Completed"
-            status = "Completed"
+            action = "Completed"; status = "Completed"
         elif check_course_registered(student_row, code):
             action = "Registered"
         elif code in advised:
@@ -152,16 +141,24 @@ def _snapshot_student_courses(student_row: pd.Series, advised: List[str], option
         })
     return rows
 
-def _build_single_student_snapshot(student_id: int) -> Dict[str, Any]:
-    if "progress_df" not in st.session_state or st.session_state.progress_df.empty:
+def _build_single_student_snapshot(student_id: any) -> Dict[str, Any]:
+    pdf = st.session_state.get("progress_df", pd.DataFrame())
+    if pdf.empty:
         return {"courses_table": [], "students": []}
 
-    srow = st.session_state.progress_df.loc[st.session_state.progress_df["ID"] == int(student_id)]
-    if srow.empty:
-        return {"courses_table": [], "students": []}
-    srow = srow.iloc[0]
+    try:
+        mask = pdf["ID"] == student_id if student_id in pdf["ID"].values else pdf["ID"] == int(student_id)
+    except Exception:
+        mask = pdf["ID"] == student_id
 
-    sel = st.session_state.advising_selections.get(int(student_id), {})
+    row = pdf.loc[mask]
+    if row.empty:
+        return {"courses_table": [], "students": []}
+    srow = row.iloc[0]
+
+    selections = st.session_state.get("advising_selections", {}) or {}
+    sel = selections.get(srow["ID"], selections.get(int(srow["ID"])) if isinstance(srow["ID"], (int, float)) else {})
+    sel = sel or {}
     advised = [str(x) for x in sel.get("advised", [])]
     optional = [str(x) for x in sel.get("optional", [])]
     note = str(sel.get("note", "") or "")
@@ -170,20 +167,18 @@ def _build_single_student_snapshot(student_id: int) -> Dict[str, Any]:
     credits_registered = float(srow.get("# Registered", 0) or 0)
     standing = get_student_standing(credits_completed + credits_registered)
 
-    course_rows = _snapshot_student_courses(srow, advised, optional)
-
     return {
         "courses_table": _snapshot_courses_table(),
         "students": [{
-            "ID": int(student_id),
+            "ID": srow["ID"],
             "NAME": str(srow.get("NAME")),
             "# of Credits Completed": credits_completed,
             "# Registered": credits_registered,
             "Standing": standing,
             "advised": advised,
             "optional": optional,
-            "note": note,  # NOTE is saved here
-            "courses": course_rows,
+            "note": note,
+            "courses": _snapshot_student_courses(srow, advised, optional),
         }],
     }
 
@@ -206,22 +201,21 @@ def autosave_current_student_session() -> Optional[str]:
         if current_sid is None:
             return None
 
-        snapshot = _build_single_student_snapshot(int(current_sid))
+        snapshot = _build_single_student_snapshot(current_sid)
 
         # Student name for title
         student_name = ""
-        if "progress_df" in st.session_state and not st.session_state.progress_df.empty:
+        try:
+            pdf = st.session_state.progress_df
+            student_name = str(pdf.loc[pdf["ID"] == current_sid, "NAME"].iloc[0])
+        except Exception:
             try:
-                student_name = str(
-                    st.session_state.progress_df.loc[
-                        st.session_state.progress_df["ID"] == int(current_sid)
-                    ]["NAME"].iloc[0]
-                )
+                student_name = str(st.session_state.progress_df.loc[st.session_state.progress_df["ID"] == int(current_sid), "NAME"].iloc[0])
             except Exception:
                 student_name = ""
 
         now = _now_beirut()
-        title = f"{now.strftime('%Y-%m-%d %H:%M')} — {student_name} ({int(current_sid)})"
+        title = f"{now.strftime('%Y-%m-%d %H:%M')} — {student_name} ({current_sid})"
 
         sid = str(uuid4())
         meta = {
@@ -229,24 +223,20 @@ def autosave_current_student_session() -> Optional[str]:
             "title": title,
             "created_at": now.isoformat(),
             "major": st.session_state.get("current_major", ""),
-            "student_id": int(current_sid),
+            "student_id": current_sid,
             "student_name": student_name,
         }
 
-        # Ensure local index is present
         if "advising_index" not in st.session_state:
             st.session_state.advising_index = _load_index()
 
-        # Try Drive first; if it fails, still show session locally (best-effort)
-        drive_ok = True
         try:
             _save_session_payload(sid, snapshot, meta)
         except Exception as e:
-            drive_ok = False
-            log_error("Drive save (payload) failed, keeping local only", e)
+            log_error("Drive save (payload) failed", e)  # continue, keep local
 
-        # Update in-memory index
-        index_row = {
+        # Update local index (always)
+        st.session_state.advising_index.append({
             "id": sid,
             "title": title,
             "created_at": meta["created_at"],
@@ -254,18 +244,11 @@ def autosave_current_student_session() -> Optional[str]:
             "student_name": meta["student_name"],
             "major": meta["major"],
             "session_file": _session_filename(sid),
-        }
-        st.session_state.advising_index.append(index_row)
+        })
 
-        # Try to persist the index to Drive
-        try:
-            _save_index(st.session_state.advising_index)
-        except Exception as e:
-            drive_ok = False
-            log_error("Drive save (index) failed, keeping local only", e)
+        # Try to persist index
+        _save_index(st.session_state.advising_index)
 
-        if not drive_ok:
-            st.warning("Saved session locally (Drive error). It will show here but may not be on Drive yet.")
         log_info(f"Auto-saved advising session: {title}")
         return sid
 
@@ -274,7 +257,7 @@ def autosave_current_student_session() -> Optional[str]:
         return None
 
 
-# ----------------- Panel UI: Sessions only -----------------
+# ----------------- Panel UI -----------------
 
 def advising_history_panel():
     st.markdown("---")
@@ -283,24 +266,19 @@ def advising_history_panel():
     if "advising_index" not in st.session_state:
         st.session_state.advising_index = _load_index()
 
-    index = st.session_state.advising_index or []
+    index = list(st.session_state.advising_index or [])
 
-    # Show only current student's sessions by default (if selected)
+    # Filter to current student if selected
     current_sid = st.session_state.get("current_student_id", None)
     if current_sid is not None:
-        try:
-            index = [r for r in index if int(r.get("student_id", -1)) == int(current_sid)]
-        except Exception:
-            pass
+        index = [r for r in index if str(r.get("student_id","")) == str(current_sid)]
 
-    # Search + Sort only (no semester/year filters)
-    c1, c2 = st.columns([2, 1])
+    c1, c2 = st.columns([2,1])
     with c1:
-        q = st.text_input("Search", key="sess_search", placeholder="Type part of title or student name/ID")
+        q = st.text_input("Search", key="sess_search", placeholder="Title / student name / ID")
     with c2:
         sort_key = st.selectbox("Sort", ["Date desc", "Date asc", "Title"], index=0, key="sess_sort")
 
-    # Apply search
     if q:
         ql = q.lower()
         def _hit(r: Dict[str, Any]) -> bool:
@@ -311,77 +289,45 @@ def advising_history_panel():
             )
         index = [r for r in index if _hit(r)]
 
-    # Sort
     if sort_key == "Date asc":
-        index = sorted(index, key=lambda r: r.get("created_at",""))
+        index.sort(key=lambda r: r.get("created_at",""))
     elif sort_key == "Title":
-        index = sorted(index, key=lambda r: r.get("title",""))
-    else:  # Date desc
-        index = sorted(index, key=lambda r: r.get("created_at",""), reverse=True)
+        index.sort(key=lambda r: r.get("title",""))
+    else:
+        index.sort(key=lambda r: r.get("created_at",""), reverse=True)
 
     if not index:
         st.info("No sessions found for this student." if current_sid is not None else "No sessions found.")
         return
 
     labels = [r.get("title","(untitled)") for r in index]
-    choice_idx = st.selectbox(
-        "Saved sessions",
-        options=list(range(len(index))),
-        format_func=lambda i: labels[i],
-        key="sess_choice",
-    )
+    choice_idx = st.selectbox("Saved sessions", options=list(range(len(index))), format_func=lambda i: labels[i], key="sess_choice")
     chosen = index[choice_idx]
     sid = str(chosen.get("id",""))
 
-    b1, b2, b3 = st.columns([1.2, 1.0, 1.0])
+    b1, b2 = st.columns([1,1])
     with b1:
         if st.button("📂 Open (view-only)", use_container_width=True, key="sess_open"):
             payload = _load_session_payload_by_id(sid)
             if payload:
                 st.session_state["advising_loaded_payload"] = payload
                 st.success("Loaded archived session below (read-only).")
-
     with b2:
-        confirm = st.checkbox("Confirm delete", key="confirm_delete_session", value=False)
-        if st.button("🗑️ Delete selected", use_container_width=True, disabled=not confirm, key="delete_selected_session"):
-            # Remove from index + Drive
-            try:
-                # remove from local index
-                st.session_state.advising_index = [r for r in st.session_state.advising_index if str(r.get("id","")) != sid]
-                _save_index(st.session_state.advising_index)
-                st.success("🗑️ Selected session deleted.")
-                st.session_state.pop("advising_loaded_payload", None)
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ Failed to delete session: {e}")
+        confirm = st.checkbox("Confirm delete (index only)", key="sess_del_confirm", value=False)
+        if st.button("🗑️ Delete from index", use_container_width=True, disabled=not confirm, key="sess_del"):
+            st.session_state.advising_index = [r for r in st.session_state.advising_index if str(r.get("id","")) != sid]
+            _save_index(st.session_state.advising_index)
+            st.session_state.pop("advising_loaded_payload", None)
+            st.success("Deleted from index.")
+            st.rerun()
 
-    with b3:
-        # Delete all for this student
-        confirm_all = st.checkbox("Confirm delete all for this student", key="confirm_delete_all_student", value=False)
-        if st.button("🗑️ Delete ALL for this student", use_container_width=True, disabled=not confirm_all, key="delete_all_for_student"):
-            try:
-                sid_int = int(chosen.get("student_id", -1))
-            except Exception:
-                sid_int = None
-            if sid_int is None:
-                st.warning("Cannot determine student id for bulk delete.")
-            else:
-                st.session_state.advising_index = [r for r in st.session_state.advising_index if int(r.get("student_id",-1)) != sid_int]
-                try:
-                    _save_index(st.session_state.advising_index)
-                except Exception as e:
-                    log_error("Failed saving index after bulk delete", e)
-                st.success("🗑️ All sessions for this student deleted from index.")
-                st.session_state.pop("advising_loaded_payload", None)
-                st.rerun()
-
-    # Render archived snapshot (if any)
+    # Show archived snapshot (read-only)
     payload = st.session_state.get("advising_loaded_payload")
     if payload:
         snapshot = payload.get("snapshot", {})
         students = snapshot.get("students", [])
         if students:
-            s = students[0]  # one student snapshot per session
+            s = students[0]
             st.markdown("### Archived Session (read-only)")
             with st.container(border=True):
                 st.write(
