@@ -1,7 +1,4 @@
 # eligibility_view.py
-# - Live credit counters & limits preserved.
-# - On "Save Selections": writes selections and AUTO-SAVES a per-student session
-#   (new simplified meta/title); no separate "Save Session" anywhere.
 
 from __future__ import annotations
 
@@ -49,6 +46,15 @@ def _sum_credits(codes: list[str], courses_df: pd.DataFrame) -> int:
 
 
 def student_eligibility_view():
+    """
+    Per-student advising & eligibility page.
+
+    Expects in st.session_state:
+      - courses_df
+      - progress_df
+      - advising_selections (dict: ID -> {'advised':[],'optional':[],'note':str})
+      - course_exclusions handled via course_exclusions.ensure_loaded()
+    """
     if "courses_df" not in st.session_state or st.session_state.courses_df.empty:
         st.warning("Courses table not loaded.")
         return
@@ -58,6 +64,7 @@ def student_eligibility_view():
     if "advising_selections" not in st.session_state:
         st.session_state.advising_selections = {}
 
+    # Load per-student exclusions
     ensure_exclusions_loaded()
 
     # ---------- Student picker ----------
@@ -86,11 +93,10 @@ def student_eligibility_view():
         f"**Credits:** {int(total_credits)}  |  **Standing:** {standing}"
     )
 
-    # ---------- Compute statuses ----------
+    # ---------- Build eligibility + justifications dicts (skip hidden) ----------
     status_dict: dict[str, str] = {}
     justification_dict: dict[str, str] = {}
-
-    current_advised_for_checks = list(slot.get("advised", []))
+    current_advised_for_checks = list(slot.get("advised", []))  # used only for eligibility engine
 
     for course_code in st.session_state.courses_df["Course Code"]:
         code = str(course_code)
@@ -102,16 +108,15 @@ def student_eligibility_view():
         status_dict[code] = status
         justification_dict[code] = justification
 
+    # ---------- Build display rows (Required / Intensive split) ----------
     rows = []
-    for course_code in st.session_state.courses_df["Course Code"]:
-        code = str(course_code)
+    for _, info in st.session_state.courses_df.iterrows():
+        code = str(info["Course Code"])
         if code in hidden_for_student:
             continue
-        info = st.session_state.courses_df.loc[
-            st.session_state.courses_df["Course Code"] == course_code
-        ].iloc[0]
-        offered = "Yes" if is_course_offered(st.session_state.courses_df, code) else "No"
-        status = status_dict.get(code, "")
+
+        offered = str(info.get("Offered", "")).strip().lower() == "yes"
+        status = status_dict.get(code, "Not Eligible")
 
         if check_course_completed(student_row, code):
             action = "Completed"
@@ -140,6 +145,8 @@ def student_eligibility_view():
         )
 
     courses_display_df = pd.DataFrame(rows)
+
+    # Split by Type
     req_df = courses_display_df[courses_display_df["Type"] == "Required"].copy()
     int_df = courses_display_df[courses_display_df["Type"] == "Intensive"].copy()
 
@@ -151,15 +158,13 @@ def student_eligibility_view():
         st.markdown("**Intensive Courses**")
         st.dataframe(style_df(int_df), use_container_width=True)
 
-    offered_set = set(
-        map(
-            str,
-            st.session_state.courses_df.loc[
-                st.session_state.courses_df["Offered"].astype(str).str.lower() == "yes",
-                "Course Code",
-            ].tolist(),
-        )
-    )
+    # ---------- Advising selections form (robust defaults; skip hidden) ----------
+    offered_set = {
+        str(c) for c in st.session_state.courses_df.loc[
+            st.session_state.courses_df["Offered"].astype(str).str.lower() == "yes",
+            "Course Code",
+        ].tolist()
+    }
 
     def _eligible_for_selection() -> list[str]:
         elig: list[str] = []
@@ -183,94 +188,87 @@ def student_eligibility_view():
     default_advised = [c for c in saved_advised if c in opts_set]
     dropped_advised = sorted(set(saved_advised) - set(default_advised))
 
-    advised_selection = st.multiselect(
-        "Advised Courses",
-        options=eligible_options,
-        default=default_advised,
-        key=f"advised_ms_{selected_student_id}",
-    )
-
-    opt_options_live = [c for c in eligible_options if c not in advised_selection]
-    opt_space_set = set(opt_options_live)
+    opt_space_now = [c for c in eligible_options if c not in default_advised]
+    opt_space_set = set(opt_space_now)
     default_optional = [c for c in saved_optional if c in opt_space_set]
     dropped_optional = sorted(set(saved_optional) - set(default_optional))
-
-    optional_selection = st.multiselect(
-        "Optional Courses",
-        options=opt_options_live,
-        default=default_optional,
-        key=f"optional_ms_{selected_student_id}",
-    )
-
-    note_input = st.text_area(
-        "Advisor Note (optional)",
-        value=slot.get("note", ""),
-        key=f"note_{selected_student_id}",
-    )
-
-    if dropped_advised or dropped_optional:
-        with st.expander("Some previously saved selections aren’t available this term"):
-            if dropped_advised:
-                st.write("**Advised (previously saved but not available now):** ", ", ".join(dropped_advised))
-            if dropped_optional:
-                st.write("**Optional (previously saved but not available now):** ", ", ".join(dropped_optional))
-            st.caption(
-                "Courses may be hidden, not offered, already completed/registered, "
-                "or removed from the current courses table."
-            )
 
     major = st.session_state.get("current_major", "")
     limits = _get_limits_for_major(major)
 
-    advised_credits = _sum_credits(advised_selection, st.session_state.courses_df)
-    optional_credits = _sum_credits(optional_selection, st.session_state.courses_df)
-    total_selected = advised_credits + optional_credits
-
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.metric("Advised Credits", advised_credits)
-        if limits.get("advised_max") and advised_credits > int(limits["advised_max"]):
-            st.warning(f"Advised exceeds limit ({limits['advised_max']}).")
-    with c2:
-        st.metric("Optional Credits", optional_credits)
-        if limits.get("optional_max") and optional_credits > int(limits["optional_max"]):
-            st.warning(f"Optional exceeds limit ({limits['optional_max']}).")
-    with c3:
-        st.metric("Total Selected", total_selected)
-        if limits.get("total_max") and total_selected > int(limits["total_max"]):
-            st.error(f"Total exceeds limit ({limits['total_max']}).")
-
-    if not limits:
-        st.caption(
-            "Tip: set per-major limits in secrets to enable warnings, e.g.\n"
-            "[advising.credit_limits.PBHL]\n"
-            "advised_max = 18\noptional_max = 12\ntotal_max = 21"
+    with st.form(key=f"advise_form_{selected_student_id}"):
+        advised_selection = st.multiselect(
+            "Advised Courses",
+            options=eligible_options,
+            default=default_advised,
+            key=f"advised_ms_{selected_student_id}",
+        )
+        optional_selection = st.multiselect(
+            "Optional Courses",
+            options=[c for c in eligible_options if c not in advised_selection],
+            default=[c for c in default_optional if c not in advised_selection],
+            key=f"optional_ms_{selected_student_id}",
+        )
+        note_input = st.text_area(
+            "Advisor Note (optional)",
+            value=slot.get("note", ""),
+            key=f"note_{selected_student_id}",
         )
 
-    # ---------- Save selections + AUTO-SAVE session ----------
-    if st.button("Save Selections", key=f"save_{selected_student_id}"):
-        # Persist in memory (includes NOTE)
-        st.session_state.advising_selections[selected_student_id] = {
-            "advised": advised_selection,
-            "optional": optional_selection,
-            "note": note_input,
-        }
-        log_info(f"Saved selections for {selected_student_id}")
+        if dropped_advised or dropped_optional:
+            with st.expander("Some saved selections aren’t available this term"):
+                if dropped_advised:
+                    st.write("**Advised (previously saved but not available now):** ", ", ".join(dropped_advised))
+                if dropped_optional:
+                    st.write("**Optional (previously saved but not available now):** ", ", ".join(dropped_optional))
+                st.caption(
+                    "Courses not shown could be hidden, not offered, already completed/registered, "
+                    "or removed from the current courses table."
+                )
 
-        # Auto-save a per-student session (title = date/time + student)
-        try:
-            from advising_history import autosave_current_student_session
-            session_id = autosave_current_student_session()
-            if session_id:
-                st.toast("✅ Auto-saved advising session", icon="💾")
-            else:
-                st.toast("Saved selections (session auto-save skipped)", icon="ℹ️")
-        except Exception as e:
-            st.toast("Saved selections (session auto-save failed)", icon="⚠️")
-            log_error("Autosave advising session failed", e)
+        # Live credit counters
+        advised_credits = _sum_credits(advised_selection, st.session_state.courses_df)
+        optional_credits = _sum_credits(optional_selection, st.session_state.courses_df)
+        total_selected = advised_credits + optional_credits
 
-        st.success("Selections saved.")
-        st.rerun()
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric("Advised Credits", advised_credits)
+            if limits.get("advised_max") and advised_credits > int(limits["advised_max"]):
+                st.warning(f"Advised exceeds limit ({limits['advised_max']}).")
+        with c2:
+            st.metric("Optional Credits", optional_credits)
+            if limits.get("optional_max") and optional_credits > int(limits["optional_max"]):
+                st.warning(f"Optional exceeds limit ({limits['optional_max']}).")
+        with c3:
+            st.metric("Total Selected", total_selected)
+            if limits.get("total_max") and total_selected > int(limits["total_max"]):
+                st.error(f"Total exceeds limit ({limits['total_max']}).")
+
+        submitted = st.form_submit_button("Save Selections")
+        if submitted:
+            # Persist current selection (includes NOTE)
+            st.session_state.advising_selections[selected_student_id] = {
+                "advised": advised_selection,
+                "optional": optional_selection,
+                "note": note_input,
+            }
+            log_info(f"Saved selections for {selected_student_id}")
+
+            # Auto-save a per-student session (title = date/time + student)
+            try:
+                from advising_history import autosave_current_student_session
+                session_id = autosave_current_student_session()
+                if session_id:
+                    st.toast("✅ Auto-saved advising session", icon="💾")
+                else:
+                    st.toast("Saved selections (session auto-save skipped)", icon="ℹ️")
+            except Exception as e:
+                st.toast("Saved selections (session auto-save failed)", icon="⚠️")
+                log_error("Autosave advising session failed", e)
+
+            st.success("Selections saved.")
+            st.rerun()
 
     # ---------- Per-student hidden courses ----------
     with st.expander("Hidden courses for this student"):
@@ -288,15 +286,13 @@ def student_eligibility_view():
             st.success("Hidden courses saved for this student.")
             st.rerun()
 
-    # ---------- Download student report (now keeps color formatting) ----------
+    # ---------- Download student report (keeps color formatting) ----------
     st.subheader("Download Advising Report")
     if st.button("Download Student Report"):
         report_df = courses_display_df.copy()
         output = BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             report_df.to_excel(writer, index=False, sheet_name="Advising")
-        # Enhanced formatting (colors, header, note included)
-        from reporting import apply_excel_formatting
         apply_excel_formatting(
             output=output,
             student_name=str(student_row["NAME"]),
@@ -304,8 +300,8 @@ def student_eligibility_view():
             credits_completed=int(credits_completed),
             standing=standing,
             note=st.session_state.advising_selections[selected_student_id].get("note", ""),
-            advised_credits=advised_credits,
-            optional_credits=optional_credits,
+            advised_credits=_sum_credits(slot.get("advised", []), st.session_state.courses_df),
+            optional_credits=_sum_credits(slot.get("optional", []), st.session_state.courses_df),
         )
         st.download_button(
             "Download Excel",
