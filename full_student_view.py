@@ -8,7 +8,7 @@ from utils import (
     check_course_registered,
     check_eligibility,
     get_student_standing,
-    style_df,          # kept (used elsewhere in app)
+    style_df,
     log_info,
     log_error
 )
@@ -22,15 +22,13 @@ _CODE_COLORS = {
     "c":  "#C6E0B4",   # Completed -> light green
     "r":  "#BDD7EE",   # Registered -> light blue
     "a":  "#FFF2CC",   # Advised -> light yellow
+    "o":  "#FFE699",   # Optional -> deeper yellow
     "na": "#E1F0FF",   # Eligible not chosen -> light blue-tint
     "ne": "#F8CECC",   # Not Eligible -> light red
 }
 
 def _style_codes(df: pd.DataFrame, code_cols: list[str]) -> "pd.io.formats.style.Styler":
-    """
-    Return a Styler that colors the code columns based on _CODE_COLORS.
-    Works for both All Students (many rows) and Individual Student (one row).
-    """
+    """Return a Styler that colors the code columns based on _CODE_COLORS."""
     def _bg(v):
         col = _CODE_COLORS.get(str(v).strip().lower())
         return f"background-color: {col}" if col else ""
@@ -71,16 +69,19 @@ def _render_all_students():
     available_courses = st.session_state.courses_df["Course Code"].tolist()
     selected_courses = st.multiselect("Select course columns", options=available_courses, default=available_courses)
 
-    # Build compact status codes
+    # Build compact status codes (now includes 'o' for Optional)
     def status_code(row, course):
         if check_course_completed(row, course):
             return "c"
         if check_course_registered(row, course):
             return "r"
         sel = st.session_state.advising_selections.get(int(row["ID"]), {})
-        advised = (sel.get("advised", []) or []) + (sel.get("optional", []) or [])
+        advised = sel.get("advised", []) or []
+        optional = sel.get("optional", []) or []
         if course in advised:
             return "a"
+        if course in optional:
+            return "o"
         stt, _ = check_eligibility(row, course, advised, st.session_state.courses_df)
         return "na" if stt == "Eligible" else "ne"
 
@@ -89,8 +90,8 @@ def _render_all_students():
 
     display_cols = ["ID", "NAME", "Total Credits Completed", "Standing", "Advising Status"] + selected_courses
 
-    # Show table with legend (now color-coded)
-    st.write("*Legend:* c=Completed, r=Registered, a=Advised, na=Eligible not chosen, ne=Not Eligible")
+    # Show table with legend (now color-coded, includes 'o')
+    st.write("*Legend:* c=Completed, r=Registered, a=Advised, **o=Optional**, na=Eligible not chosen, ne=Not Eligible")
     styled = _style_codes(df[display_cols], selected_courses)
     st.dataframe(styled, use_container_width=True, height=600)
 
@@ -122,28 +123,29 @@ def _render_individual_student():
     available_courses = st.session_state.courses_df["Course Code"].tolist()
     selected_courses = st.multiselect("Select Courses", options=available_courses, default=available_courses, key="indiv_courses")
 
-    # Build status codes for this student
+    # Build status codes for this student (includes 'o')
     data = {"ID": [sid], "NAME": [row["NAME"]]}
+    sel = st.session_state.advising_selections.get(sid, {})
+    advised = sel.get("advised", []) or []
+    optional = sel.get("optional", []) or []
     for c in selected_courses:
         if check_course_completed(row, c):
             data[c] = ["c"]
         elif check_course_registered(row, c):
             data[c] = ["r"]
+        elif c in advised:
+            data[c] = ["a"]
+        elif c in optional:
+            data[c] = ["o"]
         else:
-            sel = st.session_state.advising_selections.get(sid, {})
-            advised = (sel.get("advised", []) or []) + (sel.get("optional", []) or [])
-            if c in advised:
-                data[c] = ["a"]
-            else:
-                stt, _ = check_eligibility(row, c, advised, st.session_state.courses_df)
-                data[c] = ["na" if stt == "Eligible" else "ne"]
+            stt, _ = check_eligibility(row, c, advised, st.session_state.courses_df)
+            data[c] = ["na" if stt == "Eligible" else "ne"]
     indiv_df = pd.DataFrame(data)
 
-    st.write("*Legend:* c=Completed, r=Registered, a=Advised, na=Eligible not chosen, ne=Not Eligible")
+    st.write("*Legend:* c=Completed, r=Registered, a=Advised, **o=Optional**, na=Eligible not chosen, ne=Not Eligible")
     styled = _style_codes(indiv_df, selected_courses)
     st.dataframe(styled, use_container_width=True)
 
-    # Download colored sheet for this student
     if st.button("Download Individual Report"):
         output = BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
@@ -168,7 +170,6 @@ def _render_individual_student():
             for sid_, sel in all_sel:
                 srow = st.session_state.progress_df.loc[st.session_state.progress_df["ID"] == sid_].iloc[0]
                 data = {"Course Code": [], "Action": [], "Eligibility Status": [], "Justification": []}
-                # Build same grid used in eligibility view for this student (compact)
                 for cc in st.session_state.courses_df["Course Code"]:
                     status, just = check_eligibility(srow, cc, sel.get("advised", []), st.session_state.courses_df)
                     if check_course_completed(srow, cc):
@@ -177,6 +178,8 @@ def _render_individual_student():
                         action = "Registered"
                     elif cc in sel.get("advised", []):
                         action = "Advised"
+                    elif cc in (sel.get("optional", []) or []):
+                        action = "Optional"
                     else:
                         action = "Eligible not chosen" if status == "Eligible" else "Not Eligible"
                     data["Course Code"].append(cc)
@@ -184,7 +187,6 @@ def _render_individual_student():
                     data["Eligibility Status"].append(status)
                     data["Justification"].append(just)
                 pd.DataFrame(data).to_excel(writer, index=False, sheet_name=str(sid_))
-            # Add an index sheet with names/IDs
             index_df = st.session_state.progress_df.loc[st.session_state.progress_df["ID"].isin([sid for sid,_ in all_sel]), ["ID", "NAME"]]
             index_df.to_excel(writer, index=False, sheet_name="Index")
 
@@ -195,7 +197,7 @@ def _render_individual_student():
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
-        # Also sync to Drive (preserving original behavior)
+        # Also sync to Drive
         try:
             service = initialize_drive_service()
             sync_file_with_drive(

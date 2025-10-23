@@ -1,17 +1,19 @@
 # reporting.py
 
-import pandas as pd
 from io import BytesIO
 from typing import List, Optional
+
+import pandas as pd
 from openpyxl import load_workbook
-from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+
 # ============================================================
-# Helpers (shared)
+# Shared helpers
 # ============================================================
 
-def _thin_border():
+def _thin_border() -> Border:
     return Border(
         left=Side(style="thin", color="CCCCCC"),
         right=Side(style="thin", color="CCCCCC"),
@@ -45,7 +47,7 @@ def _wrap_and_top_align(ws, col_idx: int, header_row: int) -> None:
 def _find_header_row(ws) -> Optional[int]:
     """
     Try to find the table header by scanning for a row that contains 'Course Code'.
-    Fall back to row 10 (common after we insert 8 rows).
+    Fall back to row 10 (common after we insert 8 rows above).
     """
     for r in range(1, min(25, ws.max_row) + 1):
         vals = [str(c.value or "").strip().lower() for c in ws[r]]
@@ -53,8 +55,9 @@ def _find_header_row(ws) -> Optional[int]:
             return r
     return 10 if ws.max_row >= 10 else 1
 
+
 # ============================================================
-# Single-student advising sheet (used by Eligibility "Download")
+# Single-student advising sheet (Eligibility → Download)
 # ============================================================
 
 def apply_excel_formatting(
@@ -98,6 +101,7 @@ def apply_excel_formatting(
 
     # Column widths + wrapping for Justification
     header_map = {str(ws.cell(row=header_row, column=c).value or ""): c for c in range(1, ws.max_column + 1)}
+
     def _w(name: str, width: float):
         col = header_map.get(name)
         if col:
@@ -128,22 +132,23 @@ def apply_excel_formatting(
     wb.save(output)
     output.seek(0)
 
+
 # ============================================================
-# Full cohort: “All Students” exports (used by full_student_view)
-# Keep these to satisfy the imports from full_student_view.py
+# Full cohort (Full Student View exports)
 # ============================================================
 
-# Code -> fill color for status grid in cohort exports
+# Code -> fill color for status grid in cohort exports (includes 'o' for Optional)
 _CODE_FILL = {
     "c":  "C6E0B4",  # Completed
     "r":  "BDD7EE",  # Registered
     "a":  "FFF2CC",  # Advised
+    "o":  "FFE699",  # Optional
     "na": "E1F0FF",  # Eligible not chosen
     "ne": "F8CECC",  # Not Eligible
 }
 
 def _apply_code_grid_colors(ws, course_cols: List[str], header_row: int = 1) -> None:
-    """Color cells that contain status codes (c/r/a/na/ne) for the given course columns."""
+    """Color cells that contain status codes (c/r/a/o/na/ne) for the given course columns."""
     header = [str(c.value or "") for c in ws[header_row]]
     name_to_idx = {name: i + 1 for i, name in enumerate(header)}
     targets = [name_to_idx[c] for c in course_cols if c in name_to_idx]
@@ -159,7 +164,8 @@ def apply_full_report_formatting(*, output: BytesIO, sheet_name: str, course_col
       - Style first row as header
       - Freeze panes below header
       - Borders
-      - Color code c/r/a/na/ne in the provided course columns
+      - Color code c/r/a/o/na/ne in the provided course columns
+      - AutoFilter
     """
     output.seek(0)
     wb = load_workbook(output)
@@ -182,7 +188,8 @@ def apply_individual_compact_formatting(*, output: BytesIO, sheet_name: str, cou
       - Style first row as header
       - Freeze panes below header
       - Borders
-      - Color code c/r/a/na/ne in the provided course columns
+      - Color code c/r/a/o/na/ne in the provided course columns
+      - AutoFilter
     """
     output.seek(0)
     wb = load_workbook(output)
@@ -199,15 +206,16 @@ def apply_individual_compact_formatting(*, output: BytesIO, sheet_name: str, cou
     wb.save(output)
     output.seek(0)
 
+
 # ============================================================
-# Summary sheet for cohort export (unchanged)
+# Summary sheet for cohort export
 # ============================================================
 
 def add_summary_sheet(writer, full_report: pd.DataFrame, course_cols: List[str]) -> None:
     """
     Add a 'Summary' sheet to a cohort report.
     Counts per-status for each course among the provided course columns.
-    Recognized codes: c, r, a, na, ne
+    Recognized codes: c, r, a, o, na, ne
     """
     summary_rows = []
     for c in course_cols:
@@ -217,6 +225,7 @@ def add_summary_sheet(writer, full_report: pd.DataFrame, course_cols: List[str])
             "Completed (c)": int(counts.get("c", 0)),
             "Registered (r)": int(counts.get("r", 0)),
             "Advised (a)": int(counts.get("a", 0)),
+            "Optional (o)": int(counts.get("o", 0)),   # NEW
             "Eligible not chosen (na)": int(counts.get("na", 0)),
             "Not Eligible (ne)": int(counts.get("ne", 0)),
         })
