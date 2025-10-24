@@ -59,10 +59,14 @@ with st.expander("⚙️ Advising Utilities"):
             st.session_state.advising_selections = {}
             # Clear the per-major bucket so it persists across reruns
             st.session_state.majors[selected_major]["advising_selections"] = {}
-            # Clear all autoload flags
+            # Clear all autoload flags and student search state
             for key in list(st.session_state.keys()):
-                if key.startswith("_autoloaded_"):
-                    del st.session_state[key]
+                if isinstance(key, str):
+                    if key.startswith("_autoloaded_"):
+                        del st.session_state[key]
+                    # Clear student search selections and queries to return to search view
+                    elif key.startswith("student_search_") or key.startswith("student_select_"):
+                        del st.session_state[key]
             st.success(f"✅ Cleared all advising selections for {selected_major}")
             st.rerun()
     
