@@ -49,11 +49,6 @@ if "majors" not in st.session_state:
 # Choose major up-front
 selected_major = st.selectbox("Major", MAJORS, key="current_major")
 
-# Reset workflow header render flag when major changes
-if st.session_state.get("_last_major") != selected_major:
-    st.session_state._workflow_header_rendered = False
-    st.session_state._last_major = selected_major
-
 # Helpers to map between the current major bucket and the global aliases used elsewhere
 def _sync_globals_from_bucket():
     bucket = st.session_state.majors[selected_major]
