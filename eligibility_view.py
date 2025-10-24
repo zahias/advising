@@ -228,29 +228,11 @@ def student_eligibility_view():
 
     default_advised = [c for c in (slot.get("advised", []) or []) if c in optset]
     default_repeat = [c for c in (slot.get("repeat", []) or []) if c in repeat_opts]
-    default_optional = [c for c in (slot.get("optional", []) or []) if c in optset and c not in default_advised]
+    default_optional = [c for c in (slot.get("optional", []) or []) if c in optset]
 
     # ---------- Save form (explicit autosave for *this* student) ----------
     st.markdown("---")
-    
-    # Header with clear button
-    col_head1, col_head2 = st.columns([3, 1])
-    with col_head1:
-        st.markdown("### Advising Recommendations")
-    with col_head2:
-        if st.button("🗑️ Clear All", help="Clear all advising recommendations for this student", key=f"clear_{norm_sid}"):
-            # Clear all selections including repeat courses and notes
-            st.session_state.advising_selections[norm_sid] = {"advised": [], "optional": [], "repeat": [], "note": ""}
-            
-            # Also save the cleared state to Drive
-            save_session_for_student(norm_sid)
-            
-            # Clear widget state to force multiselects to refresh
-            for key in list(st.session_state.keys()):
-                if key.startswith(f"advised_ms_{norm_sid}") or key.startswith(f"repeat_ms_{norm_sid}") or key.startswith(f"optional_ms_{norm_sid}") or key.startswith(f"note_{norm_sid}"):
-                    del st.session_state[key]
-            
-            st.rerun()
+    st.markdown("### Advising Recommendations")
     
     with st.form(key=f"advise_form_{norm_sid}"):
         advised_selection = st.multiselect(
@@ -260,12 +242,14 @@ def student_eligibility_view():
             "Repeat Courses (Completed or Registered)", options=repeat_opts, default=default_repeat, key=f"repeat_ms_{norm_sid}",
             help="Select courses that the student should repeat"
         )
+        # Optional courses - filter options to exclude currently advised courses
+        available_for_optional = [c for c in eligible_opts if c not in advised_selection]
         optional_selection = st.multiselect(
             "Optional Courses",
-            options=[c for c in eligible_opts if c not in advised_selection],
-            default=[c for c in default_optional if c not in advised_selection],
+            options=available_for_optional,
+            default=[c for c in default_optional if c in available_for_optional],
             key=f"optional_ms_{norm_sid}",
-            help="Additional courses to suggest (excludes courses already advised)"
+            help="Additional courses to suggest (excludes courses currently in advised)"
         )
         note_input = st.text_area(
             "Advisor Note (optional)", value=slot.get("note", ""), key=f"note_{norm_sid}"
@@ -284,17 +268,11 @@ def student_eligibility_view():
             download_clicked = st.form_submit_button("📥 Download Report", width='stretch')
         
         if submitted or email_clicked or download_clicked:
-            # Ensure no overlaps between advised, repeat, and optional
-            # Priority: repeat > advised > optional
-            final_repeat = list(repeat_selection)
-            final_advised = [c for c in advised_selection if c not in final_repeat]
-            final_optional = [c for c in optional_selection if c not in final_advised and c not in final_repeat]
-            
-            # Save selections first
+            # Save selections exactly as the user selected them
             st.session_state.advising_selections[norm_sid] = {
-                "advised": final_advised,
-                "repeat": final_repeat,
-                "optional": final_optional,
+                "advised": list(advised_selection),
+                "repeat": list(repeat_selection),
+                "optional": list(optional_selection),
                 "note": note_input,
             }
 
@@ -324,9 +302,9 @@ def student_eligibility_view():
                         to_email=student_email,
                         student_name=str(student_row["NAME"]),
                         student_id=str(norm_sid),
-                        advised_courses=final_advised,
-                        repeat_courses=final_repeat,
-                        optional_courses=final_optional,
+                        advised_courses=list(advised_selection),
+                        repeat_courses=list(repeat_selection),
+                        optional_courses=list(optional_selection),
                         note=note_input,
                         courses_df=st.session_state.courses_df,
                         remaining_credits=int(cr_remaining),
