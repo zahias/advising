@@ -19,13 +19,19 @@ This is a **Streamlit-based Advising Dashboard** for Phoenix University that hel
 
 ## Recent Changes
 
+### 2025-10-24: Major-Specific Folder Structure
+- ✅ **Folder Hierarchy**: Reorganized Google Drive to use major-specific folders (`{ROOT}/PBHL/`, `{ROOT}/SPTH-New/`, `{ROOT}/SPTH-Old/`)
+- ✅ **File Organization**: Files now organized by folder instead of filename prefix (e.g., `PBHL/courses_table.xlsx` instead of `PBHL_courses_table.xlsx`)
+- ✅ **No More Duplicates**: Removed versioned backups - uploads now replace existing files instead of creating timestamped duplicates
+- ✅ **Persistent Sessions**: Advising sessions save to major-specific folders and persist across file uploads and page refreshes
+- ✅ **Automated Folders**: Major folders are created automatically on first use
+
 ### 2025-10-24: Performance Optimizations & Bug Fixes
 - ✅ **Drive Performance**: Implemented service caching and file download caching to eliminate redundant API calls
 - ✅ **Autoload Fixed**: Files now automatically load from Drive when available for each major
 - ✅ **SSL Retry Logic**: Added 3-attempt retry with 2-second delays for intermittent SSL errors during uploads
 - ✅ **Secrets Safety**: Fixed crashes when Drive isn't configured - app now gracefully handles missing secrets
 - ✅ **Local-First Sessions**: Advising sessions save instantly to local cache, then sync to Drive in background
-- ✅ **File Replacement**: Confirmed uploaded files replace existing ones (no duplicates)
 
 ### 2025-10-24: Initial Replit Setup
 - ✅ Installed Python 3.11 and all required packages
@@ -68,11 +74,11 @@ This is a **Streamlit-based Advising Dashboard** for Phoenix University that hel
 ### Key Features
 1. **Multi-Major Support**: Track data separately for PBHL, SPTH-New, SPTH-Old
 2. **Course Eligibility**: Automatic checking based on prerequisites, corequisites, concurrent requirements, and student standing
-3. **Google Drive Sync**: Optional cloud backup with versioning
+3. **Google Drive Sync**: Optional cloud backup with major-specific folder organization
 4. **Student Views**: 
    - Eligibility view (which courses students can take)
    - Full student view (complete progress tracking)
-5. **Advising Sessions**: Track advisor recommendations and notes per student
+5. **Advising Sessions**: Track advisor recommendations and notes per student (persists across sessions)
 
 ---
 
@@ -94,9 +100,27 @@ The app can sync with Google Drive for data backup and collaboration. To enable:
    - `GOOGLE_CLIENT_ID` = your-client-id
    - `GOOGLE_CLIENT_SECRET` = your-client-secret
    - `GOOGLE_REFRESH_TOKEN` = your-refresh-token
-   - `GOOGLE_FOLDER_ID` = your-drive-folder-id
+   - `GOOGLE_FOLDER_ID` = your-root-drive-folder-id
 
-**Important**: The app works perfectly without Google Drive - you can upload files directly through the sidebar.
+**Folder Structure**: The app automatically creates major-specific subfolders:
+```
+{ROOT_FOLDER}/
+├── PBHL/
+│   ├── courses_table.xlsx
+│   ├── progress_report.xlsx
+│   ├── exclusions.json
+│   ├── advising_index.json
+│   └── advising_session_{id}.json
+├── SPTH-New/
+│   └── (same structure)
+└── SPTH-Old/
+    └── (same structure)
+```
+
+**Important**: 
+- The app works perfectly without Google Drive - you can upload files directly through the sidebar
+- Files uploaded to Drive replace existing versions (no duplicates or backups)
+- Advising sessions are automatically saved to major-specific folders
 
 ---
 
@@ -108,9 +132,11 @@ The app starts automatically via the Streamlit workflow. Access it through the w
 ### Uploading Data
 1. **Select a major** from the dropdown (PBHL, SPTH-New, SPTH-Old)
 2. **Upload files** via the sidebar:
-   - Courses Table: `{MAJOR}_courses_table.xlsx`
-   - Progress Report: `{MAJOR}_progress_report.xlsx` (can have Required + Intensive sheets)
+   - Courses Table: `courses_table.xlsx`
+   - Progress Report: `progress_report.xlsx` (can have Required + Intensive sheets)
    - Advising Selections: Optional CSV/XLSX with advisor recommendations
+
+**Note**: Files are stored in major-specific folders on Google Drive (e.g., `PBHL/courses_table.xlsx`). When you upload a new file, it replaces the existing version - no duplicates are created.
 
 ### Data Format Requirements
 **Courses Table** should include columns:
@@ -172,4 +198,5 @@ To publish:
 ### Data not loading
 - Ensure Excel files match the expected format and column names
 - Check for file upload errors in the sidebar messages
-- Verify the major-specific filenames (e.g., `PBHL_courses_table.xlsx`)
+- Verify files are uploaded with the correct base names (`courses_table.xlsx`, `progress_report.xlsx`)
+- If using Google Drive, check that the major-specific folders were created correctly
