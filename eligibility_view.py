@@ -1,5 +1,4 @@
 # eligibility_view.py
-
 from __future__ import annotations
 
 import streamlit as st
@@ -27,8 +26,10 @@ from course_exclusions import (
 from advising_history import save_session_for_student
 
 
+# ---------- helpers ----------
+
 def _norm_id(v: Any):
-    """Use int IDs when possible; else fallback to str."""
+    """Prefer int IDs; otherwise keep as str."""
     try:
         return int(v)
     except Exception:
@@ -51,8 +52,10 @@ def _sum_credits(codes: List[str]) -> int:
     return int(total)
 
 
+# ---------- main panel ----------
+
 def student_eligibility_view():
-    """Per-student advising & eligibility."""
+    """Per-student advising & eligibility (Option A: stay on same student after save)."""
     if "courses_df" not in st.session_state or st.session_state.courses_df.empty:
         st.warning("Courses table not loaded.")
         return
@@ -64,38 +67,51 @@ def student_eligibility_view():
 
     ensure_exclusions_loaded()
 
-    # ---------- Student picker (explicit per-student keys) ----------
+    # ---------- Student picker with persistent selection ----------
     students_df = st.session_state.progress_df.copy()
     students_df["DISPLAY"] = students_df["NAME"].astype(str) + " — " + students_df["ID"].astype(str)
-    choice = st.selectbox("Select a student", students_df["DISPLAY"].tolist(), key="elig_select_student")
+    options = students_df["DISPLAY"].tolist()
+
+    # keep last choice across reruns; initialize once
+    if "selected_student" not in st.session_state or st.session_state.selected_student not in options:
+        st.session_state.selected_student = options[0] if options else ""
+
+    choice = st.selectbox(
+        "Select a student",
+        options=options,
+        index=options.index(st.session_state.selected_student),
+        key="eligibility_student_select_box",
+    )
+    # persist chosen display string (so rerun keeps the same student)
+    st.session_state.selected_student = choice
+
     selected_student_id = students_df.loc[students_df["DISPLAY"] == choice, "ID"].iloc[0]
     norm_sid = _norm_id(selected_student_id)
 
-    # keep other panels aware (doesn't affect saving)
+    # let other panels know, but we never rely on this to save
     st.session_state["current_student_id"] = norm_sid
 
-    # find the row for this student, robust to id dtype
-    try:
-        student_row = st.session_state.progress_df.loc[st.session_state.progress_df["ID"] == norm_sid].iloc[0]
-    except Exception:
-        student_row = st.session_state.progress_df.loc[
-            st.session_state.progress_df["ID"].astype(str) == str(norm_sid)
-        ].iloc[0]
+    # robust row fetch
+    pdf = st.session_state.progress_df
+    row = pdf.loc[pdf["ID"] == norm_sid]
+    if row.empty:
+        row = pdf.loc[pdf["ID"].astype(str) == str(norm_sid)]
+    student_row = row.iloc[0]
 
     hidden_for_student = set(map(str, get_for_student(norm_sid)))
 
-    # ensure per-student advising slot uses the normalized key
+    # per-student advising slot
     sels = st.session_state.advising_selections
     slot = sels.get(norm_sid)
     if slot is None:
-        # migrate from alternate key if present
-        alt_key = str(norm_sid) if isinstance(norm_sid, int) else None
-        if alt_key is not None and alt_key in sels:
-            slot = sels.pop(alt_key)
-            sels[norm_sid] = slot
+        # migrate if a stray str/int key exists
+        alt = sels.get(str(norm_sid)) if isinstance(norm_sid, int) else None
+        if alt:
+            slot = alt
+            sels.pop(str(norm_sid))
         else:
             slot = {"advised": [], "optional": [], "note": ""}
-            sels[norm_sid] = slot
+        sels[norm_sid] = slot
 
     # header stats
     cr_comp = float(student_row.get("# of Credits Completed", 0) or 0)
@@ -122,7 +138,7 @@ def student_eligibility_view():
         status_dict[code] = status
         justification_dict[code] = justification
 
-    # ---------- Build display rows (screen shows ONLY Advised / Optional in Action) ----------
+    # ---------- Build display rows (screen Action shows ONLY Advised / Optional) ----------
     rows = []
     for _, info in st.session_state.courses_df.iterrows():
         code = str(info["Course Code"])
@@ -185,7 +201,7 @@ def student_eligibility_view():
     default_advised = [c for c in (slot.get("advised", []) or []) if c in optset]
     default_optional = [c for c in (slot.get("optional", []) or []) if c in optset and c not in default_advised]
 
-    # ---------- Save form (EXPLICIT autosave for this student) ----------
+    # ---------- Save form (explicit autosave for *this* student) ----------
     with st.form(key=f"advise_form_{norm_sid}"):
         advised_selection = st.multiselect(
             "Advised Courses", options=eligible_opts, default=default_advised, key=f"advised_ms_{norm_sid}"
@@ -208,16 +224,17 @@ def student_eligibility_view():
                 "note": note_input,
             }
 
-            # EXPLICIT autosave for this student (no globals)
+            # EXPLICIT autosave for this student (no reliance on globals)
             session_id = save_session_for_student(norm_sid)
             if session_id:
                 st.toast(f"✅ Auto-saved session for {student_row['NAME']} ({norm_sid})", icon="💾")
             else:
                 st.toast("⚠️ Saved picks but autosave failed (see logs)", icon="⚠️")
 
+            # Option A: stay on this student (selected_student already persisted)
             st.rerun()
 
-    # ---------- Hidden courses manager (preserves existing behavior) ----------
+    # ---------- Hidden courses manager (unchanged) ----------
     with st.expander("Hidden courses for this student"):
         all_codes = sorted(map(str, st.session_state.courses_df["Course Code"].tolist()))
         def_hidden = [c for c in all_codes if c in hidden_for_student]

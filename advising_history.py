@@ -36,12 +36,10 @@ except Exception:
 __all__ = ["advising_history_panel", "autosave_current_student_session", "save_session_for_student"]
 
 
-# ----------------- helpers -----------------
+# ---------- internal helpers ----------
 
 def _now_beirut() -> datetime:
-    if _LOCAL_TZ:
-        return datetime.now(_LOCAL_TZ)
-    return datetime.now()
+    return datetime.now(_LOCAL_TZ) if _LOCAL_TZ else datetime.now()
 
 def _index_name() -> str:
     major = st.session_state.get("current_major", "DEFAULT")
@@ -52,7 +50,7 @@ def _session_filename(session_id: str) -> str:
     return f"advising_session_{major}_{session_id}.json"
 
 
-# ----------------- index I/O -----------------
+# ---------- index I/O ----------
 
 def _load_index() -> List[Dict[str, Any]]:
     try:
@@ -79,7 +77,7 @@ def _save_index(index_items: List[Dict[str, Any]]) -> None:
         log_error("Failed to save advising index", e)
 
 
-# ----------------- session payload I/O -----------------
+# ---------- session payload I/O ----------
 
 def _save_session_payload(session_id: str, snapshot: Dict[str, Any], meta: Dict[str, Any]) -> None:
     try:
@@ -105,7 +103,7 @@ def _load_session_payload_by_id(session_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-# ----------------- snapshot building -----------------
+# ---------- snapshot builders ----------
 
 def _snapshot_courses_table() -> List[Dict[str, Any]]:
     df = st.session_state.get("courses_df", pd.DataFrame())
@@ -182,7 +180,7 @@ def _build_single_student_snapshot(student_id: Union[int, str]) -> Dict[str, Any
     sel = (
         selections.get(student_id)
         or selections.get(str(student_id))
-        or selections.get(int(student_id)) if str(student_id).isdigit() else {}
+        or (selections.get(int(student_id)) if str(student_id).isdigit() else None)
         or {}
     )
 
@@ -210,7 +208,7 @@ def _build_single_student_snapshot(student_id: Union[int, str]) -> Dict[str, Any
     }
 
 
-# ----------------- public save APIs -----------------
+# ---------- public save APIs ----------
 
 def save_session_for_student(student_id: Union[int, str]) -> Optional[str]:
     """
@@ -270,7 +268,7 @@ def autosave_current_student_session() -> Optional[str]:
     return save_session_for_student(sid)
 
 
-# ----------------- panel UI (unchanged behavior) -----------------
+# ---------- panel UI ----------
 
 def advising_history_panel():
     st.markdown("---")
