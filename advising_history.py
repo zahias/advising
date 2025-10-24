@@ -35,7 +35,7 @@ try:
 except Exception:
     _LOCAL_TZ = None
 
-__all__ = ["advising_history_panel", "autosave_current_student_session", "save_session_for_student"]
+__all__ = ["advising_history_panel", "autosave_current_student_session", "save_session_for_student", "_find_latest_session_for_student", "_load_session_and_apply"]
 
 
 # ---------- internal helpers ----------
@@ -352,6 +352,73 @@ def autosave_current_student_session() -> Optional[str]:
         log_error("autosave_current_student_session: no current_student_id", Exception("no_current_student"))
         return None
     return save_session_for_student(sid)
+
+
+def _find_latest_session_for_student(student_id: Union[int, str]) -> Optional[Dict[str, Any]]:
+    """
+    Find the most recent advising session for a given student.
+    Returns the session metadata if found, None otherwise.
+    """
+    if "advising_index" not in st.session_state:
+        st.session_state.advising_index = _load_index()
+    
+    index = st.session_state.advising_index or []
+    
+    # Filter sessions for this student
+    student_sessions = [
+        r for r in index 
+        if str(r.get("student_id", "")) == str(student_id)
+    ]
+    
+    if not student_sessions:
+        return None
+    
+    # Sort by created_at (most recent first)
+    student_sessions.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+    
+    return student_sessions[0]
+
+
+def _load_session_and_apply(student_id: Union[int, str]) -> bool:
+    """
+    Load the most recent advising session for a student and apply it to the current state.
+    Returns True if a session was loaded, False otherwise.
+    """
+    latest_session = _find_latest_session_for_student(student_id)
+    
+    if not latest_session:
+        return False
+    
+    session_id = latest_session.get("id")
+    if not session_id:
+        return False
+    
+    # Load the session payload
+    payload = _load_session_payload_by_id(session_id)
+    if not payload:
+        return False
+    
+    snapshot = payload.get("snapshot", {})
+    students = snapshot.get("students", [])
+    
+    if not students:
+        return False
+    
+    student_data = students[0]
+    
+    # Apply to advising_selections
+    if "advising_selections" not in st.session_state:
+        st.session_state.advising_selections = {}
+    
+    st.session_state.advising_selections[student_id] = {
+        "advised": student_data.get("advised", []),
+        "optional": student_data.get("optional", []),
+        "repeat": student_data.get("repeat", []),  # Support new repeat field
+        "note": student_data.get("note", ""),
+    }
+    
+    log_info(f"Auto-loaded most recent session for student {student_id}")
+    return True
 
 
 # ---------- panel UI ----------
