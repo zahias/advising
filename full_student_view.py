@@ -16,19 +16,22 @@ from google_drive import sync_file_with_drive, initialize_drive_service
 from reporting import add_summary_sheet, apply_full_report_formatting, apply_individual_compact_formatting
 
 # -----------------------------
-# Color map (aligned with Advising table)
+# Color map for compact codes (now includes 'o' = Optional)
 # -----------------------------
 _CODE_COLORS = {
     "c":  "#C6E0B4",   # Completed -> light green
     "r":  "#BDD7EE",   # Registered -> light blue
     "a":  "#FFF2CC",   # Advised -> light yellow
-    "o":  "#FFE699",   # Optional -> deeper yellow
+    "o":  "#FFE699",   # Optional -> light orange
     "na": "#E1F0FF",   # Eligible not chosen -> light blue-tint
     "ne": "#F8CECC",   # Not Eligible -> light red
 }
 
 def _style_codes(df: pd.DataFrame, code_cols: list[str]) -> "pd.io.formats.style.Styler":
-    """Return a Styler that colors the code columns based on _CODE_COLORS."""
+    """
+    Return a Styler that colors the code columns based on _CODE_COLORS.
+    Works for both All Students (many rows) and Individual Student (one row).
+    """
     def _bg(v):
         col = _CODE_COLORS.get(str(v).strip().lower())
         return f"background-color: {col}" if col else ""
@@ -64,25 +67,31 @@ def _render_all_students():
     df["Total Credits Completed"] = df.get("# of Credits Completed", 0).fillna(0).astype(float) + \
                                     df.get("# Registered", 0).fillna(0).astype(float)
     df["Standing"] = df["Total Credits Completed"].apply(get_student_standing)
-    df["Advising Status"] = df["ID"].apply(lambda sid: "Advised" if st.session_state.advising_selections.get(int(sid), {}).get("advised") else "Not Advised")
+    df["Advising Status"] = df["ID"].apply(
+        lambda sid: "Advised" if st.session_state.advising_selections.get(int(sid), {}).get("advised") else "Not Advised"
+    )
 
     available_courses = st.session_state.courses_df["Course Code"].tolist()
     selected_courses = st.multiselect("Select course columns", options=available_courses, default=available_courses)
 
-    # Build compact status codes (now includes 'o' for Optional)
+    # Build compact status codes (now distinguishes Optional = 'o')
     def status_code(row, course):
+        sid = int(row["ID"])
+        sel = st.session_state.advising_selections.get(sid, {})
+        advised_list = sel.get("advised", []) or []
+        optional_list = sel.get("optional", []) or []
+
         if check_course_completed(row, course):
             return "c"
         if check_course_registered(row, course):
             return "r"
-        sel = st.session_state.advising_selections.get(int(row["ID"]), {})
-        advised = sel.get("advised", []) or []
-        optional = sel.get("optional", []) or []
-        if course in advised:
-            return "a"
-        if course in optional:
+        if course in optional_list:
             return "o"
-        stt, _ = check_eligibility(row, course, advised, st.session_state.courses_df)
+        if course in advised_list:
+            return "a"
+
+        # Not selected; compute eligibility relative to advised_list (not optional)
+        stt, _ = check_eligibility(row, course, advised_list, st.session_state.courses_df)
         return "na" if stt == "Eligible" else "ne"
 
     for c in selected_courses:
@@ -90,18 +99,18 @@ def _render_all_students():
 
     display_cols = ["ID", "NAME", "Total Credits Completed", "Standing", "Advising Status"] + selected_courses
 
-    # Show table with legend (now color-coded, includes 'o')
-    st.write("*Legend:* c=Completed, r=Registered, a=Advised, **o=Optional**, na=Eligible not chosen, ne=Not Eligible")
+    # Show table with legend (now includes 'o')
+    st.write("*Legend:* c=Completed, r=Registered, a=Advised, o=Optional, na=Eligible not chosen, ne=Not Eligible")
     styled = _style_codes(df[display_cols], selected_courses)
     st.dataframe(styled, use_container_width=True, height=600)
 
-    # Export full advising report with summary + COLORS in Excel
+    # Export full advising report with summary + COLORS in Excel (includes 'o')
     if st.button("Download Full Advising Report"):
         output = BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             df[display_cols].to_excel(writer, index=False, sheet_name="Full Report")
-            add_summary_sheet(writer, df[display_cols], selected_courses)
-        # Apply color formatting to code columns in the saved workbook
+            add_summary_sheet(writer, df[display_cols], selected_courses)  # includes Optional (o) now
+        # Apply color formatting to code columns in the saved workbook (includes 'o')
         apply_full_report_formatting(output=output, sheet_name="Full Report", course_cols=selected_courses)
         st.download_button(
             "Download Excel",
@@ -117,40 +126,42 @@ def _render_individual_student():
     sid = int(students_df.loc[students_df["DISPLAY"] == choice, "ID"].iloc[0])
     row = students_df.loc[students_df["ID"] == sid].iloc[0]
 
-    # Expose selection for other panels (e.g. sessions default)
+    # Expose selection for other panels (e.g., sessions default)
     st.session_state["current_student_id"] = sid
 
     available_courses = st.session_state.courses_df["Course Code"].tolist()
     selected_courses = st.multiselect("Select Courses", options=available_courses, default=available_courses, key="indiv_courses")
 
-    # Build status codes for this student (includes 'o')
+    # Build status codes for this student (now distinguishes Optional = 'o')
     data = {"ID": [sid], "NAME": [row["NAME"]]}
     sel = st.session_state.advising_selections.get(sid, {})
-    advised = sel.get("advised", []) or []
-    optional = sel.get("optional", []) or []
+    advised_list = sel.get("advised", []) or []
+    optional_list = sel.get("optional", []) or []
+
     for c in selected_courses:
         if check_course_completed(row, c):
             data[c] = ["c"]
         elif check_course_registered(row, c):
             data[c] = ["r"]
-        elif c in advised:
-            data[c] = ["a"]
-        elif c in optional:
+        elif c in optional_list:
             data[c] = ["o"]
+        elif c in advised_list:
+            data[c] = ["a"]
         else:
-            stt, _ = check_eligibility(row, c, advised, st.session_state.courses_df)
+            stt, _ = check_eligibility(row, c, advised_list, st.session_state.courses_df)
             data[c] = ["na" if stt == "Eligible" else "ne"]
-    indiv_df = pd.DataFrame(data)
 
-    st.write("*Legend:* c=Completed, r=Registered, a=Advised, **o=Optional**, na=Eligible not chosen, ne=Not Eligible")
+    indiv_df = pd.DataFrame(data)
+    st.write("*Legend:* c=Completed, r=Registered, a=Advised, o=Optional, na=Eligible not chosen, ne=Not Eligible")
     styled = _style_codes(indiv_df, selected_courses)
     st.dataframe(styled, use_container_width=True)
 
+    # Download colored sheet for this student (compact codes, includes 'o' coloring)
     if st.button("Download Individual Report"):
         output = BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             indiv_df.to_excel(writer, index=False, sheet_name="Student")
-        # Add colors to the code cells
+        # Add colors to the code cells (includes 'o')
         apply_individual_compact_formatting(output=output, sheet_name="Student", course_cols=selected_courses)
         st.download_button(
             "Download Excel",
@@ -167,27 +178,30 @@ def _render_individual_student():
             return
         output = BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            for sid_, sel in all_sel:
+            for sid_, sel_ in all_sel:
                 srow = st.session_state.progress_df.loc[st.session_state.progress_df["ID"] == sid_].iloc[0]
-                data = {"Course Code": [], "Action": [], "Eligibility Status": [], "Justification": []}
+                data_rows = {"Course Code": [], "Action": [], "Eligibility Status": [], "Justification": []}
                 for cc in st.session_state.courses_df["Course Code"]:
-                    status, just = check_eligibility(srow, cc, sel.get("advised", []), st.session_state.courses_df)
+                    status, just = check_eligibility(srow, cc, sel_.get("advised", []), st.session_state.courses_df)
                     if check_course_completed(srow, cc):
                         action = "Completed"; status = "Completed"
                     elif check_course_registered(srow, cc):
                         action = "Registered"
-                    elif cc in sel.get("advised", []):
+                    elif cc in (sel_.get("advised", []) or []):
                         action = "Advised"
-                    elif cc in (sel.get("optional", []) or []):
+                    elif cc in (sel_.get("optional", []) or []):
                         action = "Optional"
                     else:
                         action = "Eligible not chosen" if status == "Eligible" else "Not Eligible"
-                    data["Course Code"].append(cc)
-                    data["Action"].append(action)
-                    data["Eligibility Status"].append(status)
-                    data["Justification"].append(just)
-                pd.DataFrame(data).to_excel(writer, index=False, sheet_name=str(sid_))
-            index_df = st.session_state.progress_df.loc[st.session_state.progress_df["ID"].isin([sid for sid,_ in all_sel]), ["ID", "NAME"]]
+                    data_rows["Course Code"].append(cc)
+                    data_rows["Action"].append(action)
+                    data_rows["Eligibility Status"].append(status)
+                    data_rows["Justification"].append(just)
+                pd.DataFrame(data_rows).to_excel(writer, index=False, sheet_name=str(sid_))
+            # Add an index sheet with names/IDs
+            index_df = st.session_state.progress_df.loc[
+                st.session_state.progress_df["ID"].isin([sid for sid,_ in all_sel]), ["ID", "NAME"]
+            ]
             index_df.to_excel(writer, index=False, sheet_name="Index")
 
         st.download_button(
@@ -197,7 +211,7 @@ def _render_individual_student():
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
-        # Also sync to Drive
+        # Also sync to Drive (preserving original behavior)
         try:
             service = initialize_drive_service()
             sync_file_with_drive(

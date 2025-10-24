@@ -1,19 +1,17 @@
 # reporting.py
 
+import pandas as pd
 from io import BytesIO
 from typing import List, Optional
-
-import pandas as pd
 from openpyxl import load_workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-
 # ============================================================
-# Shared helpers
+# Helpers (shared)
 # ============================================================
 
-def _thin_border() -> Border:
+def _thin_border():
     return Border(
         left=Side(style="thin", color="CCCCCC"),
         right=Side(style="thin", color="CCCCCC"),
@@ -22,7 +20,6 @@ def _thin_border() -> Border:
     )
 
 def _style_header_row(ws, row_idx: int) -> None:
-    """Style the header row with a blue background and white bold text."""
     hdr_fill = PatternFill("solid", fgColor="4F81BD")
     hdr_font = Font(bold=True, color="FFFFFF")
     hdr_align = Alignment(horizontal="center", vertical="center")
@@ -45,16 +42,11 @@ def _wrap_and_top_align(ws, col_idx: int, header_row: int) -> None:
         ws.cell(row=r, column=col_idx).alignment = Alignment(wrap_text=True, vertical="top")
 
 def _find_header_row(ws) -> Optional[int]:
-    """
-    Try to find the table header by scanning for a row that contains 'Course Code'.
-    Fall back to row 10 (common after we insert 8 rows above).
-    """
     for r in range(1, min(25, ws.max_row) + 1):
         vals = [str(c.value or "").strip().lower() for c in ws[r]]
         if "course code" in vals:
             return r
     return 10 if ws.max_row >= 10 else 1
-
 
 # ============================================================
 # Single-student advising sheet (Eligibility → Download)
@@ -80,9 +72,9 @@ def apply_excel_formatting(
     """
     output.seek(0)
     wb = load_workbook(output)
-    ws = wb.active  # sheet name is "Advising"
+    ws = wb.active  # "Advising"
 
-    # Insert info block above the table
+    # Header info block
     ws.insert_rows(1, amount=8)
     ws["A1"] = "Student Advising Report"
     ws["A3"] = "Name:"; ws["B3"] = student_name
@@ -99,9 +91,8 @@ def apply_excel_formatting(
     _auto_filter(ws, header_row)
     _apply_borders(ws, header_row)
 
-    # Column widths + wrapping for Justification
+    # Column widths + wrapping
     header_map = {str(ws.cell(row=header_row, column=c).value or ""): c for c in range(1, ws.max_column + 1)}
-
     def _w(name: str, width: float):
         col = header_map.get(name)
         if col:
@@ -132,12 +123,11 @@ def apply_excel_formatting(
     wb.save(output)
     output.seek(0)
 
-
 # ============================================================
-# Full cohort (Full Student View exports)
+# Full cohort exports (keep to satisfy full_student_view)
 # ============================================================
 
-# Code -> fill color for status grid in cohort exports (includes 'o' for Optional)
+# Status code -> fill color (now includes 'o')
 _CODE_FILL = {
     "c":  "C6E0B4",  # Completed
     "r":  "BDD7EE",  # Registered
@@ -148,7 +138,6 @@ _CODE_FILL = {
 }
 
 def _apply_code_grid_colors(ws, course_cols: List[str], header_row: int = 1) -> None:
-    """Color cells that contain status codes (c/r/a/o/na/ne) for the given course columns."""
     header = [str(c.value or "") for c in ws[header_row]]
     name_to_idx = {name: i + 1 for i, name in enumerate(header)}
     targets = [name_to_idx[c] for c in course_cols if c in name_to_idx]
@@ -160,12 +149,11 @@ def _apply_code_grid_colors(ws, course_cols: List[str], header_row: int = 1) -> 
 
 def apply_full_report_formatting(*, output: BytesIO, sheet_name: str, course_cols: List[str]) -> None:
     """
-    Format the 'Full Report' sheet used by the All Students export:
+    Format the 'Full Report':
       - Style first row as header
       - Freeze panes below header
       - Borders
       - Color code c/r/a/o/na/ne in the provided course columns
-      - AutoFilter
     """
     output.seek(0)
     wb = load_workbook(output)
@@ -184,12 +172,11 @@ def apply_full_report_formatting(*, output: BytesIO, sheet_name: str, course_col
 
 def apply_individual_compact_formatting(*, output: BytesIO, sheet_name: str, course_cols: List[str]) -> None:
     """
-    Format the 'Student' sheet used by the Individual Student compact export:
+    Format the 'Student' compact export:
       - Style first row as header
       - Freeze panes below header
       - Borders
       - Color code c/r/a/o/na/ne in the provided course columns
-      - AutoFilter
     """
     output.seek(0)
     wb = load_workbook(output)
@@ -206,9 +193,8 @@ def apply_individual_compact_formatting(*, output: BytesIO, sheet_name: str, cou
     wb.save(output)
     output.seek(0)
 
-
 # ============================================================
-# Summary sheet for cohort export
+# Summary sheet (now includes Optional (o))
 # ============================================================
 
 def add_summary_sheet(writer, full_report: pd.DataFrame, course_cols: List[str]) -> None:
@@ -225,7 +211,7 @@ def add_summary_sheet(writer, full_report: pd.DataFrame, course_cols: List[str])
             "Completed (c)": int(counts.get("c", 0)),
             "Registered (r)": int(counts.get("r", 0)),
             "Advised (a)": int(counts.get("a", 0)),
-            "Optional (o)": int(counts.get("o", 0)),   # NEW
+            "Optional (o)": int(counts.get("o", 0)),
             "Eligible not chosen (na)": int(counts.get("na", 0)),
             "Not Eligible (ne)": int(counts.get("ne", 0)),
         })
