@@ -23,7 +23,7 @@ from course_exclusions import (
     get_for_student,
     set_for_student,
 )
-from advising_history import save_session_for_student
+from advising_history import save_session_for_student, _load_session_and_apply
 from student_search import render_student_search
 from notification_system import show_notification, show_action_feedback
 
@@ -86,10 +86,7 @@ def student_eligibility_view():
 
     hidden_for_student = set(map(str, get_for_student(norm_sid)))
 
-    # Load most recent advising session for this student (Task 7)
-    from advising_history import _find_latest_session_for_student, _load_session_and_apply
-    
-    # Check if we should auto-load
+    # Auto-load most recent advising session for this student (Task 7)
     if f"_autoloaded_{norm_sid}" not in st.session_state:
         _load_session_and_apply(norm_sid)
         st.session_state[f"_autoloaded_{norm_sid}"] = True

@@ -22,6 +22,7 @@ _CODE_COLORS = {
     "c":  "#C6E0B4",   # Completed -> light green
     "r":  "#BDD7EE",   # Registered -> light blue
     "a":  "#FFF2CC",   # Advised -> light yellow
+    "ar": "#FFD966",   # Advised-Repeat -> darker yellow/orange
     "o":  "#FFE699",   # Optional -> light orange
     "na": "#E1F0FF",   # Eligible not chosen -> light blue-tint
     "ne": "#F8CECC",   # Not Eligible -> light red
@@ -74,13 +75,16 @@ def _render_all_students():
     available_courses = st.session_state.courses_df["Course Code"].tolist()
     selected_courses = st.multiselect("Select course columns", options=available_courses, default=available_courses)
 
-    # Build compact status codes (includes Optional = 'o')
+    # Build compact status codes (includes Optional = 'o' and Repeat = 'ar')
     def status_code(row, course):
         sid = int(row["ID"])
         sel = st.session_state.advising_selections.get(sid, {})
         advised_list = sel.get("advised", []) or []
         optional_list = sel.get("optional", []) or []
+        repeat_list = sel.get("repeat", []) or []
 
+        if course in repeat_list:
+            return "ar"
         if check_course_completed(row, course):
             return "c"
         if check_course_registered(row, course):
@@ -99,7 +103,7 @@ def _render_all_students():
     display_cols = ["ID", "NAME", "Total Credits Completed", "Standing", "Advising Status"] + selected_courses
 
     # Show table (color-coded)
-    st.write("*Legend:* c=Completed, r=Registered, a=Advised, o=Optional, na=Eligible not chosen, ne=Not Eligible")
+    st.write("*Legend:* c=Completed, r=Registered, a=Advised, ar=Advised-Repeat, o=Optional, na=Eligible not chosen, ne=Not Eligible")
     styled = _style_codes(df[display_cols], selected_courses)
     st.dataframe(styled, width='stretch', height=600)
 
@@ -132,14 +136,17 @@ def _render_individual_student():
     available_courses = st.session_state.courses_df["Course Code"].tolist()
     selected_courses = st.multiselect("Select Courses", options=available_courses, default=available_courses, key="indiv_courses")
 
-    # Build status codes for this student (includes Optional = 'o')
+    # Build status codes for this student (includes Optional = 'o' and Repeat = 'ar')
     data = {"ID": [sid], "NAME": [row["NAME"]]}
     sel = st.session_state.advising_selections.get(sid, {})
     advised_list = sel.get("advised", []) or []
     optional_list = sel.get("optional", []) or []
+    repeat_list = sel.get("repeat", []) or []
 
     for c in selected_courses:
-        if check_course_completed(row, c):
+        if c in repeat_list:
+            data[c] = ["ar"]
+        elif check_course_completed(row, c):
             data[c] = ["c"]
         elif check_course_registered(row, c):
             data[c] = ["r"]
@@ -152,7 +159,7 @@ def _render_individual_student():
             data[c] = ["na" if stt == "Eligible" else "ne"]
 
     indiv_df = pd.DataFrame(data)
-    st.write("*Legend:* c=Completed, r=Registered, a=Advised, o=Optional, na=Eligible not chosen, ne=Not Eligible")
+    st.write("*Legend:* c=Completed, r=Registered, a=Advised, ar=Advised-Repeat, o=Optional, na=Eligible not chosen, ne=Not Eligible")
     styled = _style_codes(indiv_df, selected_courses)
     st.dataframe(styled, width='stretch')
 

@@ -13,6 +13,7 @@ STATUS_COLORS = {
     "c": "C6E0B4",    # Completed -> light green
     "r": "BDD7EE",    # Registered -> light blue
     "a": "FFF2CC",    # Advised -> light yellow
+    "ar": "FFD966",   # Advised-Repeat -> darker yellow/orange
     "o": "FFE699",    # Optional -> light orange
     "na": "E1F0FF",   # Eligible not chosen -> light blue-tint
     "ne": "F8CECC",   # Not Eligible -> light red
@@ -90,6 +91,7 @@ def add_summary_sheet(writer: pd.ExcelWriter, df: pd.DataFrame, course_cols: lis
                 "Completed (c)": values.get("c", 0),
                 "Registered (r)": values.get("r", 0),
                 "Advised (a)": values.get("a", 0),
+                "Advised-Repeat (ar)": values.get("ar", 0),
                 "Optional (o)": values.get("o", 0),
                 "Eligible Not Chosen (na)": values.get("na", 0),
                 "Not Eligible (ne)": values.get("ne", 0),
