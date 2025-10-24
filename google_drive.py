@@ -30,15 +30,17 @@ def _secrets() -> dict:
 
 
 def _build_credentials() -> Credentials:
+    import os
+    
     s = _secrets()
-    client_id = s.get("client_id")
-    client_secret = s.get("client_secret")
-    refresh_token = s.get("refresh_token")
+    client_id = s.get("client_id") or os.getenv("GOOGLE_CLIENT_ID")
+    client_secret = s.get("client_secret") or os.getenv("GOOGLE_CLIENT_SECRET")
+    refresh_token = s.get("refresh_token") or os.getenv("GOOGLE_REFRESH_TOKEN")
 
     if not (client_id and client_secret and refresh_token):
         raise GoogleAuthError(
             "Missing Google credentials in secrets. "
-            "Please set google.client_id, google.client_secret, google.refresh_token."
+            "Please set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN in Replit Secrets."
         )
 
     # Do NOT pin scopes here; let the refresh token carry the granted scopes.

@@ -78,7 +78,9 @@ def _load_first_from_drive(filenames: list[str]) -> bytes | None:
     if service is None:
         return None
     try:
-        folder_id = st.secrets["google"]["folder_id"]
+        folder_id = st.secrets.get("google", {}).get("folder_id", "") or os.getenv("GOOGLE_FOLDER_ID", "")
+        if not folder_id:
+            return None
         for name in filenames:
             file_id = find_file_in_drive(service, name, folder_id)
             if file_id:

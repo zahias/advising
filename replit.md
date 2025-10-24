@@ -82,14 +82,11 @@ The app can sync with Google Drive for data backup and collaboration. To enable:
 1. **Create Google Cloud Project** with Drive API enabled
 2. **Generate OAuth credentials** (client_id, client_secret)
 3. **Get refresh token** using `get_refresh_token.py`
-4. **Add to Replit Secrets** (use the Secrets tab in Replit sidebar):
-   ```toml
-   [google]
-   client_id = "your-client-id"
-   client_secret = "your-client-secret"
-   refresh_token = "your-refresh-token"
-   folder_id = "your-drive-folder-id"
-   ```
+4. **Add to Replit Secrets** (use the Secrets tab 🔒 in Replit sidebar):
+   - `GOOGLE_CLIENT_ID` = your-client-id
+   - `GOOGLE_CLIENT_SECRET` = your-client-secret
+   - `GOOGLE_REFRESH_TOKEN` = your-refresh-token
+   - `GOOGLE_FOLDER_ID` = your-drive-folder-id
 
 **Important**: The app works perfectly without Google Drive - you can upload files directly through the sidebar.
 
