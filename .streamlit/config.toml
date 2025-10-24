@@ -8,3 +8,10 @@ enableXsrfProtection = false
 [browser]
 serverAddress = "0.0.0.0"
 gatherUsageStats = false
+
+[client]
+showSidebarNavigation = false
+
+[ui]
+hideTopBar = false
+hideSidebarNav = true
