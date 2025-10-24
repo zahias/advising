@@ -1,54 +1,22 @@
 # eligibility_view.py
 
-from __future__ import annotations
-
 import streamlit as st
 import pandas as pd
 from io import BytesIO
+from typing import Dict, List
 
 from utils import (
+    check_eligibility,
     check_course_completed,
     check_course_registered,
-    is_course_offered,
-    check_eligibility,
-    build_requisites_str,
-    style_df,
     get_student_standing,
-    log_info,
-    log_error,
+    log_info, log_error,
 )
 from reporting import apply_excel_formatting
-from course_exclusions import ensure_loaded as ensure_exclusions_loaded, get_for_student, set_for_student
-
-
-def _get_limits_for_major(major: str) -> dict:
-    try:
-        conf = st.secrets.get("advising", {}).get("credit_limits", {})
-        return dict(conf.get(major, {}))
-    except Exception:
-        return {}
-
-
-def _sum_credits(codes: list[str], courses_df: pd.DataFrame) -> int:
-    if courses_df is None or courses_df.empty or "Credits" not in courses_df.columns:
-        return 0
-    if not codes:
-        return 0
-    lookup = courses_df.set_index(courses_df["Course Code"].astype(str))["Credits"]
-    total = 0.0
-    for c in codes:
-        try:
-            val = float(lookup.get(str(c), 0) or 0)
-            total += val
-        except Exception:
-            pass
-    return int(total)
-
+from advising_history import autosave_current_student_session
+from course_exclusions import ensure_exclusions_loaded, get_for_student
 
 def student_eligibility_view():
-    """
-    Per-student advising & eligibility page.
-    """
     if "courses_df" not in st.session_state or st.session_state.courses_df.empty:
         st.warning("Courses table not loaded.")
         return
@@ -58,15 +26,17 @@ def student_eligibility_view():
     if "advising_selections" not in st.session_state:
         st.session_state.advising_selections = {}
 
+    # Load per-student hidden courses
     ensure_exclusions_loaded()
 
     # ---------- Student picker ----------
     students_df = st.session_state.progress_df.copy()
     students_df["DISPLAY"] = students_df["NAME"].astype(str) + " — " + students_df["ID"].astype(str)
     choice = st.selectbox("Select a student", students_df["DISPLAY"].tolist(), key="elig_select_student")
-    selected_student_id = students_df.loc[students_df["DISPLAY"] == choice, "ID"].iloc[0]
+    selected_student_id = int(students_df.loc[students_df["DISPLAY"] == choice, "ID"].iloc[0])
     student_row = students_df.loc[students_df["ID"] == selected_student_id].iloc[0]
 
+    # Single source of truth for current student (used by autosave & sessions panel)
     st.session_state["current_student_id"] = selected_student_id
 
     hidden_for_student = set(map(str, get_for_student(selected_student_id)))
@@ -85,9 +55,11 @@ def student_eligibility_view():
         f"**Credits:** {int(total_credits)}  |  **Standing:** {standing}"
     )
 
-    # ---------- Eligibility (skip hidden) ----------
-    status_dict, justification_dict = {}, {}
-    current_advised_for_checks = list(slot.get("advised", []))
+    # ---------- Build eligibility + justifications dicts (skip hidden) ----------
+    status_dict: Dict[str, str] = {}
+    justification_dict: Dict[str, str] = {}
+    current_advised_for_checks = list(slot.get("advised", []))  # for eligibility engine
+
     for course_code in st.session_state.courses_df["Course Code"]:
         code = str(course_code)
         if code in hidden_for_student:
@@ -99,195 +71,120 @@ def student_eligibility_view():
         justification_dict[code] = justification
 
     # ---------- Build display rows (Required / Intensive split) ----------
-    rows = []
-    for _, info in st.session_state.courses_df.iterrows():
-        code = str(info["Course Code"])
-        if code in hidden_for_student:
-            continue
+    rows_required: List[Dict] = []
+    rows_intensive: List[Dict] = []
 
-        offered = str(info.get("Offered", "")).strip().lower() == "yes"
-        status = status_dict.get(code, "Not Eligible")
-
-        # Show ONLY Advised/Optional in the Action column (screen)
-        if code in (slot.get("advised", []) or []):
+    def _row_for(code: str, title: str, ctype: str) -> Dict:
+        # Screen table "Action" shows ONLY Advised / Optional (per your request)
+        if code in (slot.get("advised") or []):
             action = "Advised"
-        elif code in (slot.get("optional", []) or []):
+        elif code in (slot.get("optional") or []):
             action = "Optional"
         else:
             action = ""
 
-        rows.append(
-            {
-                "Course Code": code,
-                "Type": info.get("Type", ""),
-                "Requisites": build_requisites_str(info),
-                "Eligibility Status": status,
-                "Justification": justification_dict.get(code, ""),
-                "Offered": offered,
-                "Action": action,
-            }
-        )
+        return {
+            "Course Code": code,
+            "Title": title,
+            "Credits": st.session_state.courses_df.set_index("Course Code").loc[code].get("Credits", ""),
+            "Eligibility Status": status_dict.get(code, ""),
+            "Justification": justification_dict.get(code, ""),
+            "Action": action,
+            "Type": ctype,                # kept only for screen; dropped in export below
+            "Requisites": st.session_state.courses_df.set_index("Course Code").loc[code].get("Requisites", ""),
+        }
 
-    courses_display_df = pd.DataFrame(rows)
-    req_df = courses_display_df[courses_display_df["Type"] == "Required"].copy()
-    int_df = courses_display_df[courses_display_df["Type"] == "Intensive"].copy()
+    for _, info in st.session_state.courses_df.iterrows():
+        code = str(info["Course Code"])
+        if code in hidden_for_student:
+            continue
+        title = str(info.get("Title", ""))
+        ctype = str(info.get("Type", "")).strip().lower()
+        (rows_intensive if ctype == "intensive" else rows_required).append(_row_for(code, title, ctype))
 
-    st.markdown("### Course Eligibility")
-    if not req_df.empty:
-        st.markdown("**Required Courses**")
-        st.dataframe(style_df(req_df), use_container_width=True)
-    if not int_df.empty:
-        st.markdown("**Intensive Courses**")
-        st.dataframe(style_df(int_df), use_container_width=True)
+    # ---------- UI: pick Advised / Optional (eligible only) + Notes ----------
+    eligible_codes = [c for c, s in status_dict.items() if s == "Eligible" and c not in hidden_for_student]
 
-    # ---------- Advising selections ----------
-    offered_set = {
-        str(c) for c in st.session_state.courses_df.loc[
-            st.session_state.courses_df["Offered"].astype(str).str.lower() == "yes",
-            "Course Code",
-        ].tolist()
-    }
-
-    def _eligible_for_selection() -> list[str]:
-        elig: list[str] = []
-        for c in map(str, st.session_state.courses_df["Course Code"].tolist()):
-            if c in hidden_for_student:
-                continue
-            if c not in offered_set:
-                continue
-            if check_course_completed(student_row, c) or check_course_registered(student_row, c):
-                continue
-            if status_dict.get(c) == "Eligible":
-                elig.append(c)
-        return sorted(elig)
-
-    eligible_options = _eligible_for_selection()
-    opts_set = set(eligible_options)
-
-    saved_advised = [str(x) for x in (slot.get("advised", []) or []) if str(x) not in hidden_for_student]
-    saved_optional = [str(x) for x in (slot.get("optional", []) or []) if str(x) not in hidden_for_student]
-
-    default_advised = [c for c in saved_advised if c in opts_set]
-    dropped_advised = sorted(set(saved_advised) - set(default_advised))
-    opt_space_now = [c for c in eligible_options if c not in default_advised]
-    opt_space_set = set(opt_space_now)
-    default_optional = [c for c in saved_optional if c in opt_space_set]
-    dropped_optional = sorted(set(saved_optional) - set(default_optional))
-
-    limits = _get_limits_for_major(st.session_state.get("current_major", ""))
-
-    with st.form(key=f"advise_form_{selected_student_id}"):
+    with st.form(key=f"advise_form_{selected_student_id}", clear_on_submit=False):
         advised_selection = st.multiselect(
-            "Advised Courses",
-            options=eligible_options,
-            default=default_advised,
-            key=f"advised_ms_{selected_student_id}",
+            "Advised Courses", options=eligible_codes,
+            default=[c for c in slot.get("advised", []) if c in eligible_codes],
+            help="Only eligible courses can be advised."
         )
         optional_selection = st.multiselect(
-            "Optional Courses",
-            options=[c for c in eligible_options if c not in advised_selection],
-            default=[c for c in default_optional if c not in advised_selection],
-            key=f"optional_ms_{selected_student_id}",
+            "Optional Courses", options=eligible_codes,
+            default=[c for c in slot.get("optional", []) if c in eligible_codes],
+            help="Only eligible courses can be optional."
         )
-        note_input = st.text_area(
-            "Advisor Note (optional)",
-            value=slot.get("note", ""),
-            key=f"note_{selected_student_id}",
-        )
-
-        if dropped_advised or dropped_optional:
-            with st.expander("Some saved selections aren’t available this term"):
-                if dropped_advised:
-                    st.write("**Advised (previously saved but not available now):** ", ", ".join(dropped_advised))
-                if dropped_optional:
-                    st.write("**Optional (previously saved but not available now):** ", ", ".join(dropped_optional))
-                st.caption("Hidden / not offered / completed / registered / or removed from the table.")
-
-        # Live credit counters
-        advised_credits = _sum_credits(advised_selection, st.session_state.courses_df)
-        optional_credits = _sum_credits(optional_selection, st.session_state.courses_df)
-        total_selected = advised_credits + optional_credits
-
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.metric("Advised Credits", advised_credits)
-            if limits.get("advised_max") and advised_credits > int(limits["advised_max"]):
-                st.warning(f"Advised exceeds limit ({limits['advised_max']}).")
-        with c2:
-            st.metric("Optional Credits", optional_credits)
-            if limits.get("optional_max") and optional_credits > int(limits["optional_max"]):
-                st.warning(f"Optional exceeds limit ({limits['optional_max']}).")
-        with c3:
-            st.metric("Total Selected", total_selected)
-            if limits.get("total_max") and total_selected > int(limits["total_max"]):
-                st.error(f"Total exceeds limit ({limits['total_max']}).")
+        note = st.text_area("Advisor Notes", value=slot.get("note", ""), placeholder="Notes for this student...")
 
         submitted = st.form_submit_button("Save Selections")
-        if submitted:
-            st.session_state.advising_selections[selected_student_id] = {
-                "advised": advised_selection,
-                "optional": optional_selection,
-                "note": note_input,
-            }
-            log_info(f"Saved selections for {selected_student_id}")
 
-            # Auto-save a per-student session (title = date/time + student)
-            try:
-                from advising_history import autosave_current_student_session
-                session_id = autosave_current_student_session()
-                if session_id:
-                    st.toast("✅ Auto-saved advising session", icon="💾")
-                else:
-                    st.toast("Saved selections (session auto-save skipped)", icon="ℹ️")
-            except Exception as e:
-                st.toast("Saved selections (session auto-save failed)", icon="⚠️")
-                log_error("Autosave advising session failed", e)
+    if submitted:
+        # Update in-memory selection for this student
+        slot["advised"] = advised_selection
+        slot["optional"] = optional_selection
+        slot["note"] = note
+        st.session_state.advising_selections[selected_student_id] = slot
 
-            st.success("Selections saved.")
-            st.rerun()
+        # AUTOSAVE: create a per-student advising session snapshot immediately
+        sid = autosave_current_student_session()
+        if sid:
+            st.toast("💾 Autosaved advising session", icon="✅")
+        else:
+            st.toast("Autosave failed (see logs).", icon="⚠️")
 
-    # ---------- Per-student hidden courses ----------
-    with st.expander("Hidden courses for this student"):
-        all_codes = sorted(map(str, st.session_state.courses_df["Course Code"].tolist()))
-        default_hidden = [c for c in all_codes if c in hidden_for_student]
-        new_hidden = st.multiselect(
-            "Remove (hide) these courses for this student",
-            options=all_codes,
-            default=default_hidden,
-            key=f"hidden_ms_{selected_student_id}",
-            help="Hidden courses will not appear in tables or selection lists, and this choice is saved.",
-        )
-        if st.button("Save Hidden Courses", key=f"save_hidden_{selected_student_id}"):
-            set_for_student(selected_student_id, new_hidden)
-            st.success("Hidden courses saved for this student.")
-            st.rerun()
+        st.rerun()
 
-    # ---------- Download student report ----------
-    st.subheader("Download Advising Report")
-    if st.button("Download Student Report"):
-        report_df = courses_display_df.copy()
-        # Drop columns you asked to remove
-        for col in ["Type", "Requisites"]:
-            if col in report_df.columns:
-                report_df.drop(columns=[col], inplace=True)
+    # ---------- Show tables ----------
+    st.markdown("### Required Courses")
+    st.dataframe(pd.DataFrame(rows_required), use_container_width=True)
 
+    st.markdown("### Intensive Courses")
+    st.dataframe(pd.DataFrame(rows_intensive), use_container_width=True)
+
+    # ---------- Export single-student advising sheet (clean columns + formatting) ----------
+    if st.button("Download Student Advising Sheet"):
+        export_rows = rows_required + rows_intensive
+        df_export = pd.DataFrame(export_rows)
+
+        # Remove columns you asked to drop from the Excel file
+        for col in ("Type", "Requisites"):
+            if col in df_export.columns:
+                df_export.drop(columns=[col], inplace=True)
+
+        # Write base sheet then apply formatting (header, borders, colors for Action)
         output = BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            report_df.to_excel(writer, index=False, sheet_name="Advising")
+            df_export.to_excel(writer, index=False, sheet_name="Advising")
 
+        # Pretty formatting + color code (Action has only Advised / Optional now)
         apply_excel_formatting(
             output=output,
             student_name=str(student_row["NAME"]),
-            student_id=selected_student_id,
+            student_id=int(selected_student_id),
             credits_completed=int(credits_completed),
             standing=standing,
-            note=st.session_state.advising_selections[selected_student_id].get("note", ""),
-            advised_credits=_sum_credits(slot.get("advised", []), st.session_state.courses_df),
-            optional_credits=_sum_credits(slot.get("optional", []), st.session_state.courses_df),
+            note=slot.get("note", ""),
+            advised_credits=_sum_credits(slot.get("advised", [])),
+            optional_credits=_sum_credits(slot.get("optional", [])),
         )
+
         st.download_button(
             "Download Excel",
             data=output.getvalue(),
             file_name=f"Advising_{selected_student_id}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
+
+def _sum_credits(course_codes: List[str]) -> int:
+    if not course_codes:
+        return 0
+    cdf = st.session_state.courses_df.set_index("Course Code")
+    total = 0
+    for c in course_codes:
+        try:
+            total += int(float(cdf.loc[c].get("Credits", 0) or 0))
+        except Exception:
+            pass
+    return total
