@@ -93,9 +93,15 @@ def _load_first_from_drive(filenames: list[str]) -> tuple[bytes | None, str | No
     if service is None:
         return None, None
     try:
-        folder_id = st.secrets.get("google", {}).get("folder_id", "") or os.getenv("GOOGLE_FOLDER_ID", "")
+        # Safe access to secrets - use hasattr to check if secrets exist
+        if hasattr(st, 'secrets') and "google" in st.secrets:
+            folder_id = st.secrets["google"].get("folder_id", "")
+        else:
+            folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
+        
         if not folder_id:
             return None, None
+        
         for name in filenames:
             bytes_data = _load_file_from_drive_cached(name, folder_id)
             if bytes_data:
