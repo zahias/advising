@@ -279,6 +279,8 @@ def student_eligibility_view():
             if submitted:
                 # EXPLICIT autosave for this student
                 session_id = save_session_for_student(norm_sid)
+                # Mark as autoloaded so we don't reload from Drive and overwrite
+                st.session_state[f"_autoloaded_{norm_sid}"] = True
                 if session_id:
                     show_action_feedback("save", True, f"Session for {student_row['NAME']}")
                 else:

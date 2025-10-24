@@ -19,6 +19,7 @@ from google_drive import (
     GoogleAuthError,  # <-- add this import
 )
 from utils import log_info, log_error, load_progress_excel
+from advising_history import _load_session_and_apply
 
 st.set_page_config(page_title="Advising Dashboard", layout="wide")
 
@@ -47,6 +48,43 @@ if "majors" not in st.session_state:
 
 # Choose major up-front
 selected_major = st.selectbox("Major", MAJORS, key="current_major")
+
+# Utility buttons for advising selections
+with st.expander("⚙️ Advising Utilities"):
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("🗑️ Clear All Selections", help="Clear current advising selections for all students (does not affect saved sessions)", use_container_width=True):
+            # Clear advising selections for all students in current major
+            st.session_state.advising_selections = {}
+            # Clear the per-major bucket so it persists across reruns
+            st.session_state.majors[selected_major]["advising_selections"] = {}
+            # Clear all autoload flags
+            for key in list(st.session_state.keys()):
+                if key.startswith("_autoloaded_"):
+                    del st.session_state[key]
+            st.success(f"✅ Cleared all advising selections for {selected_major}")
+            st.rerun()
+    
+    with col2:
+        if st.button("📥 Restore Latest Sessions", help="Load most recent advising session for all students from saved sessions", use_container_width=True):
+            # Get all unique student IDs from progress report
+            if not st.session_state.progress_df.empty and "ID" in st.session_state.progress_df.columns:
+                student_ids = st.session_state.progress_df["ID"].unique()
+                loaded_count = 0
+                for sid in student_ids:
+                    # Clear autoload flag so it will load
+                    if f"_autoloaded_{sid}" in st.session_state:
+                        del st.session_state[f"_autoloaded_{sid}"]
+                    # Load session
+                    if _load_session_and_apply(sid):
+                        loaded_count += 1
+                # Sync the restored selections to the per-major bucket
+                st.session_state.majors[selected_major]["advising_selections"] = st.session_state.advising_selections.copy()
+                st.success(f"✅ Restored latest sessions for {loaded_count} students in {selected_major}")
+                st.rerun()
+            else:
+                st.warning("No students found in progress report. Upload progress report first.")
 
 # Helpers to map between the current major bucket and the global aliases used elsewhere
 def _sync_globals_from_bucket():
