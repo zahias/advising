@@ -5,6 +5,7 @@ import json
 from typing import Any, Dict, List, Optional, Union
 from uuid import uuid4
 from datetime import datetime
+import numpy as np
 
 import pandas as pd
 import streamlit as st
@@ -38,6 +39,23 @@ __all__ = ["advising_history_panel", "autosave_current_student_session", "save_s
 
 
 # ---------- internal helpers ----------
+
+def _convert_to_json_serializable(obj: Any) -> Any:
+    """Recursively convert numpy types to native Python types for JSON serialization."""
+    if isinstance(obj, dict):
+        return {k: _convert_to_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_convert_to_json_serializable(item) for item in obj]
+    elif isinstance(obj, (np.integer, np.int64, np.int32)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, np.float64, np.float32)):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif pd.isna(obj):
+        return None
+    else:
+        return obj
 
 def _now_beirut() -> datetime:
     return datetime.now(_LOCAL_TZ) if _LOCAL_TZ else datetime.now()
@@ -108,7 +126,9 @@ def _save_index(index_items: List[Dict[str, Any]]) -> None:
         folder_id = _get_major_folder_id()
         if not folder_id:
             return
-        data = json.dumps(index_items, ensure_ascii=False, indent=2).encode("utf-8")
+        # Convert numpy types to native Python types before JSON serialization
+        serializable_items = _convert_to_json_serializable(index_items)
+        data = json.dumps(serializable_items, ensure_ascii=False, indent=2).encode("utf-8")
         sync_file_with_drive(service, data, _index_name(), "application/json", folder_id)
         log_info(f"Index saved to Drive: {_index_name()}")
     except Exception as e:
@@ -135,7 +155,9 @@ def _save_session_payload(session_id: str, snapshot: Dict[str, Any], meta: Dict[
         if not folder_id:
             log_info(f"Session saved locally only (no Drive folder configured): {session_id}")
             return
-        data = json.dumps({"meta": meta, "snapshot": snapshot}, ensure_ascii=False, indent=2).encode("utf-8")
+        # Convert numpy types to native Python types before JSON serialization
+        payload = _convert_to_json_serializable({"meta": meta, "snapshot": snapshot})
+        data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
         sync_file_with_drive(service, data, _session_filename(session_id), "application/json", folder_id)
         log_info(f"Session payload synced to Drive: {_session_filename(session_id)}")
     except Exception as e:
