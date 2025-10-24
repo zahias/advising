@@ -250,30 +250,63 @@ def student_eligibility_view():
             st.success("Hidden courses saved.")
             st.rerun()
 
-    # ---------- Download student report (drop Type/Requisites; keep Action) ----------
-    if st.button("Download Student Report"):
-        export_df = display_df.copy()
-        for col in ("Type", "Requisites"):
-            if col in export_df.columns:
-                export_df.drop(columns=[col], inplace=True)
+    # ---------- Download and Email student report ----------
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        if st.button("📥 Download Student Report"):
+            export_df = display_df.copy()
+            for col in ("Type", "Requisites"):
+                if col in export_df.columns:
+                    export_df.drop(columns=[col], inplace=True)
 
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            export_df.to_excel(writer, index=False, sheet_name="Advising")
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                export_df.to_excel(writer, index=False, sheet_name="Advising")
 
-        apply_excel_formatting(
-            output=output,
-            student_name=str(student_row["NAME"]),
-            student_id=norm_sid,
-            credits_completed=int(cr_comp),
-            standing=standing,
-            note=st.session_state.advising_selections[norm_sid].get("note", ""),
-            advised_credits=_sum_credits(st.session_state.advising_selections[norm_sid].get("advised", [])),
-            optional_credits=_sum_credits(st.session_state.advising_selections[norm_sid].get("optional", [])),
-        )
-        st.download_button(
-            "Download Excel",
-            data=output.getvalue(),
-            file_name=f"Advising_{norm_sid}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+            apply_excel_formatting(
+                output=output,
+                student_name=str(student_row["NAME"]),
+                student_id=norm_sid,
+                credits_completed=int(cr_comp),
+                standing=standing,
+                note=st.session_state.advising_selections[norm_sid].get("note", ""),
+                advised_credits=_sum_credits(st.session_state.advising_selections[norm_sid].get("advised", [])),
+                optional_credits=_sum_credits(st.session_state.advising_selections[norm_sid].get("optional", [])),
+            )
+            st.download_button(
+                "Download Excel",
+                data=output.getvalue(),
+                file_name=f"Advising_{norm_sid}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+    
+    with col2:
+        if st.button("📧 Email Advising Sheet", key=f"email_elig_{norm_sid}"):
+            from email_manager import get_student_email, send_advising_email
+            
+            student_email = get_student_email(str(norm_sid))
+            if not student_email:
+                st.error(f"No email address found for student {norm_sid}. Please upload email roster first.")
+            else:
+                # Get advising selections
+                advised_list = slot.get("advised", []) or []
+                optional_list = slot.get("optional", []) or []
+                note = slot.get("note", "")
+                
+                # Send email
+                success, message = send_advising_email(
+                    to_email=student_email,
+                    student_name=str(student_row["NAME"]),
+                    student_id=str(norm_sid),
+                    advised_courses=advised_list,
+                    optional_courses=optional_list,
+                    note=note,
+                    courses_df=st.session_state.courses_df,
+                )
+                
+                if success:
+                    st.success(f"✅ {message}")
+                    log_info(f"Advising email sent to {student_email} for student {norm_sid}")
+                else:
+                    st.error(f"❌ {message}")

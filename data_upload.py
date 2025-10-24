@@ -185,9 +185,65 @@ def upload_data():
             st.sidebar.error(f"Error loading advising selections: {e}")
             log_error("Error loading advising selections", e)
 
+    # ---------- Upload Email Roster (per-major) ----------
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📧 Email Roster")
+    
+    email_file = st.sidebar.file_uploader(
+        f"[{current_major}] Upload Email Roster (Excel/CSV with ID and Email columns)",
+        type=["xlsx", "csv"],
+        key=f"email_upload_{current_major}",
+        help="Upload a file with student IDs and email addresses. Expected columns: 'ID' and 'Email'"
+    )
+    if email_file:
+        from email_manager import upload_email_roster_from_file
+        count_added, errors = upload_email_roster_from_file(email_file)
+        
+        if count_added > 0:
+            st.sidebar.success(f"✅ Added/updated {count_added} email(s) for {current_major}")
+            log_info(f"Email roster uploaded: {count_added} emails for {current_major}")
+        
+        if errors:
+            with st.sidebar.expander("⚠️ See errors", expanded=False):
+                for err in errors:
+                    st.write(f"• {err}")
+    
+    # Show email roster status
+    from email_manager import load_email_roster
+    roster = load_email_roster()
+    if roster:
+        st.sidebar.info(f"📧 {len(roster)} student email(s) on file for {current_major}")
+    else:
+        st.sidebar.warning("No email roster uploaded for {current_major}")
+    
     # ---------- Status ----------
     st.sidebar.markdown("---")
     st.sidebar.write(f"**Status for {current_major}**")
     st.sidebar.success("Courses table loaded.") if not st.session_state.courses_df.empty else st.sidebar.warning("Courses table not uploaded.")
     st.sidebar.success("Progress report loaded.") if not st.session_state.progress_df.empty else st.sidebar.warning("Progress report not uploaded.")
     st.sidebar.success("Advising selections loaded.") if st.session_state.get("advising_selections") else st.sidebar.info("Advising selections optional.")
+    
+    # ---------- Email Settings ----------
+    st.sidebar.markdown("---")
+    with st.sidebar.expander("⚙️ Email Settings", expanded=False):
+        from email_manager import get_email_credentials
+        
+        email_addr, email_pass = get_email_credentials()
+        
+        if email_addr and email_pass:
+            st.success(f"✅ Email configured: {email_addr}")
+            st.info("Email credentials are stored in Replit/Streamlit secrets.")
+        else:
+            st.warning("⚠️ Email not configured")
+            st.write("To enable email sending, add these secrets:")
+            st.code("""
+[email]
+address = "your-email@outlook.com"
+password = "your-app-password"
+            """, language="toml")
+            st.caption("**For Outlook/Office 365:**")
+            st.caption("• Use your full university email address")
+            st.caption("• Use app password (not regular password)")
+            st.caption("• [Generate app password](https://support.microsoft.com/en-us/account-billing/using-app-passwords-with-apps-that-don-t-support-two-step-verification-5896ed9b-4263-e681-128a-a6f2979a7944)")
+            st.caption("**On Streamlit Cloud:** Add to Secrets in Settings")
+            st.caption("**On Replit:** Add to Secrets in Tools sidebar")
