@@ -265,6 +265,7 @@ def student_eligibility_view():
             options=[c for c in eligible_opts if c not in advised_selection],
             default=[c for c in default_optional if c not in advised_selection],
             key=f"optional_ms_{norm_sid}",
+            help="Additional courses to suggest (excludes courses already advised)"
         )
         note_input = st.text_area(
             "Advisor Note (optional)", value=slot.get("note", ""), key=f"note_{norm_sid}"
@@ -283,11 +284,17 @@ def student_eligibility_view():
             download_clicked = st.form_submit_button("📥 Download Report", width='stretch')
         
         if submitted or email_clicked or download_clicked:
+            # Ensure no overlaps between advised, repeat, and optional
+            # Priority: repeat > advised > optional
+            final_repeat = list(repeat_selection)
+            final_advised = [c for c in advised_selection if c not in final_repeat]
+            final_optional = [c for c in optional_selection if c not in final_advised and c not in final_repeat]
+            
             # Save selections first
             st.session_state.advising_selections[norm_sid] = {
-                "advised": advised_selection,
-                "repeat": repeat_selection,
-                "optional": optional_selection,
+                "advised": final_advised,
+                "repeat": final_repeat,
+                "optional": final_optional,
                 "note": note_input,
             }
 
@@ -317,9 +324,9 @@ def student_eligibility_view():
                         to_email=student_email,
                         student_name=str(student_row["NAME"]),
                         student_id=str(norm_sid),
-                        advised_courses=advised_selection,
-                        repeat_courses=repeat_selection,
-                        optional_courses=optional_selection,
+                        advised_courses=final_advised,
+                        repeat_courses=final_repeat,
+                        optional_courses=final_optional,
                         note=note_input,
                         courses_df=st.session_state.courses_df,
                         remaining_credits=int(cr_remaining),

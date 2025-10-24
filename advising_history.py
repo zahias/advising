@@ -274,18 +274,21 @@ def _snapshot_student_courses(student_row: pd.Series, advised: List[str], option
         offered = "Yes" if is_course_offered(cdf, code) else "No"
         status, justification = check_eligibility(student_row, code, advised, cdf)
 
+        # Action column should ONLY show advisor selections
         if code in repeat:
             action = "Advised-Repeat"
-        elif check_course_completed(student_row, code):
-            action = "Completed"; status = "Completed"
-        elif check_course_registered(student_row, code):
-            action = "Registered"
         elif code in advised:
             action = "Advised"
         elif code in optional:
             action = "Optional"
         else:
             action = ""  # Empty for non-selected courses
+        
+        # Update status for completed/registered courses (for Eligibility Status column)
+        if check_course_completed(student_row, code):
+            status = "Completed"
+        elif check_course_registered(student_row, code):
+            status = "Registered"
 
         rows.append({
             "Course Code": code,
