@@ -243,7 +243,6 @@ def student_eligibility_view():
             st.session_state.advising_selections[norm_sid] = {"advised": [], "optional": [], "repeat": [], "note": ""}
             
             # Also save the cleared state to Drive
-            from advising_history import save_session_for_student
             save_session_for_student(norm_sid)
             
             # Clear widget state to force multiselects to refresh
