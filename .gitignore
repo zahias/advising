@@ -104,7 +104,7 @@ cython_debug/
 
 # Streamlit secrets
 .secrets/
-.streamlit/
+.streamlit/secrets.toml
 
 # Log files
 *.log
