@@ -1,11 +1,8 @@
 # advising_history.py
-# Sessions are created AUTOMATICALLY when the advisor clicks "Save Selections".
-# Panel: list / open (read-only) / delete (index only). Per-student snapshots.
-
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from uuid import uuid4
 from datetime import datetime
 
@@ -36,10 +33,12 @@ try:
 except Exception:
     _LOCAL_TZ = None
 
-__all__ = ["advising_history_panel", "autosave_current_student_session"]
+__all__ = ["advising_history_panel", "autosave_current_student_session", "save_session_for_student"]
 
-
-# ----------------- Filenames (per major) -----------------
+def _now_beirut() -> datetime:
+    if _LOCAL_TZ:
+        return datetime.now(_LOCAL_TZ)
+    return datetime.now()
 
 def _index_name() -> str:
     major = st.session_state.get("current_major", "DEFAULT")
@@ -48,9 +47,6 @@ def _index_name() -> str:
 def _session_filename(session_id: str) -> str:
     major = st.session_state.get("current_major", "DEFAULT")
     return f"advising_session_{major}_{session_id}.json"
-
-
-# ----------------- Drive I/O -----------------
 
 def _load_index() -> List[Dict[str, Any]]:
     try:
@@ -75,15 +71,16 @@ def _save_index(index_items: List[Dict[str, Any]]) -> None:
         log_info(f"Index saved: {_index_name()}")
     except Exception as e:
         log_error("Failed to save advising index", e)
-        # keep local index; do not raise
 
 def _save_session_payload(session_id: str, snapshot: Dict[str, Any], meta: Dict[str, Any]) -> None:
-    service = initialize_drive_service()
-    folder_id = st.secrets["google"]["folder_id"]
-    payload = {"meta": meta, "snapshot": snapshot}
-    data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
-    sync_file_with_drive(service, data, _session_filename(session_id), "application/json", folder_id)
-    log_info(f"Session payload saved: {_session_filename(session_id)}")
+    try:
+        service = initialize_drive_service()
+        folder_id = st.secrets["google"]["folder_id"]
+        data = json.dumps({"meta": meta, "snapshot": snapshot}, ensure_ascii=False, indent=2).encode("utf-8")
+        sync_file_with_drive(service, data, _session_filename(session_id), "application/json", folder_id)
+        log_info(f"Session payload saved: {_session_filename(session_id)}")
+    except Exception as e:
+        log_error("Failed to save session payload to Drive", e)
 
 def _load_session_payload_by_id(session_id: str) -> Optional[Dict[str, Any]]:
     try:
@@ -98,14 +95,11 @@ def _load_session_payload_by_id(session_id: str) -> Optional[Dict[str, Any]]:
         log_error("Failed to load session payload", e)
         return None
 
-
-# ----------------- Snapshot helpers -----------------
-
 def _snapshot_courses_table() -> List[Dict[str, Any]]:
     df = st.session_state.get("courses_df", pd.DataFrame())
     if df.empty:
         return []
-    cols = ["Course Code", "Type", "Credits", "Offered", "Prerequisite", "Concurrent", "Corequisite"]
+    cols = ["Course Code", "Type", "Credits", "Offered", "Prerequisite", "Concurrent", "Corequisite", "Title", "Requisites"]
     cols = [c for c in cols if c in df.columns]
     return df[cols].fillna("").to_dict(orient="records")
 
@@ -133,6 +127,7 @@ def _snapshot_student_courses(student_row: pd.Series, advised: List[str], option
         rows.append({
             "Course Code": code,
             "Type": info.get("Type", ""),
+            "Title": info.get("Title", ""),
             "Requisites": build_requisites_str(info),
             "Offered": offered,
             "Eligibility Status": status,
@@ -141,24 +136,48 @@ def _snapshot_student_courses(student_row: pd.Series, advised: List[str], option
         })
     return rows
 
-def _build_single_student_snapshot(student_id: any) -> Dict[str, Any]:
+def _find_student_row(student_id: Union[int, str]) -> Optional[pd.Series]:
     pdf = st.session_state.get("progress_df", pd.DataFrame())
     if pdf.empty:
-        return {"courses_table": [], "students": []}
-
+        return None
+    # exact match
+    row = pdf.loc[pdf["ID"] == student_id]
+    if not row.empty:
+        return row.iloc[0]
+    # coerce int
     try:
-        mask = pdf["ID"] == student_id if student_id in pdf["ID"].values else pdf["ID"] == int(student_id)
+        row = pdf.loc[pdf["ID"] == int(student_id)]
+        if not row.empty:
+            return row.iloc[0]
     except Exception:
-        mask = pdf["ID"] == student_id
+        pass
+    # coerce str
+    try:
+        row = pdf.loc[pdf["ID"].astype(str) == str(student_id)]
+        if not row.empty:
+            return row.iloc[0]
+    except Exception:
+        pass
+    return None
 
-    row = pdf.loc[mask]
-    if row.empty:
-        return {"courses_table": [], "students": []}
-    srow = row.iloc[0]
+def _build_single_student_snapshot(student_id: Union[int,str]) -> Dict[str, Any]:
+    srow = _find_student_row(student_id)
+    if srow is None:
+        return {"courses_table": _snapshot_courses_table(), "students": []}
 
     selections = st.session_state.get("advising_selections", {}) or {}
-    sel = selections.get(srow["ID"], selections.get(int(srow["ID"])) if isinstance(srow["ID"], (int, float)) else {})
-    sel = sel or {}
+    sel = None
+    for key in (student_id, str(student_id)):
+        if key in selections:
+            sel = selections[key]
+            break
+    if sel is None:
+        try:
+            ikey = int(student_id)
+            sel = selections.get(ikey, {})
+        except Exception:
+            sel = {}
+
     advised = [str(x) for x in sel.get("advised", [])]
     optional = [str(x) for x in sel.get("optional", [])]
     note = str(sel.get("note", "") or "")
@@ -182,40 +201,18 @@ def _build_single_student_snapshot(student_id: any) -> Dict[str, Any]:
         }],
     }
 
-
-# ----------------- PUBLIC: Autosave on Save Selections -----------------
-
-def _now_beirut() -> datetime:
-    if _LOCAL_TZ:
-        return datetime.now(_LOCAL_TZ)
-    return datetime.now()
-
-def autosave_current_student_session() -> Optional[str]:
-    """
-    Saves a per-student advising session with a human title:
-      "YYYY-MM-DD HH:MM — NAME (ID)"
-    Returns session_id (str) or None on failure.
-    """
+def save_session_for_student(student_id: Union[int,str]) -> Optional[str]:
+    """Robust save that does NOT depend on st.session_state['current_student_id']."""
     try:
-        current_sid = st.session_state.get("current_student_id", None)
-        if current_sid is None:
+        snapshot = _build_single_student_snapshot(student_id)
+        students = snapshot.get("students", [])
+        if not students:
+            log_error("No student row found for autosave", Exception("student_not_found"))
             return None
 
-        snapshot = _build_single_student_snapshot(current_sid)
-
-        # Student name for title
-        student_name = ""
-        try:
-            pdf = st.session_state.progress_df
-            student_name = str(pdf.loc[pdf["ID"] == current_sid, "NAME"].iloc[0])
-        except Exception:
-            try:
-                student_name = str(st.session_state.progress_df.loc[st.session_state.progress_df["ID"] == int(current_sid), "NAME"].iloc[0])
-            except Exception:
-                student_name = ""
-
+        student_name = str(students[0].get("NAME", ""))
         now = _now_beirut()
-        title = f"{now.strftime('%Y-%m-%d %H:%M')} — {student_name} ({current_sid})"
+        title = f"{now.strftime('%Y-%m-%d %H:%M')} — {student_name} ({student_id})"
 
         sid = str(uuid4())
         meta = {
@@ -223,19 +220,17 @@ def autosave_current_student_session() -> Optional[str]:
             "title": title,
             "created_at": now.isoformat(),
             "major": st.session_state.get("current_major", ""),
-            "student_id": current_sid,
+            "student_id": students[0].get("ID", student_id),
             "student_name": student_name,
         }
 
         if "advising_index" not in st.session_state:
             st.session_state.advising_index = _load_index()
 
-        try:
-            _save_session_payload(sid, snapshot, meta)
-        except Exception as e:
-            log_error("Drive save (payload) failed", e)  # continue, keep local
+        # save payload (best effort)
+        _save_session_payload(sid, snapshot, meta)
 
-        # Update local index (always)
+        # update in-memory index (always)
         st.session_state.advising_index.append({
             "id": sid,
             "title": title,
@@ -246,29 +241,30 @@ def autosave_current_student_session() -> Optional[str]:
             "session_file": _session_filename(sid),
         })
 
-        # Try to persist index
+        # try persisting index
         _save_index(st.session_state.advising_index)
 
-        log_info(f"Auto-saved advising session: {title}")
+        log_info(f"Auto-saved advising session for student {student_id}: {title}")
         return sid
 
     except Exception as e:
-        log_error("Auto-save advising session failed", e)
+        log_error("save_session_for_student failed", e)
         return None
 
-
-# ----------------- Panel UI -----------------
+def autosave_current_student_session() -> Optional[str]:
+    sid = st.session_state.get("current_student_id", None)
+    if sid is None:
+        log_error("autosave_current_student_session: current_student_id missing", Exception("no_current_student"))
+        return None
+    return save_session_for_student(sid)
 
 def advising_history_panel():
     st.markdown("---")
     st.subheader(f"Advising Sessions — {st.session_state.get('current_major','')}")
-
     if "advising_index" not in st.session_state:
         st.session_state.advising_index = _load_index()
-
     index = list(st.session_state.advising_index or [])
 
-    # Filter to current student if selected
     current_sid = st.session_state.get("current_student_id", None)
     if current_sid is not None:
         index = [r for r in index if str(r.get("student_id","")) == str(current_sid)]
@@ -321,7 +317,6 @@ def advising_history_panel():
             st.success("Deleted from index.")
             st.rerun()
 
-    # Show archived snapshot (read-only)
     payload = st.session_state.get("advising_loaded_payload")
     if payload:
         snapshot = payload.get("snapshot", {})
