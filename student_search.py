@@ -112,7 +112,7 @@ def render_student_search(view_key: str = "default") -> Optional[int]:
                     if st.button(
                         f"{recent_name}",
                         key=f"recent_{recent_id}_{view_key}",
-                        use_container_width=True
+                        width='stretch'
                     ):
                         _update_recent_students(recent_id)
                         return recent_id
@@ -137,7 +137,7 @@ def render_student_search(view_key: str = "default") -> Optional[int]:
                 if st.button(
                     f"👤 {row['DISPLAY']}",
                     key=f"select_{row['ID']}_{view_key}",
-                    use_container_width=True
+                    width='stretch'
                 ):
                     _update_recent_students(row['ID'])
                     return int(row['ID'])

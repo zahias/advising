@@ -37,7 +37,7 @@ def _style_codes(df: pd.DataFrame, code_cols: list[str]) -> "pd.io.formats.style
         return f"background-color: {col}" if col else ""
     styler = df.style
     if code_cols:
-        styler = styler.applymap(_bg, subset=code_cols)
+        styler = styler.map(_bg, subset=code_cols)
     return styler
 
 def full_student_view():
@@ -101,7 +101,7 @@ def _render_all_students():
     # Show table (color-coded)
     st.write("*Legend:* c=Completed, r=Registered, a=Advised, o=Optional, na=Eligible not chosen, ne=Not Eligible")
     styled = _style_codes(df[display_cols], selected_courses)
-    st.dataframe(styled, use_container_width=True, height=600)
+    st.dataframe(styled, width='stretch', height=600)
 
     # Export full advising report with summary + COLORS in Excel
     if st.button("Download Full Advising Report"):
@@ -154,7 +154,7 @@ def _render_individual_student():
     indiv_df = pd.DataFrame(data)
     st.write("*Legend:* c=Completed, r=Registered, a=Advised, o=Optional, na=Eligible not chosen, ne=Not Eligible")
     styled = _style_codes(indiv_df, selected_courses)
-    st.dataframe(styled, use_container_width=True)
+    st.dataframe(styled, width='stretch')
 
     # Download colored sheet for this student (compact codes)
     col1, col2 = st.columns([1, 1])

@@ -165,10 +165,10 @@ def student_eligibility_view():
         st.markdown("### Course Eligibility")
         if not req_df.empty:
             st.markdown("**Required Courses**")
-            st.dataframe(style_df(req_df), use_container_width=True)
+            st.dataframe(style_df(req_df), width='stretch')
         if not int_df.empty:
             st.markdown("**Intensive Courses**")
-            st.dataframe(style_df(int_df), use_container_width=True)
+            st.dataframe(style_df(int_df), width='stretch')
 
         # ---------- Selection options (eligible + offered, not hidden/completed/registered) ----------
         offered_yes = {
@@ -214,7 +214,7 @@ def student_eligibility_view():
                 "Advisor Note (optional)", value=slot.get("note", ""), key=f"note_{norm_sid}"
             )
 
-            submitted = st.form_submit_button("💾 Save Selections", use_container_width=True, type="primary")
+            submitted = st.form_submit_button("💾 Save Selections", width='stretch', type="primary")
             if submitted:
                 st.session_state.advising_selections[norm_sid] = {
                     "advised": advised_selection,
@@ -249,7 +249,7 @@ def student_eligibility_view():
                 st.rerun()
 
         # ---------- Download Report ----------
-        if st.button("📥 Download Student Report", use_container_width=True):
+        if st.button("📥 Download Student Report", width='stretch'):
             export_df = display_df.copy()
             for col in ("Type", "Requisites"):
                 if col in export_df.columns:
@@ -274,7 +274,7 @@ def student_eligibility_view():
                 data=output.getvalue(),
                 file_name=f"Advising_{norm_sid}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
+                width='stretch',
             )
     
     # ---------- Action Dock (Right Sidebar) ----------

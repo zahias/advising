@@ -75,7 +75,7 @@ def render_action_dock(
     has_email = _check_student_has_email(student_id)
     
     if on_save:
-        if st.button("💾 Save Session", use_container_width=True, type="primary"):
+        if st.button("💾 Save Session", width='stretch', type="primary"):
             on_save()
             st.session_state[f"last_save_{student_id}"] = datetime.now()
             st.rerun()
@@ -98,7 +98,7 @@ def render_action_dock(
         
         if st.button(
             email_label,
-            use_container_width=True,
+            width='stretch',
             disabled=email_disabled,
             help="Send advising sheet to student via email"
         ):
@@ -117,7 +117,7 @@ def render_action_dock(
     
     if show_exclusions and on_toggle_exclusions:
         st.markdown("---")
-        if st.button("🚫 Manage Exclusions", use_container_width=True):
+        if st.button("🚫 Manage Exclusions", width='stretch'):
             on_toggle_exclusions()
     
     st.markdown("---")
