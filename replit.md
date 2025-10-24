@@ -19,6 +19,14 @@ This is a **Streamlit-based Advising Dashboard** for Phoenix University that hel
 
 ## Recent Changes
 
+### 2025-10-24: Performance Optimizations & Bug Fixes
+- ✅ **Drive Performance**: Implemented service caching and file download caching to eliminate redundant API calls
+- ✅ **Autoload Fixed**: Files now automatically load from Drive when available for each major
+- ✅ **SSL Retry Logic**: Added 3-attempt retry with 2-second delays for intermittent SSL errors during uploads
+- ✅ **Secrets Safety**: Fixed crashes when Drive isn't configured - app now gracefully handles missing secrets
+- ✅ **Local-First Sessions**: Advising sessions save instantly to local cache, then sync to Drive in background
+- ✅ **File Replacement**: Confirmed uploaded files replace existing ones (no duplicates)
+
 ### 2025-10-24: Initial Replit Setup
 - ✅ Installed Python 3.11 and all required packages
 - ✅ Configured Streamlit for Replit environment (0.0.0.0:5000, CORS disabled)
