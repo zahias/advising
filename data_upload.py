@@ -83,7 +83,10 @@ def upload_data():
 
     # Try Drive (optional; local still works)
     service = _drive_service_or_none()
-    folder_id = st.secrets.get("google", {}).get("folder_id", "")
+    try:
+        folder_id = st.secrets.get("google", {}).get("folder_id", "")
+    except Exception:
+        folder_id = ""
 
     # ---------- Upload Courses Table (per-major) ----------
     courses_file = st.sidebar.file_uploader(
