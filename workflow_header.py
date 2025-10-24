@@ -16,6 +16,11 @@ def render_workflow_header():
     """
     current_major = st.session_state.get("current_major", "")
     
+    # Prevent duplicate renders
+    if st.session_state.get("_workflow_header_rendered"):
+        return
+    st.session_state._workflow_header_rendered = True
+    
     courses_loaded = not st.session_state.get("courses_df", pd.DataFrame()).empty
     progress_loaded = not st.session_state.get("progress_df", pd.DataFrame()).empty
     num_students = len(st.session_state.get("progress_df", pd.DataFrame()))
@@ -123,6 +128,9 @@ def render_workflow_header():
             st.warning(f"⚠️ **Action Required:** Upload courses table for {current_major}.")
         elif not progress_loaded:
             st.warning(f"⚠️ **Action Required:** Upload progress report for {current_major}.")
+    
+    # Explicitly return None to prevent any accidental output
+    return None
 
 
 def _check_drive_status() -> bool:
