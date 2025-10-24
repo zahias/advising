@@ -19,6 +19,15 @@ This is a **Streamlit-based Advising Dashboard** for Phoenix University that hel
 
 ## Recent Changes
 
+### 2025-10-24: Modern UI/UX Overhaul
+- ✅ **Workflow Progress Header**: Visual status bar showing data load progress and current advising step
+- ✅ **Smart Student Search**: Searchable interface with fuzzy search, standing filters, and recently viewed students
+- ✅ **Action Dock**: Persistent right sidebar with quick access to save, email, and exclusion management
+- ✅ **Stepwise Upload Interface**: Accordion-style data upload with inline validation and status feedback
+- ✅ **Unified Notifications**: Consistent alert system with persistent and toast-style messages
+- ✅ **Accessibility Improvements**: WCAG AA compliant colors, keyboard navigation, and mobile responsiveness
+- ✅ **Visual Polish**: Modern gradients, smooth transitions, improved typography, and status badges
+
 ### 2025-10-24: Email Integration for Advising Sheets
 - ✅ **Outlook/Office 365 SMTP**: Integrated email sending using university Outlook accounts via standard Python SMTP
 - ✅ **Email Roster Management**: Upload Excel/CSV files with student IDs and emails, stored per major in Drive
@@ -65,10 +74,15 @@ This is a **Streamlit-based Advising Dashboard** for Phoenix University that hel
 ├── app.py                    # Main application entry point
 ├── advising_history.py       # Advising sessions management
 ├── course_exclusions.py      # Course exclusion logic
-├── data_upload.py            # File upload and Drive sync
-├── eligibility_view.py       # Student eligibility checking
+├── data_upload.py            # File upload and Drive sync (stepwise accordion)
+├── eligibility_view.py       # Student eligibility checking (with smart search)
 ├── email_manager.py          # Email roster and Outlook SMTP integration
 ├── full_student_view.py      # Complete student dashboard
+├── workflow_header.py        # Workflow progress header component
+├── student_search.py         # Smart student search with filters
+├── action_dock.py            # Persistent action sidebar component
+├── notification_system.py    # Unified notification/alert system
+├── visual_theme.py           # Accessibility and visual enhancements
 ├── get_refresh_token.py      # Google OAuth helper
 ├── google_drive.py           # Google Drive API integration
 ├── reporting.py              # Reporting utilities
@@ -172,14 +186,46 @@ The app can send advising sheets to students via Outlook/Office 365 SMTP. To ena
 ### Running Locally
 The app starts automatically via the Streamlit workflow. Access it through the web preview.
 
-### Uploading Data
+### Uploading Data (Stepwise Interface)
+The new stepwise upload interface guides you through data loading with clear validation:
+
 1. **Select a major** from the dropdown (PBHL, SPTH-New, SPTH-Old)
-2. **Upload files** via the sidebar:
-   - Courses Table: `courses_table.xlsx`
-   - Progress Report: `progress_report.xlsx` (can have Required + Intensive sheets)
-   - Advising Selections: Optional CSV/XLSX with advisor recommendations
+2. **Follow the step-by-step upload process** in the sidebar:
+   - **Step 1: Courses Table** - Upload `courses_table.xlsx` (validates required columns)
+   - **Step 2: Progress Report** - Upload `progress_report.xlsx` (validates and merges Required + Intensive)
+   - **Step 3: Advising Selections** (Optional) - Upload existing advising data
+   - **Step 4: Email Roster** (Optional) - Upload student email addresses
+
+Each step shows:
+- ✅ Status indicator (shows if data is loaded)
+- Real-time validation (catches missing columns immediately)
+- Student/course counts (e.g., "127 students loaded", "45 courses loaded")
+- Drive sync status (shows if data backed up to cloud)
 
 **Note**: Files are stored in major-specific folders on Google Drive (e.g., `PBHL/courses_table.xlsx`). When you upload a new file, it replaces the existing version - no duplicates are created.
+
+### Using the Modern UI
+
+#### Workflow Progress Header
+At the top of the page, you'll see your current progress:
+- **Load Data** → **Review Eligibility** → **Document Session** → **Follow-up Email**
+- Real-time badges show what's ready (e.g., "23 students loaded", "Drive synced")
+
+#### Smart Student Search
+Instead of scrolling through dropdowns, use the new search interface:
+- **Type to search**: Find students instantly by name or ID
+- **Filter by standing**: Junior, Senior, etc.
+- **Recently viewed**: Quick access to students you've worked with recently
+- **Quick select buttons**: Click student name to select (for small result sets)
+
+#### Action Dock (Right Sidebar)
+When viewing a student, the action dock provides one-click access to:
+- 💾 **Save Session** - Save advising recommendations
+- ✉️ **Email Student** - Send advising sheet via email
+- 🚫 **Manage Exclusions** - Hide courses for specific students
+- Status indicators show last save time and advising completion
+
+No more scrolling to find buttons - all actions are always visible!
 
 ### Data Format Requirements
 **Courses Table** should include columns:
