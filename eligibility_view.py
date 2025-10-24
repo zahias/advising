@@ -115,18 +115,26 @@ def student_eligibility_view():
     standing = get_student_standing(total_credits)
 
     st.markdown(f"### {student_row['NAME']}")
-    col1, col2, col3, col4 = st.columns(4)
+    
+    col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         st.metric("Total Credits", int(total_credits))
     with col2:
         st.metric("Standing", standing)
     with col3:
-        advised_count = len(slot.get("advised", []) or [])
-        st.metric("Advised Courses", advised_count)
+        # Advised count includes repeat courses
+        advised_list = slot.get("advised", []) or []
+        repeat_list = slot.get("repeat", []) or []
+        advised_count = len(advised_list) + len(repeat_list)
+        advised_credits = _sum_credits(advised_list) + _sum_credits(repeat_list)
+        st.metric("Advised Courses", f"{advised_count} ({advised_credits} cr)")
     with col4:
-        if st.button("🗑️ Clear", help="Clear all advising recommendations for this student"):
-            st.session_state.advising_selections[norm_sid] = {"advised": [], "optional": [], "repeat": [], "note": ""}
-            st.rerun()
+        optional_list = slot.get("optional", []) or []
+        optional_count = len(optional_list)
+        optional_credits = _sum_credits(optional_list)
+        st.metric("Optional Courses", f"{optional_count} ({optional_credits} cr)")
+    with col5:
+        st.metric("", "")  # Empty for spacing
 
     # ---------- Eligibility map (skip hidden) ----------
     status_dict: Dict[str, str] = {}
@@ -223,7 +231,16 @@ def student_eligibility_view():
 
     # ---------- Save form (explicit autosave for *this* student) ----------
     st.markdown("---")
-    st.markdown("### Advising Recommendations")
+    
+    # Header with clear button
+    col_head1, col_head2 = st.columns([3, 1])
+    with col_head1:
+        st.markdown("### Advising Recommendations")
+    with col_head2:
+        if st.button("🗑️ Clear All", help="Clear all advising recommendations for this student", key=f"clear_{norm_sid}"):
+            st.session_state.advising_selections[norm_sid] = {"advised": [], "optional": [], "repeat": [], "note": ""}
+            st.rerun()
+    
     with st.form(key=f"advise_form_{norm_sid}"):
         advised_selection = st.multiselect(
             "Advised Courses (Eligible, Not Yet Taken)", options=eligible_opts, default=default_advised, key=f"advised_ms_{norm_sid}"

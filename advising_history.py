@@ -224,7 +224,7 @@ def _find_student_row(student_id: Union[int, str]) -> Optional[pd.Series]:
         pass
     return None
 
-def _snapshot_student_courses(student_row: pd.Series, advised: List[str], optional: List[str]) -> List[Dict[str, Any]]:
+def _snapshot_student_courses(student_row: pd.Series, advised: List[str], optional: List[str], repeat: List[str]) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     cdf = st.session_state.courses_df
     for _, info in cdf.iterrows():
@@ -232,7 +232,9 @@ def _snapshot_student_courses(student_row: pd.Series, advised: List[str], option
         offered = "Yes" if is_course_offered(cdf, code) else "No"
         status, justification = check_eligibility(student_row, code, advised, cdf)
 
-        if check_course_completed(student_row, code):
+        if code in repeat:
+            action = "Advised-Repeat"
+        elif check_course_completed(student_row, code):
             action = "Completed"; status = "Completed"
         elif check_course_registered(student_row, code):
             action = "Registered"
@@ -272,6 +274,7 @@ def _build_single_student_snapshot(student_id: Union[int, str]) -> Dict[str, Any
 
     advised = [str(x) for x in sel.get("advised", [])]
     optional = [str(x) for x in sel.get("optional", [])]
+    repeat = [str(x) for x in sel.get("repeat", [])]
     note = str(sel.get("note", "") or "")
 
     credits_completed = float(srow.get("# of Credits Completed", 0) or 0)
@@ -288,8 +291,9 @@ def _build_single_student_snapshot(student_id: Union[int, str]) -> Dict[str, Any
             "Standing": standing,
             "advised": advised,
             "optional": optional,
+            "repeat": repeat,
             "note": note,
-            "courses": _snapshot_student_courses(srow, advised, optional),
+            "courses": _snapshot_student_courses(srow, advised, optional, repeat),
         }],
     }
 
