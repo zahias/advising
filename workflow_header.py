@@ -84,11 +84,13 @@ def render_workflow_header():
     
     stats_html = ""
     if data_ready:
+        drive_icon = "☁️ Drive synced" if drive_synced else "💾 Local only"
+        email_icon = "✉️ Email ready" if email_configured else "📧 Email not configured"
         stats_html = f"""
         <div class="workflow-stats">
             <span class="stat-badge">📊 {num_students} students loaded</span>
-            <span class="stat-badge">{'☁️ Drive synced' if drive_synced else '💾 Local only'}</span>
-            <span class="stat-badge">{'✉️ Email ready' if email_configured else '📧 Email not configured'}</span>
+            <span class="stat-badge">{drive_icon}</span>
+            <span class="stat-badge">{email_icon}</span>
         </div>
         """
     
@@ -110,8 +112,10 @@ def render_workflow_header():
     </div>
     """
     
+    # Render the workflow header (HTML only, no text output)
     st.markdown(html, unsafe_allow_html=True)
     
+    # Display warnings if data not ready
     if not data_ready:
         if not courses_loaded and not progress_loaded:
             st.warning(f"⚠️ **Action Required:** Upload both courses table and progress report for {current_major} to begin advising.")
