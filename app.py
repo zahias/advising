@@ -93,10 +93,15 @@ def _load_first_from_drive(filenames: list[str]) -> tuple[bytes | None, str | No
     if service is None:
         return None, None
     try:
-        # Safe access to secrets - use hasattr to check if secrets exist
-        if hasattr(st, 'secrets') and "google" in st.secrets:
-            folder_id = st.secrets["google"].get("folder_id", "")
-        else:
+        # Safe access to secrets - use try/except to avoid errors when secrets don't exist
+        folder_id = ""
+        try:
+            if "google" in st.secrets:
+                folder_id = st.secrets["google"].get("folder_id", "")
+        except:
+            pass
+        
+        if not folder_id:
             folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
         
         if not folder_id:
@@ -108,7 +113,7 @@ def _load_first_from_drive(filenames: list[str]) -> tuple[bytes | None, str | No
                 return bytes_data, name
         return None, None
     except Exception as e:
-        log_error(f"Drive load failed for {filenames}", e)
+        # Silently fail if Drive isn't configured
         return None, None
 
 # ---------- Auto-load per-major files (with legacy fallbacks) ----------

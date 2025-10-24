@@ -149,31 +149,45 @@ def sync_file_with_drive(
 ) -> str:
     """
     Create or replace a file by name inside `parent_folder_id`.
-    Returns the fileId.
+    Returns the fileId. Includes retry logic for SSL errors.
     """
-    media = MediaIoBaseUpload(io.BytesIO(file_content), mimetype=mime_type, resumable=False)
-    body = {"name": drive_file_name, "parents": [parent_folder_id]}
+    import time
+    import ssl
+    
+    max_retries = 3
+    retry_delay = 2
+    
+    for attempt in range(max_retries):
+        try:
+            media = MediaIoBaseUpload(io.BytesIO(file_content), mimetype=mime_type, resumable=False)
+            body = {"name": drive_file_name, "parents": [parent_folder_id]}
 
-    try:
-        file_id = find_file_in_drive(service, drive_file_name, parent_folder_id)
-        if file_id:
-            updated = service.files().update(
-                fileId=file_id,
-                media_body=media,
-                body={"name": drive_file_name},
-                supportsAllDrives=False,
-            ).execute()
-            return updated.get("id", file_id)
-        else:
-            created = service.files().create(
-                body=body,
-                media_body=media,
-                fields="id",
-                supportsAllDrives=False,
-            ).execute()
-            return created.get("id")
-    except HttpError as e:
-        raise RuntimeError(f"Drive sync failed: {e}")
+            file_id = find_file_in_drive(service, drive_file_name, parent_folder_id)
+            if file_id:
+                updated = service.files().update(
+                    fileId=file_id,
+                    media_body=media,
+                    body={"name": drive_file_name},
+                    supportsAllDrives=False,
+                ).execute()
+                return updated.get("id", file_id)
+            else:
+                created = service.files().create(
+                    body=body,
+                    media_body=media,
+                    fields="id",
+                    supportsAllDrives=False,
+                ).execute()
+                return created.get("id")
+                
+        except ssl.SSLError as e:
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+                continue
+            else:
+                raise RuntimeError(f"Drive sync failed after {max_retries} retries (SSL error): {e}")
+        except HttpError as e:
+            raise RuntimeError(f"Drive sync failed: {e}")
 
 
 # ----------------- New small helpers -----------------

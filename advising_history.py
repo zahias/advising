@@ -55,10 +55,17 @@ def _session_filename(session_id: str) -> str:
 def _get_folder_id() -> str:
     """Get folder ID from secrets or env."""
     import os
+    folder_id = ""
     try:
-        return st.secrets.get("google", {}).get("folder_id", "") or os.getenv("GOOGLE_FOLDER_ID", "")
-    except Exception:
-        return os.getenv("GOOGLE_FOLDER_ID", "")
+        if "google" in st.secrets:
+            folder_id = st.secrets["google"].get("folder_id", "")
+    except:
+        pass
+    
+    if not folder_id:
+        folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
+    
+    return folder_id
 
 def _load_index() -> List[Dict[str, Any]]:
     try:

@@ -22,9 +22,24 @@ def _filename() -> str:
 
 def _load_from_drive() -> Dict[str, List[str]]:
     """Fetch exclusions map from Drive; returns {} if not found / any issue."""
+    import os
     try:
         service = initialize_drive_service()
-        folder_id = st.secrets["google"]["folder_id"]
+        
+        # Safe access to folder_id
+        folder_id = ""
+        try:
+            if "google" in st.secrets:
+                folder_id = st.secrets["google"].get("folder_id", "")
+        except:
+            pass
+        
+        if not folder_id:
+            folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
+        
+        if not folder_id:
+            return {}
+        
         file_id = find_file_in_drive(service, _filename(), folder_id)
         if not file_id:
             return {}
@@ -48,9 +63,25 @@ def _load_from_drive() -> Dict[str, List[str]]:
 
 def _save_to_drive(ex_map: Dict[str, List[str]]) -> None:
     """Write exclusions map to Drive (overwrites the file)."""
+    import os
     try:
         service = initialize_drive_service()
-        folder_id = st.secrets["google"]["folder_id"]
+        
+        # Safe access to folder_id
+        folder_id = ""
+        try:
+            if "google" in st.secrets:
+                folder_id = st.secrets["google"].get("folder_id", "")
+        except:
+            pass
+        
+        if not folder_id:
+            folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
+        
+        if not folder_id:
+            log_info("Course exclusions not saved to Drive (no folder configured).")
+            return
+        
         data_bytes = json.dumps(ex_map, ensure_ascii=False, indent=2).encode("utf-8")
         sync_file_with_drive(
             service=service,
