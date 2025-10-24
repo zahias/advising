@@ -135,7 +135,7 @@ def student_eligibility_view():
         optional_credits = _sum_credits(optional_list)
         st.metric("Optional Courses", f"{optional_count} ({optional_credits} cr)")
     with col5:
-        st.metric("", "")  # Empty for spacing
+        pass  # Empty column for spacing
 
     # ---------- Eligibility map (skip hidden) ----------
     status_dict: Dict[str, str] = {}
@@ -239,7 +239,18 @@ def student_eligibility_view():
         st.markdown("### Advising Recommendations")
     with col_head2:
         if st.button("🗑️ Clear All", help="Clear all advising recommendations for this student", key=f"clear_{norm_sid}"):
+            # Clear all selections including repeat courses and notes
             st.session_state.advising_selections[norm_sid] = {"advised": [], "optional": [], "repeat": [], "note": ""}
+            
+            # Also save the cleared state to Drive
+            from advising_history import save_session_for_student
+            save_session_for_student(norm_sid)
+            
+            # Clear widget state to force multiselects to refresh
+            for key in list(st.session_state.keys()):
+                if key.startswith(f"advised_ms_{norm_sid}") or key.startswith(f"repeat_ms_{norm_sid}") or key.startswith(f"optional_ms_{norm_sid}") or key.startswith(f"note_{norm_sid}"):
+                    del st.session_state[key]
+            
             st.rerun()
     
     with st.form(key=f"advise_form_{norm_sid}"):

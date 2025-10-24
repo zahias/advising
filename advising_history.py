@@ -16,6 +16,7 @@ from google_drive import (
     download_file_from_drive,
     sync_file_with_drive,
     get_major_folder_id,
+    get_or_create_folder,
 )
 from utils import (
     log_info,
@@ -95,18 +96,45 @@ def _get_major_folder_id() -> str:
     except Exception:
         return ""
 
+def _get_sessions_folder_id() -> str:
+    """Get sessions subfolder ID within the major folder. Creates it if it doesn't exist."""
+    try:
+        service = initialize_drive_service()
+        major_folder_id = _get_major_folder_id()
+        if not major_folder_id:
+            return ""
+        
+        # Get or create 'sessions' subfolder within major folder
+        sessions_folder_id = get_or_create_folder(service, "sessions", major_folder_id)
+        return sessions_folder_id
+    except Exception as e:
+        log_error(f"Failed to get/create sessions folder", e)
+        return ""
+
 def _load_index() -> List[Dict[str, Any]]:
     try:
         service = initialize_drive_service()
+        
+        # Try sessions subfolder first
+        folder_id = _get_sessions_folder_id()
+        if folder_id:
+            fid = find_file_in_drive(service, _index_name(), folder_id)
+            if fid:
+                payload = download_file_from_drive(service, fid)
+                idx = json.loads(payload.decode("utf-8"))
+                return idx if isinstance(idx, list) else []
+        
+        # Fall back to major folder root (backward compatibility for legacy sessions)
         folder_id = _get_major_folder_id()
-        if not folder_id:
-            return []
-        fid = find_file_in_drive(service, _index_name(), folder_id)
-        if not fid:
-            return []
-        payload = download_file_from_drive(service, fid)
-        idx = json.loads(payload.decode("utf-8"))
-        return idx if isinstance(idx, list) else []
+        if folder_id:
+            fid = find_file_in_drive(service, _index_name(), folder_id)
+            if fid:
+                payload = download_file_from_drive(service, fid)
+                idx = json.loads(payload.decode("utf-8"))
+                log_info("Loaded legacy advising index from major folder root (consider migrating to sessions/)")
+                return idx if isinstance(idx, list) else []
+        
+        return []
     except Exception as e:
         log_error("Failed to load advising index", e)
         return []
@@ -123,14 +151,14 @@ def _save_index(index_items: List[Dict[str, Any]]) -> None:
     # Background save to Drive (best effort)
     try:
         service = initialize_drive_service()
-        folder_id = _get_major_folder_id()
+        folder_id = _get_sessions_folder_id()
         if not folder_id:
             return
         # Convert numpy types to native Python types before JSON serialization
         serializable_items = _convert_to_json_serializable(index_items)
         data = json.dumps(serializable_items, ensure_ascii=False, indent=2).encode("utf-8")
         sync_file_with_drive(service, data, _index_name(), "application/json", folder_id)
-        log_info(f"Index saved to Drive: {_index_name()}")
+        log_info(f"Index saved to Drive/sessions: {_index_name()}")
     except Exception as e:
         log_error("Failed to save advising index to Drive (local copy preserved)", e)
 
@@ -151,7 +179,7 @@ def _save_session_payload(session_id: str, snapshot: Dict[str, Any], meta: Dict[
     # Background save to Drive (best effort, non-blocking)
     try:
         service = initialize_drive_service()
-        folder_id = _get_major_folder_id()
+        folder_id = _get_sessions_folder_id()
         if not folder_id:
             log_info(f"Session saved locally only (no Drive folder configured): {session_id}")
             return
@@ -159,7 +187,7 @@ def _save_session_payload(session_id: str, snapshot: Dict[str, Any], meta: Dict[
         payload = _convert_to_json_serializable({"meta": meta, "snapshot": snapshot})
         data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
         sync_file_with_drive(service, data, _session_filename(session_id), "application/json", folder_id)
-        log_info(f"Session payload synced to Drive: {_session_filename(session_id)}")
+        log_info(f"Session payload synced to Drive/sessions: {_session_filename(session_id)}")
     except Exception as e:
         log_error(f"Failed to sync session to Drive (local copy preserved): {session_id}", e)
 
@@ -173,17 +201,31 @@ def _load_session_payload_by_id(session_id: str) -> Optional[Dict[str, Any]]:
     # Fall back to Drive
     try:
         service = initialize_drive_service()
+        
+        # Try sessions subfolder first
+        folder_id = _get_sessions_folder_id()
+        if folder_id:
+            fid = find_file_in_drive(service, _session_filename(session_id), folder_id)
+            if fid:
+                data = download_file_from_drive(service, fid)
+                payload = json.loads(data.decode("utf-8"))
+                # Cache it locally for next time
+                _save_session_payload_local(session_id, payload.get("snapshot", {}), payload.get("meta", {}))
+                return payload
+        
+        # Fall back to major folder root (backward compatibility for legacy sessions)
         folder_id = _get_major_folder_id()
-        if not folder_id:
-            return None
-        fid = find_file_in_drive(service, _session_filename(session_id), folder_id)
-        if not fid:
-            return None
-        data = download_file_from_drive(service, fid)
-        payload = json.loads(data.decode("utf-8"))
-        # Cache it locally for next time
-        _save_session_payload_local(session_id, payload.get("snapshot", {}), payload.get("meta", {}))
-        return payload
+        if folder_id:
+            fid = find_file_in_drive(service, _session_filename(session_id), folder_id)
+            if fid:
+                data = download_file_from_drive(service, fid)
+                payload = json.loads(data.decode("utf-8"))
+                log_info(f"Loaded legacy session {session_id} from major folder root")
+                # Cache it locally for next time
+                _save_session_payload_local(session_id, payload.get("snapshot", {}), payload.get("meta", {}))
+                return payload
+        
+        return None
     except Exception as e:
         log_error("Failed to load session payload from Drive", e)
         return None
