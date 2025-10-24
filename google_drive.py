@@ -29,16 +29,32 @@ def _secrets() -> dict:
         return {}
 
 
-def _build_credentials() -> Credentials:
+def _get_credentials_hash() -> str:
+    """Generate a hash of credentials for cache key."""
+    import os
+    import hashlib
+    
     s = _secrets()
-    client_id = s.get("client_id")
-    client_secret = s.get("client_secret")
-    refresh_token = s.get("refresh_token")
+    client_id = s.get("client_id") or os.getenv("GOOGLE_CLIENT_ID") or ""
+    client_secret = s.get("client_secret") or os.getenv("GOOGLE_CLIENT_SECRET") or ""
+    refresh_token = s.get("refresh_token") or os.getenv("GOOGLE_REFRESH_TOKEN") or ""
+    
+    cred_string = f"{client_id}:{client_secret}:{refresh_token}"
+    return hashlib.md5(cred_string.encode()).hexdigest()
+
+
+def _build_credentials() -> Credentials:
+    import os
+    
+    s = _secrets()
+    client_id = s.get("client_id") or os.getenv("GOOGLE_CLIENT_ID")
+    client_secret = s.get("client_secret") or os.getenv("GOOGLE_CLIENT_SECRET")
+    refresh_token = s.get("refresh_token") or os.getenv("GOOGLE_REFRESH_TOKEN")
 
     if not (client_id and client_secret and refresh_token):
         raise GoogleAuthError(
             "Missing Google credentials in secrets. "
-            "Please set google.client_id, google.client_secret, google.refresh_token."
+            "Please set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN in Replit Secrets."
         )
 
     # Do NOT pin scopes here; let the refresh token carry the granted scopes.
@@ -71,14 +87,21 @@ def _build_credentials() -> Credentials:
     return creds
 
 
-def initialize_drive_service():
-    """Return an authenticated Drive service or raise GoogleAuthError."""
+@st.cache_resource(ttl=3600)
+def _get_cached_drive_service(_cred_hash: str):
+    """Cached Drive service - only recreates if credentials change or after 1 hour."""
     creds = _build_credentials()
     try:
         service = build("drive", "v3", credentials=creds, cache_discovery=False)
         return service
     except Exception as e:
         raise GoogleAuthError(f"Failed to initialize Drive service: {e}") from e
+
+
+def initialize_drive_service():
+    """Return a cached authenticated Drive service or raise GoogleAuthError."""
+    cred_hash = _get_credentials_hash()
+    return _get_cached_drive_service(cred_hash)
 
 
 def find_file_in_drive(service, filename: str, parent_folder_id: str) -> Optional[str]:
@@ -103,6 +126,8 @@ def find_file_in_drive(service, filename: str, parent_folder_id: str) -> Optiona
 
 def download_file_from_drive(service, file_id: str) -> bytes:
     """Download file content by id."""
+    # Note: Removed caching here because Drive service object cannot be hashed.
+    # Caching is now handled at the application level for specific files.
     try:
         req = service.files().get_media(fileId=file_id)
         fh = io.BytesIO()
@@ -124,31 +149,45 @@ def sync_file_with_drive(
 ) -> str:
     """
     Create or replace a file by name inside `parent_folder_id`.
-    Returns the fileId.
+    Returns the fileId. Includes retry logic for SSL errors.
     """
-    media = MediaIoBaseUpload(io.BytesIO(file_content), mimetype=mime_type, resumable=False)
-    body = {"name": drive_file_name, "parents": [parent_folder_id]}
+    import time
+    import ssl
+    
+    max_retries = 3
+    retry_delay = 2
+    
+    for attempt in range(max_retries):
+        try:
+            media = MediaIoBaseUpload(io.BytesIO(file_content), mimetype=mime_type, resumable=False)
+            body = {"name": drive_file_name, "parents": [parent_folder_id]}
 
-    try:
-        file_id = find_file_in_drive(service, drive_file_name, parent_folder_id)
-        if file_id:
-            updated = service.files().update(
-                fileId=file_id,
-                media_body=media,
-                body={"name": drive_file_name},
-                supportsAllDrives=False,
-            ).execute()
-            return updated.get("id", file_id)
-        else:
-            created = service.files().create(
-                body=body,
-                media_body=media,
-                fields="id",
-                supportsAllDrives=False,
-            ).execute()
-            return created.get("id")
-    except HttpError as e:
-        raise RuntimeError(f"Drive sync failed: {e}")
+            file_id = find_file_in_drive(service, drive_file_name, parent_folder_id)
+            if file_id:
+                updated = service.files().update(
+                    fileId=file_id,
+                    media_body=media,
+                    body={"name": drive_file_name},
+                    supportsAllDrives=False,
+                ).execute()
+                return updated.get("id", file_id)
+            else:
+                created = service.files().create(
+                    body=body,
+                    media_body=media,
+                    fields="id",
+                    supportsAllDrives=False,
+                ).execute()
+                return created.get("id")
+                
+        except ssl.SSLError as e:
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+                continue
+            else:
+                raise RuntimeError(f"Drive sync failed after {max_retries} retries (SSL error): {e}")
+        except HttpError as e:
+            raise RuntimeError(f"Drive sync failed: {e}")
 
 
 # ----------------- New small helpers -----------------
@@ -192,3 +231,66 @@ def delete_file_by_name(service, parent_folder_id: str, filename: str) -> bool:
         return True
     except HttpError:
         return False
+
+
+def find_folder_by_name(service, folder_name: str, parent_folder_id: str) -> Optional[str]:
+    """Find a folder by name inside parent_folder_id. Returns folder ID or None."""
+    try:
+        query = f"name = '{folder_name}' and '{parent_folder_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+        resp = service.files().list(
+            q=query,
+            spaces="drive",
+            fields="files(id, name)",
+            pageSize=10,
+            includeItemsFromAllDrives=False,
+            supportsAllDrives=False,
+        ).execute()
+        for f in resp.get("files", []):
+            if f.get("name") == folder_name:
+                return f.get("id")
+        return None
+    except HttpError as e:
+        raise RuntimeError(f"Drive folder search failed: {e}")
+
+
+def create_folder(service, folder_name: str, parent_folder_id: str) -> str:
+    """Create a folder inside parent_folder_id. Returns the new folder ID."""
+    try:
+        body = {
+            "name": folder_name,
+            "mimeType": "application/vnd.google-apps.folder",
+            "parents": [parent_folder_id]
+        }
+        folder = service.files().create(
+            body=body,
+            fields="id",
+            supportsAllDrives=False,
+        ).execute()
+        return folder.get("id")
+    except HttpError as e:
+        raise RuntimeError(f"Drive folder creation failed: {e}")
+
+
+def get_or_create_folder(service, folder_name: str, parent_folder_id: str) -> str:
+    """Get existing folder ID or create it if it doesn't exist. Returns folder ID."""
+    folder_id = find_folder_by_name(service, folder_name, parent_folder_id)
+    if folder_id:
+        return folder_id
+    return create_folder(service, folder_name, parent_folder_id)
+
+
+@st.cache_data(ttl=3600)
+def get_major_folder_id(_service, major: str, root_folder_id: str) -> str:
+    """
+    Get or create a major-specific folder inside the root folder.
+    Cached for 1 hour to avoid repeated API calls.
+    
+    Args:
+        _service: Drive service (prefixed with _ to exclude from cache key)
+        major: Major name (e.g., 'PBHL', 'SPTH-New', 'SPTH-Old')
+        root_folder_id: Root folder ID from secrets
+    
+    Returns:
+        Folder ID for the major-specific folder
+    """
+    return get_or_create_folder(_service, major, root_folder_id)

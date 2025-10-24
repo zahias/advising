@@ -8,7 +8,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-from google_drive import initialize_drive_service, sync_file_with_drive, GoogleAuthError
+from google_drive import initialize_drive_service, sync_file_with_drive, GoogleAuthError, get_major_folder_id
 from utils import log_info, log_error, load_progress_excel
 
 
@@ -25,54 +25,60 @@ def _drive_service_or_none():
         return None
 
 
-def _timestamp() -> str:
-    # e.g., 20251020-1435
-    return datetime.now().strftime("%Y%m%d-%H%M")
+def _get_root_folder_id() -> str:
+    """Get root folder ID from secrets or env."""
+    import os
+    folder_id = ""
+    try:
+        if "google" in st.secrets:
+            folder_id = st.secrets["google"].get("folder_id", "")
+    except:
+        pass
+    
+    if not folder_id:
+        folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
+    
+    return folder_id
 
 
-def _sync_both_names(
+def _sync_to_major_folder(
     *,
     service,
-    folder_id: str,
     major: str,
     base_name: str,          # "courses_table" OR "progress_report"
     content: bytes,
     mime: str = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ):
     """
-    Write the 'latest alias' and the timestamped version.
-      - {MAJOR}_{base_name}.xlsx
-      - {MAJOR}_{base_name}_{YYYYMMDD-HHMM}.xlsx
+    Sync file to major-specific folder in Drive, replacing if exists.
+    File will be named: {base_name}.xlsx (e.g., courses_table.xlsx)
+    Stored in folder: {ROOT_FOLDER}/{MAJOR}/ (e.g., {ROOT}/PBHL/)
     """
-    if not service or not folder_id:
+    if not service:
         return
 
-    latest = f"{major}_{base_name}.xlsx"
-    versioned = f"{major}_{base_name}_{_timestamp()}.xlsx"
-
-    # 1) Replace-or-create the 'latest' alias
+    root_folder_id = _get_root_folder_id()
+    if not root_folder_id:
+        return
+    
+    # Get or create major-specific folder
+    major_folder_id = get_major_folder_id(service, major, root_folder_id)
+    
+    # Sync file (replaces if exists)
+    filename = f"{base_name}.xlsx"
     sync_file_with_drive(
         service=service,
         file_content=content,
-        drive_file_name=latest,
+        drive_file_name=filename,
         mime_type=mime,
-        parent_folder_id=folder_id,
-    )
-
-    # 2) Add a versioned snapshot (always create new)
-    sync_file_with_drive(
-        service=service,
-        file_content=content,
-        drive_file_name=versioned,
-        mime_type=mime,
-        parent_folder_id=folder_id,
+        parent_folder_id=major_folder_id,
     )
 
 
 def upload_data():
     """
     Handle uploading of courses table, progress report, and advising selections
-    for the CURRENT major. Automatically syncs to Drive (replace alias + add version).
+    for the CURRENT major. Automatically syncs to major-specific folder in Drive.
     """
     st.sidebar.header("Upload Data")
 
@@ -83,11 +89,10 @@ def upload_data():
 
     # Try Drive (optional; local still works)
     service = _drive_service_or_none()
-    folder_id = st.secrets.get("google", {}).get("folder_id", "")
 
     # ---------- Upload Courses Table (per-major) ----------
     courses_file = st.sidebar.file_uploader(
-        f"[{current_major}] Upload Courses Table ({current_major}_courses_table.xlsx)",
+        f"[{current_major}] Upload Courses Table",
         type=["xlsx"],
         key=f"courses_upload_{current_major}",
     )
@@ -101,18 +106,17 @@ def upload_data():
             st.sidebar.success("✅ Courses table loaded.")
             log_info(f"Courses table uploaded via sidebar ({current_major}).")
 
-            # Auto-sync to Drive (alias + versioned)
-            if service and folder_id:
+            # Auto-sync to Drive in major-specific folder
+            if service:
                 courses_file.seek(0)
                 raw = courses_file.read()
-                _sync_both_names(
+                _sync_to_major_folder(
                     service=service,
-                    folder_id=folder_id,
                     major=current_major,
                     base_name="courses_table",
                     content=raw,
                 )
-                st.sidebar.info("☁️ Synced to Google Drive (latest + versioned).")
+                st.sidebar.info(f"☁️ Synced to Drive: {current_major}/courses_table.xlsx")
         except Exception as e:
             st.session_state.courses_df = pd.DataFrame()
             st.session_state.majors[current_major]["courses_df"] = pd.DataFrame()
@@ -121,7 +125,7 @@ def upload_data():
 
     # ---------- Upload Progress Report (per-major; merges Required + Intensive) ----------
     progress_file = st.sidebar.file_uploader(
-        f"[{current_major}] Upload Progress Report ({current_major}_progress_report.xlsx)",
+        f"[{current_major}] Upload Progress Report",
         type=["xlsx"],
         key=f"progress_upload_{current_major}",
     )
@@ -135,16 +139,15 @@ def upload_data():
             st.sidebar.success("✅ Progress report loaded (Required + Intensive merged).")
             log_info(f"Progress report uploaded and merged via sidebar ({current_major}).")
 
-            # Auto-sync to Drive (alias + versioned)
-            if service and folder_id:
-                _sync_both_names(
+            # Auto-sync to Drive in major-specific folder
+            if service:
+                _sync_to_major_folder(
                     service=service,
-                    folder_id=folder_id,
                     major=current_major,
                     base_name="progress_report",
                     content=content,
                 )
-                st.sidebar.info("☁️ Synced to Google Drive (latest + versioned).")
+                st.sidebar.info(f"☁️ Synced to Drive: {current_major}/progress_report.xlsx")
         except Exception as e:
             st.session_state.progress_df = pd.DataFrame()
             st.session_state.majors[current_major]["progress_df"] = pd.DataFrame()
@@ -182,9 +185,65 @@ def upload_data():
             st.sidebar.error(f"Error loading advising selections: {e}")
             log_error("Error loading advising selections", e)
 
+    # ---------- Upload Email Roster (per-major) ----------
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📧 Email Roster")
+    
+    email_file = st.sidebar.file_uploader(
+        f"[{current_major}] Upload Email Roster (Excel/CSV with ID and Email columns)",
+        type=["xlsx", "csv"],
+        key=f"email_upload_{current_major}",
+        help="Upload a file with student IDs and email addresses. Expected columns: 'ID' and 'Email'"
+    )
+    if email_file:
+        from email_manager import upload_email_roster_from_file
+        count_added, errors = upload_email_roster_from_file(email_file)
+        
+        if count_added > 0:
+            st.sidebar.success(f"✅ Added/updated {count_added} email(s) for {current_major}")
+            log_info(f"Email roster uploaded: {count_added} emails for {current_major}")
+        
+        if errors:
+            with st.sidebar.expander("⚠️ See errors", expanded=False):
+                for err in errors:
+                    st.write(f"• {err}")
+    
+    # Show email roster status
+    from email_manager import load_email_roster
+    roster = load_email_roster()
+    if roster:
+        st.sidebar.info(f"📧 {len(roster)} student email(s) on file for {current_major}")
+    else:
+        st.sidebar.warning("No email roster uploaded for {current_major}")
+    
     # ---------- Status ----------
     st.sidebar.markdown("---")
     st.sidebar.write(f"**Status for {current_major}**")
     st.sidebar.success("Courses table loaded.") if not st.session_state.courses_df.empty else st.sidebar.warning("Courses table not uploaded.")
     st.sidebar.success("Progress report loaded.") if not st.session_state.progress_df.empty else st.sidebar.warning("Progress report not uploaded.")
     st.sidebar.success("Advising selections loaded.") if st.session_state.get("advising_selections") else st.sidebar.info("Advising selections optional.")
+    
+    # ---------- Email Settings ----------
+    st.sidebar.markdown("---")
+    with st.sidebar.expander("⚙️ Email Settings", expanded=False):
+        from email_manager import get_email_credentials
+        
+        email_addr, email_pass = get_email_credentials()
+        
+        if email_addr and email_pass:
+            st.success(f"✅ Email configured: {email_addr}")
+            st.info("Email credentials are stored in Replit/Streamlit secrets.")
+        else:
+            st.warning("⚠️ Email not configured")
+            st.write("To enable email sending, add these secrets:")
+            st.code("""
+[email]
+address = "your-email@outlook.com"
+password = "your-app-password"
+            """, language="toml")
+            st.caption("**For Outlook/Office 365:**")
+            st.caption("• Use your full university email address")
+            st.caption("• Use app password (not regular password)")
+            st.caption("• [Generate app password](https://support.microsoft.com/en-us/account-billing/using-app-passwords-with-apps-that-don-t-support-two-step-verification-5896ed9b-4263-e681-128a-a6f2979a7944)")
+            st.caption("**On Streamlit Cloud:** Add to Secrets in Settings")
+            st.caption("**On Replit:** Add to Secrets in Tools sidebar")

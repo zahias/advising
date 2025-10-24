@@ -157,17 +157,47 @@ def _render_individual_student():
     st.dataframe(styled, use_container_width=True)
 
     # Download colored sheet for this student (compact codes)
-    if st.button("Download Individual Report"):
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            indiv_df.to_excel(writer, index=False, sheet_name="Student")
-        apply_individual_compact_formatting(output=output, sheet_name="Student", course_cols=selected_courses)
-        st.download_button(
-            "Download Excel",
-            data=output.getvalue(),
-            file_name=f"Student_{sid}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        if st.button("Download Individual Report"):
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                indiv_df.to_excel(writer, index=False, sheet_name="Student")
+            apply_individual_compact_formatting(output=output, sheet_name="Student", course_cols=selected_courses)
+            st.download_button(
+                "Download Excel",
+                data=output.getvalue(),
+                file_name=f"Student_{sid}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+    
+    with col2:
+        # Email advising sheet to student
+        if st.button("📧 Email Advising Sheet", key=f"email_indiv_{sid}"):
+            from email_manager import get_student_email, send_advising_email
+            
+            student_email = get_student_email(str(sid))
+            if not student_email:
+                st.error(f"No email address found for student {sid}. Please upload email roster first.")
+            else:
+                # Get selection data
+                note = sel.get("note", "")
+                
+                # Send email
+                success, message = send_advising_email(
+                    to_email=student_email,
+                    student_name=str(row["NAME"]),
+                    student_id=str(sid),
+                    advised_courses=advised_list,
+                    optional_courses=optional_list,
+                    note=note,
+                    courses_df=st.session_state.courses_df,
+                )
+                
+                if success:
+                    st.success(f"✅ {message}")
+                else:
+                    st.error(f"❌ {message}")
 
     # Download sheets for all advised students into one workbook + sync to Drive (unchanged)
     if st.button("Download All Advised Students Reports"):

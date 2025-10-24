@@ -11,21 +11,40 @@ from google_drive import (
     find_file_in_drive,
     download_file_from_drive,
     sync_file_with_drive,
+    get_major_folder_id,
 )
 from utils import log_error, log_info
 
 
 def _filename() -> str:
-    major = st.session_state.get("current_major", "DEFAULT")
-    return f"course_exclusions_{major}.json"
+    return "course_exclusions.json"
 
 
 def _load_from_drive() -> Dict[str, List[str]]:
     """Fetch exclusions map from Drive; returns {} if not found / any issue."""
+    import os
     try:
         service = initialize_drive_service()
-        folder_id = st.secrets["google"]["folder_id"]
-        file_id = find_file_in_drive(service, _filename(), folder_id)
+        major = st.session_state.get("current_major", "DEFAULT")
+        
+        # Safe access to root folder_id
+        root_folder_id = ""
+        try:
+            if "google" in st.secrets:
+                root_folder_id = st.secrets["google"].get("folder_id", "")
+        except:
+            pass
+        
+        if not root_folder_id:
+            root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
+        
+        if not root_folder_id:
+            return {}
+        
+        # Get major-specific folder
+        major_folder_id = get_major_folder_id(service, major, root_folder_id)
+        
+        file_id = find_file_in_drive(service, _filename(), major_folder_id)
         if not file_id:
             return {}
         payload = download_file_from_drive(service, file_id)
@@ -48,18 +67,38 @@ def _load_from_drive() -> Dict[str, List[str]]:
 
 def _save_to_drive(ex_map: Dict[str, List[str]]) -> None:
     """Write exclusions map to Drive (overwrites the file)."""
+    import os
     try:
         service = initialize_drive_service()
-        folder_id = st.secrets["google"]["folder_id"]
+        major = st.session_state.get("current_major", "DEFAULT")
+        
+        # Safe access to root folder_id
+        root_folder_id = ""
+        try:
+            if "google" in st.secrets:
+                root_folder_id = st.secrets["google"].get("folder_id", "")
+        except:
+            pass
+        
+        if not root_folder_id:
+            root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
+        
+        if not root_folder_id:
+            log_info("Course exclusions not saved to Drive (no folder configured).")
+            return
+        
+        # Get major-specific folder
+        major_folder_id = get_major_folder_id(service, major, root_folder_id)
+        
         data_bytes = json.dumps(ex_map, ensure_ascii=False, indent=2).encode("utf-8")
         sync_file_with_drive(
             service=service,
             file_content=data_bytes,
             drive_file_name=_filename(),
             mime_type="application/json",
-            parent_folder_id=folder_id,
+            parent_folder_id=major_folder_id,
         )
-        log_info(f"Course exclusions saved to Drive ({_filename()}).")
+        log_info(f"Course exclusions saved to Drive: {major}/{_filename()}")
     except Exception as e:
         log_error("Failed to save course exclusions to Drive", e)
         raise

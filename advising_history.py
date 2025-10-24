@@ -5,6 +5,7 @@ import json
 from typing import Any, Dict, List, Optional, Union
 from uuid import uuid4
 from datetime import datetime
+import numpy as np
 
 import pandas as pd
 import streamlit as st
@@ -14,6 +15,7 @@ from google_drive import (
     find_file_in_drive,
     download_file_from_drive,
     sync_file_with_drive,
+    get_major_folder_id,
 )
 from utils import (
     log_info,
@@ -36,26 +38,77 @@ except Exception:
 __all__ = ["advising_history_panel", "autosave_current_student_session", "save_session_for_student"]
 
 
+<<<<<<< HEAD
+# ---------- date/filenames ----------
+=======
 # ---------- internal helpers ----------
 
+def _convert_to_json_serializable(obj: Any) -> Any:
+    """Recursively convert numpy types to native Python types for JSON serialization."""
+    if isinstance(obj, dict):
+        return {k: _convert_to_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_convert_to_json_serializable(item) for item in obj]
+    elif isinstance(obj, (np.integer, np.int64, np.int32)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, np.float64, np.float32)):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif pd.isna(obj):
+        return None
+    else:
+        return obj
+
+>>>>>>> b6378eea1124023c16183761cb2f19f63d279c8d
 def _now_beirut() -> datetime:
     return datetime.now(_LOCAL_TZ) if _LOCAL_TZ else datetime.now()
 
 def _index_name() -> str:
-    major = st.session_state.get("current_major", "DEFAULT")
-    return f"advising_index_{major}.json"
+    return "advising_index.json"
 
 def _session_filename(session_id: str) -> str:
-    major = st.session_state.get("current_major", "DEFAULT")
-    return f"advising_session_{major}_{session_id}.json"
+    return f"advising_session_{session_id}.json"
 
 
+<<<<<<< HEAD
+# ---------- Drive index I/O ----------
+=======
 # ---------- index I/O ----------
 
+def _get_major_folder_id() -> str:
+    """Get major-specific folder ID. Returns major-specific folder inside root folder."""
+    import os
+    try:
+        service = initialize_drive_service()
+        major = st.session_state.get("current_major", "DEFAULT")
+        
+        # Get root folder ID
+        root_folder_id = ""
+        try:
+            if "google" in st.secrets:
+                root_folder_id = st.secrets["google"].get("folder_id", "")
+        except:
+            pass
+        
+        if not root_folder_id:
+            root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
+        
+        if not root_folder_id:
+            return ""
+        
+        # Get or create major-specific folder
+        return get_major_folder_id(service, major, root_folder_id)
+    except Exception:
+        return ""
+
+>>>>>>> b6378eea1124023c16183761cb2f19f63d279c8d
 def _load_index() -> List[Dict[str, Any]]:
     try:
         service = initialize_drive_service()
-        folder_id = st.secrets["google"]["folder_id"]
+        folder_id = _get_major_folder_id()
+        if not folder_id:
+            return []
         fid = find_file_in_drive(service, _index_name(), folder_id)
         if not fid:
             return []
@@ -66,45 +119,88 @@ def _load_index() -> List[Dict[str, Any]]:
         log_error("Failed to load advising index", e)
         return []
 
+def _save_index_local(index_items: List[Dict[str, Any]]) -> None:
+    """Save index to session state immediately (local-first)."""
+    st.session_state.advising_index = index_items
+
 def _save_index(index_items: List[Dict[str, Any]]) -> None:
+    """Save index to Drive asynchronously (background)."""
+    # Save locally first
+    _save_index_local(index_items)
+    
+    # Background save to Drive (best effort)
     try:
         service = initialize_drive_service()
-        folder_id = st.secrets["google"]["folder_id"]
-        data = json.dumps(index_items, ensure_ascii=False, indent=2).encode("utf-8")
+        folder_id = _get_major_folder_id()
+        if not folder_id:
+            return
+        # Convert numpy types to native Python types before JSON serialization
+        serializable_items = _convert_to_json_serializable(index_items)
+        data = json.dumps(serializable_items, ensure_ascii=False, indent=2).encode("utf-8")
         sync_file_with_drive(service, data, _index_name(), "application/json", folder_id)
-        log_info(f"Index saved: {_index_name()}")
+        log_info(f"Index saved to Drive: {_index_name()}")
     except Exception as e:
-        log_error("Failed to save advising index", e)
+        log_error("Failed to save advising index to Drive (local copy preserved)", e)
 
 
 # ---------- session payload I/O ----------
+<<<<<<< HEAD
+=======
 
+def _save_session_payload_local(session_id: str, snapshot: Dict[str, Any], meta: Dict[str, Any]) -> None:
+    """Save session payload to session state immediately (local-first)."""
+    if "advising_sessions_cache" not in st.session_state:
+        st.session_state.advising_sessions_cache = {}
+    st.session_state.advising_sessions_cache[session_id] = {"meta": meta, "snapshot": snapshot}
+
+>>>>>>> b6378eea1124023c16183761cb2f19f63d279c8d
 def _save_session_payload(session_id: str, snapshot: Dict[str, Any], meta: Dict[str, Any]) -> None:
+    """Save session payload with local-first approach."""
+    # Save locally first (instant)
+    _save_session_payload_local(session_id, snapshot, meta)
+    
+    # Background save to Drive (best effort, non-blocking)
     try:
         service = initialize_drive_service()
-        folder_id = st.secrets["google"]["folder_id"]
-        data = json.dumps({"meta": meta, "snapshot": snapshot}, ensure_ascii=False, indent=2).encode("utf-8")
+        folder_id = _get_major_folder_id()
+        if not folder_id:
+            log_info(f"Session saved locally only (no Drive folder configured): {session_id}")
+            return
+        # Convert numpy types to native Python types before JSON serialization
+        payload = _convert_to_json_serializable({"meta": meta, "snapshot": snapshot})
+        data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
         sync_file_with_drive(service, data, _session_filename(session_id), "application/json", folder_id)
-        log_info(f"Session payload saved: {_session_filename(session_id)}")
+        log_info(f"Session payload synced to Drive: {_session_filename(session_id)}")
     except Exception as e:
-        log_error("Failed to save session payload to Drive", e)
+        log_error(f"Failed to sync session to Drive (local copy preserved): {session_id}", e)
 
 def _load_session_payload_by_id(session_id: str) -> Optional[Dict[str, Any]]:
+    # Try local cache first
+    if "advising_sessions_cache" in st.session_state:
+        cached = st.session_state.advising_sessions_cache.get(session_id)
+        if cached:
+            return cached
+    
+    # Fall back to Drive
     try:
         service = initialize_drive_service()
-        folder_id = st.secrets["google"]["folder_id"]
+        folder_id = _get_major_folder_id()
+        if not folder_id:
+            return None
         fid = find_file_in_drive(service, _session_filename(session_id), folder_id)
         if not fid:
             return None
         data = download_file_from_drive(service, fid)
-        return json.loads(data.decode("utf-8"))
+        payload = json.loads(data.decode("utf-8"))
+        # Cache it locally for next time
+        _save_session_payload_local(session_id, payload.get("snapshot", {}), payload.get("meta", {}))
+        return payload
     except Exception as e:
-        log_error("Failed to load session payload", e)
+        log_error("Failed to load session payload from Drive", e)
         return None
 
 
 # ---------- snapshot builders ----------
-
 def _snapshot_courses_table() -> List[Dict[str, Any]]:
     df = st.session_state.get("courses_df", pd.DataFrame())
     if df.empty:
@@ -143,7 +239,7 @@ def _snapshot_student_courses(student_row: pd.Series, advised: List[str], option
     cdf = st.session_state.courses_df
     for _, info in cdf.iterrows():
         code = str(info["Course Code"])
-        offered = "Yes" if is_course_offered(cdf, code) else "No"
+        offered = "Yes" if str(info.get("Offered","")).strip().lower() == "yes" else "No"
         status, justification = check_eligibility(student_row, code, advised, cdf)
 
         if check_course_completed(student_row, code):
@@ -177,6 +273,7 @@ def _build_single_student_snapshot(student_id: Union[int, str]) -> Dict[str, Any
         return {"courses_table": _snapshot_courses_table(), "students": []}
 
     selections = st.session_state.get("advising_selections", {}) or {}
+    # Resolve per-student selections robustly (int/str keys)
     sel = (
         selections.get(student_id)
         or selections.get(str(student_id))
@@ -209,10 +306,9 @@ def _build_single_student_snapshot(student_id: Union[int, str]) -> Dict[str, Any
 
 
 # ---------- public save APIs ----------
-
 def save_session_for_student(student_id: Union[int, str]) -> Optional[str]:
     """
-    Build a snapshot for *this* student and persist it.
+    Snapshot & persist this student's advising state.
     Does NOT depend on st.session_state['current_student_id'].
     """
     try:
@@ -235,10 +331,10 @@ def save_session_for_student(student_id: Union[int, str]) -> Optional[str]:
             "student_name": student_name,
         }
 
-        # best-effort payload save to Drive
+        # Best-effort payload save to Drive
         _save_session_payload(sid, snapshot, meta)
 
-        # local index update so UI shows it immediately
+        # Update local index so UI reflects immediately
         if "advising_index" not in st.session_state:
             st.session_state.advising_index = _load_index()
         st.session_state.advising_index.append({
@@ -260,7 +356,7 @@ def save_session_for_student(student_id: Union[int, str]) -> Optional[str]:
 
 
 def autosave_current_student_session() -> Optional[str]:
-    """Legacy hook—kept for compatibility. Uses explicit saver if possible."""
+    """Legacy hook for older code; forwards to explicit saver if possible."""
     sid = st.session_state.get("current_student_id", None)
     if sid is None:
         log_error("autosave_current_student_session: no current_student_id", Exception("no_current_student"))
@@ -269,7 +365,6 @@ def autosave_current_student_session() -> Optional[str]:
 
 
 # ---------- panel UI ----------
-
 def advising_history_panel():
     st.markdown("---")
     st.subheader(f"Advising Sessions — {st.session_state.get('current_major','')}")
