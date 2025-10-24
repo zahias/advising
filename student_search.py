@@ -35,23 +35,12 @@ def render_student_search(view_key: str = "default") -> Optional[int]:
     from utils import get_student_standing
     students_df["Standing"] = students_df["Total Credits"].apply(get_student_standing)
     
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
-        search_query = st.text_input(
-            "🔍 Search student by name or ID",
-            placeholder="Start typing to search...",
-            key=f"student_search_{view_key}",
-            help="Type student name or ID to filter results"
-        )
-    
-    with col2:
-        standing_filter = st.multiselect(
-            "Filter by Standing",
-            options=["Freshman", "Sophomore", "Junior", "Senior"],
-            key=f"standing_filter_{view_key}",
-            help="Filter students by academic standing"
-        )
+    search_query = st.text_input(
+        "🔍 Search student by name or ID",
+        placeholder="Start typing to search...",
+        key=f"student_search_{view_key}",
+        help="Type student name or ID to filter results"
+    )
     
     filtered_df = students_df.copy()
     
@@ -92,16 +81,13 @@ def render_student_search(view_key: str = "default") -> Optional[int]:
         
         filtered_df = filtered_df.drop(columns=["_fuzzy_score"])
     
-    if standing_filter:
-        filtered_df = filtered_df[filtered_df["Standing"].isin(standing_filter)]
-    
     if filtered_df.empty:
         st.info("No students match your search criteria.")
         return None
     
     recent_students = st.session_state.get("recent_students", [])
     
-    if recent_students and not search_query and not standing_filter:
+    if recent_students and not search_query:
         st.markdown("**Recently Viewed:**")
         recent_cols = st.columns(min(len(recent_students), 5))
         for idx, recent_id in enumerate(recent_students[:5]):

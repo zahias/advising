@@ -10,7 +10,6 @@ import streamlit as st
 from data_upload import upload_data
 from eligibility_view import student_eligibility_view
 from full_student_view import full_student_view
-from workflow_header import render_workflow_header
 from visual_theme import apply_visual_theme
 from google_drive import (
     download_file_from_drive,
@@ -154,8 +153,6 @@ if not st.session_state[load_key] and st.session_state.progress_df.empty:
 upload_data()             # writes back to the current major's bucket and (optionally) Drive
 _sync_bucket_from_globals()
 
-# ---------- Workflow Header ----------
-render_workflow_header()
 
 # ---------- Safe loader for Advising Sessions panel ----------
 def _render_advising_panel_safely():
