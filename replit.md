@@ -19,6 +19,14 @@ This is a **Streamlit-based Advising Dashboard** for Phoenix University that hel
 
 ## Recent Changes
 
+### 2025-10-24: Email Integration for Advising Sheets
+- ✅ **Outlook/Office 365 SMTP**: Integrated email sending using university Outlook accounts via standard Python SMTP
+- ✅ **Email Roster Management**: Upload Excel/CSV files with student IDs and emails, stored per major in Drive
+- ✅ **Send Advising Sheets**: Email formatted advising sheets directly to students from both Eligibility and Full Student views
+- ✅ **HTML Email Templates**: Professional HTML emails with course details, advisor notes, and plain text fallback
+- ✅ **Portable Design**: Works on both Replit and Streamlit Cloud using environment variables/secrets
+- ✅ **Per-Major Email Rosters**: Email rosters are isolated per major to prevent cross-major email errors
+
 ### 2025-10-24: Major-Specific Folder Structure
 - ✅ **Folder Hierarchy**: Reorganized Google Drive to use major-specific folders (`{ROOT}/PBHL/`, `{ROOT}/SPTH-New/`, `{ROOT}/SPTH-Old/`)
 - ✅ **File Organization**: Files now organized by folder instead of filename prefix (e.g., `PBHL/courses_table.xlsx` instead of `PBHL_courses_table.xlsx`)
@@ -59,6 +67,7 @@ This is a **Streamlit-based Advising Dashboard** for Phoenix University that hel
 ├── course_exclusions.py      # Course exclusion logic
 ├── data_upload.py            # File upload and Drive sync
 ├── eligibility_view.py       # Student eligibility checking
+├── email_manager.py          # Email roster and Outlook SMTP integration
 ├── full_student_view.py      # Complete student dashboard
 ├── get_refresh_token.py      # Google OAuth helper
 ├── google_drive.py           # Google Drive API integration
@@ -79,6 +88,7 @@ This is a **Streamlit-based Advising Dashboard** for Phoenix University that hel
    - Eligibility view (which courses students can take)
    - Full student view (complete progress tracking)
 5. **Advising Sessions**: Track advisor recommendations and notes per student (persists across sessions)
+6. **Email Integration**: Send formatted advising sheets to students via Outlook/Office 365 with HTML email templates
 
 ---
 
@@ -121,6 +131,39 @@ The app can sync with Google Drive for data backup and collaboration. To enable:
 - The app works perfectly without Google Drive - you can upload files directly through the sidebar
 - Files uploaded to Drive replace existing versions (no duplicates or backups)
 - Advising sessions are automatically saved to major-specific folders
+
+### Email Integration (Optional)
+The app can send advising sheets to students via Outlook/Office 365 SMTP. To enable:
+
+1. **Generate App Password** for your university Outlook account:
+   - Go to [Microsoft Account Security](https://account.microsoft.com/security)
+   - Select "App passwords" under "Additional security options"
+   - Generate a new app password for "Advising Dashboard"
+   
+2. **Add to Secrets** (works on both Replit and Streamlit Cloud):
+   ```toml
+   [email]
+   address = "your-email@university.edu"
+   password = "your-app-password"
+   ```
+   - **On Replit**: Add to Secrets in Tools sidebar (🔒)
+   - **On Streamlit Cloud**: Add to Secrets in app Settings
+
+3. **Upload Email Roster** for each major:
+   - Prepare Excel/CSV file with columns: `ID` and `Email`
+   - Upload via sidebar under "📧 Email Roster"
+   - Rosters are stored per major in Drive (e.g., `PBHL/email_roster.json`)
+
+**Features:**
+- Send formatted advising sheets with course recommendations
+- Professional HTML emails with plain text fallback
+- Per-major email rosters (prevents cross-major email errors)
+- Email directly from Eligibility View or Full Student View
+
+**Important**:
+- Use Outlook/Office 365 app password, NOT your regular password
+- Email rosters are isolated per major for data safety
+- App works without email - it's completely optional
 
 ---
 
