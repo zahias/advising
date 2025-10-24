@@ -189,6 +189,7 @@ def _render_individual_student():
             else:
                 # Get selection data
                 note = sel.get("note", "")
+                remaining_credits = float(row.get("# Remaining", 0) or 0)
                 
                 # Send email
                 success, message = send_advising_email(
@@ -196,9 +197,11 @@ def _render_individual_student():
                     student_name=str(row["NAME"]),
                     student_id=str(sid),
                     advised_courses=advised_list,
+                    repeat_courses=repeat_list,
                     optional_courses=optional_list,
                     note=note,
                     courses_df=st.session_state.courses_df,
+                    remaining_credits=int(remaining_credits),
                 )
                 
                 if success:

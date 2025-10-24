@@ -242,10 +242,8 @@ def _snapshot_student_courses(student_row: pd.Series, advised: List[str], option
             action = "Advised"
         elif code in optional:
             action = "Optional"
-        elif status == "Not Eligible":
-            action = "Not Eligible"
         else:
-            action = "Eligible (not chosen)"
+            action = ""  # Empty for non-selected courses
 
         rows.append({
             "Course Code": code,

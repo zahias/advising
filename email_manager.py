@@ -241,9 +241,11 @@ def send_advising_email(
     student_name: str,
     student_id: str,
     advised_courses: List[str],
+    repeat_courses: List[str],
     optional_courses: List[str],
     note: str,
     courses_df: pd.DataFrame,
+    remaining_credits: int = 0,
 ) -> tuple[bool, str]:
     """
     Send advising sheet email to student via Outlook/Office 365 SMTP.
@@ -253,9 +255,11 @@ def send_advising_email(
         student_name: Student's name
         student_id: Student's ID
         advised_courses: List of advised course codes
+        repeat_courses: List of repeat course codes
         optional_courses: List of optional course codes
         note: Advisor's note/message
         courses_df: Courses table for course details
+        remaining_credits: Remaining credits to graduation
     
     Returns:
         (success: bool, message: str)
@@ -267,6 +271,19 @@ def send_advising_email(
         return False, "Email credentials not configured. Please add EMAIL_ADDRESS and EMAIL_PASSWORD to secrets."
     
     try:
+        # Calculate credits for each category
+        def get_credits(course_list):
+            total = 0
+            for code in course_list:
+                course_info = courses_df[courses_df['Course Code'] == code]
+                if not course_info.empty:
+                    total += int(course_info.iloc[0].get('Credits', 0) or 0)
+            return total
+        
+        advised_credits = get_credits(advised_courses)
+        repeat_credits = get_credits(repeat_courses)
+        optional_credits = get_credits(optional_courses)
+        
         # Build email content
         subject = f"Academic Advising - {st.session_state.get('current_major', '')} Program"
         
@@ -278,14 +295,13 @@ def send_advising_email(
                 body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
                 .header {{ background-color: #0066cc; color: white; padding: 20px; text-align: center; }}
                 .content {{ padding: 20px; }}
+                .summary {{ background-color: #f0f8ff; padding: 15px; margin: 15px 0; border-radius: 5px; }}
                 .course-list {{ margin: 15px 0; }}
                 .course-item {{ padding: 8px; margin: 5px 0; border-left: 3px solid #0066cc; background-color: #f5f5f5; }}
+                .repeat-item {{ border-left-color: #ff6600; }}
                 .optional-item {{ border-left-color: #666; }}
                 .note {{ background-color: #fffacd; padding: 15px; margin: 15px 0; border-radius: 5px; }}
                 .footer {{ margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; font-size: 0.9em; color: #666; }}
-                table {{ border-collapse: collapse; width: 100%; margin: 15px 0; }}
-                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
-                th {{ background-color: #0066cc; color: white; }}
             </style>
         </head>
         <body>
@@ -300,12 +316,19 @@ def send_advising_email(
                 <h3>Student Information</h3>
                 <p><strong>Name:</strong> {student_name}<br>
                 <strong>ID:</strong> {student_id}<br>
-                <strong>Major:</strong> {st.session_state.get('current_major', '')}</p>
+                <strong>Major:</strong> {st.session_state.get('current_major', '')}<br>
+                <strong>Remaining Credits:</strong> {remaining_credits}</p>
+                
+                <div class="summary">
+                    <strong>Summary:</strong><br>
+                    Advised Courses: {len(advised_courses) + len(repeat_courses)} courses ({advised_credits + repeat_credits} credits)<br>
+                    Optional Courses: {len(optional_courses)} courses ({optional_credits} credits)
+                </div>
         """
         
         # Add advised courses
         if advised_courses:
-            html_body += "<h3>Recommended Courses</h3><div class='course-list'>"
+            html_body += f"<h3>Advised Courses ({len(advised_courses)} courses, {advised_credits} credits)</h3><div class='course-list'>"
             for course_code in advised_courses:
                 course_info = courses_df[courses_df['Course Code'] == course_code]
                 if not course_info.empty:
@@ -316,9 +339,22 @@ def send_advising_email(
                     html_body += f"<div class='course-item'><strong>{course_code}</strong></div>"
             html_body += "</div>"
         
+        # Add repeat courses
+        if repeat_courses:
+            html_body += f"<h3>Repeat Courses ({len(repeat_courses)} courses, {repeat_credits} credits)</h3><div class='course-list'>"
+            for course_code in repeat_courses:
+                course_info = courses_df[courses_df['Course Code'] == course_code]
+                if not course_info.empty:
+                    title = course_info.iloc[0].get('Title', '')
+                    credits = course_info.iloc[0].get('Credits', '')
+                    html_body += f"<div class='course-item repeat-item'><strong>{course_code}</strong> - {title} ({credits} credits)</div>"
+                else:
+                    html_body += f"<div class='course-item repeat-item'><strong>{course_code}</strong></div>"
+            html_body += "</div>"
+        
         # Add optional courses
         if optional_courses:
-            html_body += "<h3>Optional Courses (Consider if schedule allows)</h3><div class='course-list'>"
+            html_body += f"<h3>Optional Courses ({len(optional_courses)} courses, {optional_credits} credits)</h3><div class='course-list'>"
             for course_code in optional_courses:
                 course_info = courses_df[courses_df['Course Code'] == course_code]
                 if not course_info.empty:
@@ -357,11 +393,16 @@ Student Information:
 Name: {student_name}
 ID: {student_id}
 Major: {st.session_state.get('current_major', '')}
+Remaining Credits: {remaining_credits}
+
+Summary:
+Advised Courses: {len(advised_courses) + len(repeat_courses)} courses ({advised_credits + repeat_credits} credits)
+Optional Courses: {len(optional_courses)} courses ({optional_credits} credits)
 
 """
         
         if advised_courses:
-            text_body += "Recommended Courses:\n"
+            text_body += f"Advised Courses ({len(advised_courses)} courses, {advised_credits} credits):\n"
             for course_code in advised_courses:
                 course_info = courses_df[courses_df['Course Code'] == course_code]
                 if not course_info.empty:
@@ -372,8 +413,20 @@ Major: {st.session_state.get('current_major', '')}
                     text_body += f"  • {course_code}\n"
             text_body += "\n"
         
+        if repeat_courses:
+            text_body += f"Repeat Courses ({len(repeat_courses)} courses, {repeat_credits} credits):\n"
+            for course_code in repeat_courses:
+                course_info = courses_df[courses_df['Course Code'] == course_code]
+                if not course_info.empty:
+                    title = course_info.iloc[0].get('Title', '')
+                    credits = course_info.iloc[0].get('Credits', '')
+                    text_body += f"  • {course_code} - {title} ({credits} credits)\n"
+                else:
+                    text_body += f"  • {course_code}\n"
+            text_body += "\n"
+        
         if optional_courses:
-            text_body += "Optional Courses (Consider if schedule allows):\n"
+            text_body += f"Optional Courses ({len(optional_courses)} courses, {optional_credits} credits):\n"
             for course_code in optional_courses:
                 course_info = courses_df[courses_df['Course Code'] == course_code]
                 if not course_info.empty:

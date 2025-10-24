@@ -66,7 +66,10 @@ def _load_from_drive() -> Dict[str, List[str]]:
 
 
 def _save_to_drive(ex_map: Dict[str, List[str]]) -> None:
-    """Write exclusions map to Drive (overwrites the file)."""
+    """
+    Write exclusions map to Drive (overwrites the file).
+    Best-effort: failures are logged but don't crash the UI.
+    """
     import os
     try:
         service = initialize_drive_service()
@@ -84,7 +87,7 @@ def _save_to_drive(ex_map: Dict[str, List[str]]) -> None:
             root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
         
         if not root_folder_id:
-            log_info("Course exclusions not saved to Drive (no folder configured).")
+            log_info("Course exclusions saved locally only (no Drive folder configured).")
             return
         
         # Get major-specific folder
@@ -100,8 +103,9 @@ def _save_to_drive(ex_map: Dict[str, List[str]]) -> None:
         )
         log_info(f"Course exclusions saved to Drive: {major}/{_filename()}")
     except Exception as e:
-        log_error("Failed to save course exclusions to Drive", e)
-        raise
+        # Don't crash UI if Drive sync fails - data is saved locally
+        log_error(f"Failed to sync course exclusions to Drive (local copy preserved): {str(e)}", e)
+        st.warning(f"⚠️ Hidden courses saved locally but couldn't sync to Drive. They will persist in your current session.")
 
 
 def ensure_loaded() -> None:

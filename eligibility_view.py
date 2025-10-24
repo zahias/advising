@@ -111,6 +111,7 @@ def student_eligibility_view():
     # header stats
     cr_comp = float(student_row.get("# of Credits Completed", 0) or 0)
     cr_reg = float(student_row.get("# Registered", 0) or 0)
+    cr_remaining = float(student_row.get("# Remaining", 0) or 0)
     total_credits = cr_comp + cr_reg
     standing = get_student_standing(total_credits)
 
@@ -118,7 +119,7 @@ def student_eligibility_view():
     
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
-        st.metric("Total Credits", int(total_credits))
+        st.metric("Total Credits", f"{int(total_credits)} / {int(cr_remaining)} rem")
     with col2:
         st.metric("Standing", standing)
     with col3:
@@ -307,9 +308,11 @@ def student_eligibility_view():
                         student_name=str(student_row["NAME"]),
                         student_id=str(norm_sid),
                         advised_courses=advised_selection,
+                        repeat_courses=repeat_selection,
                         optional_courses=optional_selection,
                         note=note_input,
                         courses_df=st.session_state.courses_df,
+                        remaining_credits=int(cr_remaining),
                     )
                     
                     if success:
