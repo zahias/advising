@@ -231,3 +231,66 @@ def delete_file_by_name(service, parent_folder_id: str, filename: str) -> bool:
         return True
     except HttpError:
         return False
+
+
+def find_folder_by_name(service, folder_name: str, parent_folder_id: str) -> Optional[str]:
+    """Find a folder by name inside parent_folder_id. Returns folder ID or None."""
+    try:
+        query = f"name = '{folder_name}' and '{parent_folder_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+        resp = service.files().list(
+            q=query,
+            spaces="drive",
+            fields="files(id, name)",
+            pageSize=10,
+            includeItemsFromAllDrives=False,
+            supportsAllDrives=False,
+        ).execute()
+        for f in resp.get("files", []):
+            if f.get("name") == folder_name:
+                return f.get("id")
+        return None
+    except HttpError as e:
+        raise RuntimeError(f"Drive folder search failed: {e}")
+
+
+def create_folder(service, folder_name: str, parent_folder_id: str) -> str:
+    """Create a folder inside parent_folder_id. Returns the new folder ID."""
+    try:
+        body = {
+            "name": folder_name,
+            "mimeType": "application/vnd.google-apps.folder",
+            "parents": [parent_folder_id]
+        }
+        folder = service.files().create(
+            body=body,
+            fields="id",
+            supportsAllDrives=False,
+        ).execute()
+        return folder.get("id")
+    except HttpError as e:
+        raise RuntimeError(f"Drive folder creation failed: {e}")
+
+
+def get_or_create_folder(service, folder_name: str, parent_folder_id: str) -> str:
+    """Get existing folder ID or create it if it doesn't exist. Returns folder ID."""
+    folder_id = find_folder_by_name(service, folder_name, parent_folder_id)
+    if folder_id:
+        return folder_id
+    return create_folder(service, folder_name, parent_folder_id)
+
+
+@st.cache_data(ttl=3600)
+def get_major_folder_id(_service, major: str, root_folder_id: str) -> str:
+    """
+    Get or create a major-specific folder inside the root folder.
+    Cached for 1 hour to avoid repeated API calls.
+    
+    Args:
+        _service: Drive service (prefixed with _ to exclude from cache key)
+        major: Major name (e.g., 'PBHL', 'SPTH-New', 'SPTH-Old')
+        root_folder_id: Root folder ID from secrets
+    
+    Returns:
+        Folder ID for the major-specific folder
+    """
+    return get_or_create_folder(_service, major, root_folder_id)

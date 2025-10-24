@@ -14,6 +14,7 @@ from google_drive import (
     find_file_in_drive,
     download_file_from_drive,
     sync_file_with_drive,
+    get_major_folder_id,
 )
 from utils import (
     log_info,
@@ -42,35 +43,44 @@ def _now_beirut() -> datetime:
     return datetime.now(_LOCAL_TZ) if _LOCAL_TZ else datetime.now()
 
 def _index_name() -> str:
-    major = st.session_state.get("current_major", "DEFAULT")
-    return f"advising_index_{major}.json"
+    return "advising_index.json"
 
 def _session_filename(session_id: str) -> str:
-    major = st.session_state.get("current_major", "DEFAULT")
-    return f"advising_session_{major}_{session_id}.json"
+    return f"advising_session_{session_id}.json"
 
 
 # ---------- index I/O ----------
 
-def _get_folder_id() -> str:
-    """Get folder ID from secrets or env."""
+def _get_major_folder_id() -> str:
+    """Get major-specific folder ID. Returns major-specific folder inside root folder."""
     import os
-    folder_id = ""
     try:
-        if "google" in st.secrets:
-            folder_id = st.secrets["google"].get("folder_id", "")
-    except:
-        pass
-    
-    if not folder_id:
-        folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
-    
-    return folder_id
+        service = initialize_drive_service()
+        major = st.session_state.get("current_major", "DEFAULT")
+        
+        # Get root folder ID
+        root_folder_id = ""
+        try:
+            if "google" in st.secrets:
+                root_folder_id = st.secrets["google"].get("folder_id", "")
+        except:
+            pass
+        
+        if not root_folder_id:
+            root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
+        
+        if not root_folder_id:
+            return ""
+        
+        # Get or create major-specific folder
+        return get_major_folder_id(service, major, root_folder_id)
+    except Exception:
+        return ""
 
 def _load_index() -> List[Dict[str, Any]]:
     try:
         service = initialize_drive_service()
-        folder_id = _get_folder_id()
+        folder_id = _get_major_folder_id()
         if not folder_id:
             return []
         fid = find_file_in_drive(service, _index_name(), folder_id)
@@ -95,7 +105,7 @@ def _save_index(index_items: List[Dict[str, Any]]) -> None:
     # Background save to Drive (best effort)
     try:
         service = initialize_drive_service()
-        folder_id = _get_folder_id()
+        folder_id = _get_major_folder_id()
         if not folder_id:
             return
         data = json.dumps(index_items, ensure_ascii=False, indent=2).encode("utf-8")
@@ -121,7 +131,7 @@ def _save_session_payload(session_id: str, snapshot: Dict[str, Any], meta: Dict[
     # Background save to Drive (best effort, non-blocking)
     try:
         service = initialize_drive_service()
-        folder_id = _get_folder_id()
+        folder_id = _get_major_folder_id()
         if not folder_id:
             log_info(f"Session saved locally only (no Drive folder configured): {session_id}")
             return
@@ -141,7 +151,7 @@ def _load_session_payload_by_id(session_id: str) -> Optional[Dict[str, Any]]:
     # Fall back to Drive
     try:
         service = initialize_drive_service()
-        folder_id = _get_folder_id()
+        folder_id = _get_major_folder_id()
         if not folder_id:
             return None
         fid = find_file_in_drive(service, _session_filename(session_id), folder_id)
