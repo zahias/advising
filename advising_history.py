@@ -35,6 +35,9 @@ except Exception:
 
 __all__ = ["advising_history_panel", "autosave_current_student_session", "save_session_for_student"]
 
+
+# ----------------- helpers -----------------
+
 def _now_beirut() -> datetime:
     if _LOCAL_TZ:
         return datetime.now(_LOCAL_TZ)
@@ -47,6 +50,9 @@ def _index_name() -> str:
 def _session_filename(session_id: str) -> str:
     major = st.session_state.get("current_major", "DEFAULT")
     return f"advising_session_{major}_{session_id}.json"
+
+
+# ----------------- index I/O -----------------
 
 def _load_index() -> List[Dict[str, Any]]:
     try:
@@ -72,6 +78,9 @@ def _save_index(index_items: List[Dict[str, Any]]) -> None:
     except Exception as e:
         log_error("Failed to save advising index", e)
 
+
+# ----------------- session payload I/O -----------------
+
 def _save_session_payload(session_id: str, snapshot: Dict[str, Any], meta: Dict[str, Any]) -> None:
     try:
         service = initialize_drive_service()
@@ -95,13 +104,41 @@ def _load_session_payload_by_id(session_id: str) -> Optional[Dict[str, Any]]:
         log_error("Failed to load session payload", e)
         return None
 
+
+# ----------------- snapshot building -----------------
+
 def _snapshot_courses_table() -> List[Dict[str, Any]]:
     df = st.session_state.get("courses_df", pd.DataFrame())
     if df.empty:
         return []
-    cols = ["Course Code", "Type", "Credits", "Offered", "Prerequisite", "Concurrent", "Corequisite", "Title", "Requisites"]
+    cols = [
+        "Course Code", "Type", "Credits", "Offered",
+        "Prerequisite", "Concurrent", "Corequisite",
+        "Title", "Requisites",
+    ]
     cols = [c for c in cols if c in df.columns]
     return df[cols].fillna("").to_dict(orient="records")
+
+def _find_student_row(student_id: Union[int, str]) -> Optional[pd.Series]:
+    pdf = st.session_state.get("progress_df", pd.DataFrame())
+    if pdf.empty:
+        return None
+    row = pdf.loc[pdf["ID"] == student_id]
+    if not row.empty:
+        return row.iloc[0]
+    try:
+        row = pdf.loc[pdf["ID"] == int(student_id)]
+        if not row.empty:
+            return row.iloc[0]
+    except Exception:
+        pass
+    try:
+        row = pdf.loc[pdf["ID"].astype(str) == str(student_id)]
+        if not row.empty:
+            return row.iloc[0]
+    except Exception:
+        pass
+    return None
 
 def _snapshot_student_courses(student_row: pd.Series, advised: List[str], optional: List[str]) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
@@ -136,47 +173,18 @@ def _snapshot_student_courses(student_row: pd.Series, advised: List[str], option
         })
     return rows
 
-def _find_student_row(student_id: Union[int, str]) -> Optional[pd.Series]:
-    pdf = st.session_state.get("progress_df", pd.DataFrame())
-    if pdf.empty:
-        return None
-    # exact match
-    row = pdf.loc[pdf["ID"] == student_id]
-    if not row.empty:
-        return row.iloc[0]
-    # coerce int
-    try:
-        row = pdf.loc[pdf["ID"] == int(student_id)]
-        if not row.empty:
-            return row.iloc[0]
-    except Exception:
-        pass
-    # coerce str
-    try:
-        row = pdf.loc[pdf["ID"].astype(str) == str(student_id)]
-        if not row.empty:
-            return row.iloc[0]
-    except Exception:
-        pass
-    return None
-
-def _build_single_student_snapshot(student_id: Union[int,str]) -> Dict[str, Any]:
+def _build_single_student_snapshot(student_id: Union[int, str]) -> Dict[str, Any]:
     srow = _find_student_row(student_id)
     if srow is None:
         return {"courses_table": _snapshot_courses_table(), "students": []}
 
     selections = st.session_state.get("advising_selections", {}) or {}
-    sel = None
-    for key in (student_id, str(student_id)):
-        if key in selections:
-            sel = selections[key]
-            break
-    if sel is None:
-        try:
-            ikey = int(student_id)
-            sel = selections.get(ikey, {})
-        except Exception:
-            sel = {}
+    sel = (
+        selections.get(student_id)
+        or selections.get(str(student_id))
+        or selections.get(int(student_id)) if str(student_id).isdigit() else {}
+        or {}
+    )
 
     advised = [str(x) for x in sel.get("advised", [])]
     optional = [str(x) for x in sel.get("optional", [])]
@@ -201,20 +209,25 @@ def _build_single_student_snapshot(student_id: Union[int,str]) -> Dict[str, Any]
         }],
     }
 
-def save_session_for_student(student_id: Union[int,str]) -> Optional[str]:
-    """Robust save that does NOT depend on st.session_state['current_student_id']."""
+
+# ----------------- public save APIs -----------------
+
+def save_session_for_student(student_id: Union[int, str]) -> Optional[str]:
+    """
+    Build a snapshot for *this* student and persist it.
+    Does NOT depend on st.session_state['current_student_id'].
+    """
     try:
         snapshot = _build_single_student_snapshot(student_id)
         students = snapshot.get("students", [])
         if not students:
-            log_error("No student row found for autosave", Exception("student_not_found"))
+            log_error("save_session_for_student: no student row", Exception("student_not_found"))
             return None
 
         student_name = str(students[0].get("NAME", ""))
         now = _now_beirut()
-        title = f"{now.strftime('%Y-%m-%d %H:%M')} — {student_name} ({student_id})"
-
         sid = str(uuid4())
+        title = f"{now.strftime('%Y-%m-%d %H:%M')} — {student_name} ({student_id})"
         meta = {
             "id": sid,
             "title": title,
@@ -224,13 +237,12 @@ def save_session_for_student(student_id: Union[int,str]) -> Optional[str]:
             "student_name": student_name,
         }
 
-        if "advising_index" not in st.session_state:
-            st.session_state.advising_index = _load_index()
-
-        # save payload (best effort)
+        # best-effort payload save to Drive
         _save_session_payload(sid, snapshot, meta)
 
-        # update in-memory index (always)
+        # local index update so UI shows it immediately
+        if "advising_index" not in st.session_state:
+            st.session_state.advising_index = _load_index()
         st.session_state.advising_index.append({
             "id": sid,
             "title": title,
@@ -240,23 +252,25 @@ def save_session_for_student(student_id: Union[int,str]) -> Optional[str]:
             "major": meta["major"],
             "session_file": _session_filename(sid),
         })
-
-        # try persisting index
         _save_index(st.session_state.advising_index)
 
-        log_info(f"Auto-saved advising session for student {student_id}: {title}")
+        log_info(f"Auto-saved advising session for {student_id}: {title}")
         return sid
-
     except Exception as e:
         log_error("save_session_for_student failed", e)
         return None
 
+
 def autosave_current_student_session() -> Optional[str]:
+    """Legacy hook—kept for compatibility. Uses explicit saver if possible."""
     sid = st.session_state.get("current_student_id", None)
     if sid is None:
-        log_error("autosave_current_student_session: current_student_id missing", Exception("no_current_student"))
+        log_error("autosave_current_student_session: no current_student_id", Exception("no_current_student"))
         return None
     return save_session_for_student(sid)
+
+
+# ----------------- panel UI (unchanged behavior) -----------------
 
 def advising_history_panel():
     st.markdown("---")
