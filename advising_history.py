@@ -52,10 +52,20 @@ def _session_filename(session_id: str) -> str:
 
 # ---------- index I/O ----------
 
+def _get_folder_id() -> str:
+    """Get folder ID from secrets or env."""
+    import os
+    try:
+        return st.secrets.get("google", {}).get("folder_id", "") or os.getenv("GOOGLE_FOLDER_ID", "")
+    except Exception:
+        return os.getenv("GOOGLE_FOLDER_ID", "")
+
 def _load_index() -> List[Dict[str, Any]]:
     try:
         service = initialize_drive_service()
-        folder_id = st.secrets["google"]["folder_id"]
+        folder_id = _get_folder_id()
+        if not folder_id:
+            return []
         fid = find_file_in_drive(service, _index_name(), folder_id)
         if not fid:
             return []
@@ -66,40 +76,77 @@ def _load_index() -> List[Dict[str, Any]]:
         log_error("Failed to load advising index", e)
         return []
 
+def _save_index_local(index_items: List[Dict[str, Any]]) -> None:
+    """Save index to session state immediately (local-first)."""
+    st.session_state.advising_index = index_items
+
 def _save_index(index_items: List[Dict[str, Any]]) -> None:
+    """Save index to Drive asynchronously (background)."""
+    # Save locally first
+    _save_index_local(index_items)
+    
+    # Background save to Drive (best effort)
     try:
         service = initialize_drive_service()
-        folder_id = st.secrets["google"]["folder_id"]
+        folder_id = _get_folder_id()
+        if not folder_id:
+            return
         data = json.dumps(index_items, ensure_ascii=False, indent=2).encode("utf-8")
         sync_file_with_drive(service, data, _index_name(), "application/json", folder_id)
-        log_info(f"Index saved: {_index_name()}")
+        log_info(f"Index saved to Drive: {_index_name()}")
     except Exception as e:
-        log_error("Failed to save advising index", e)
+        log_error("Failed to save advising index to Drive (local copy preserved)", e)
 
 
 # ---------- session payload I/O ----------
 
+def _save_session_payload_local(session_id: str, snapshot: Dict[str, Any], meta: Dict[str, Any]) -> None:
+    """Save session payload to session state immediately (local-first)."""
+    if "advising_sessions_cache" not in st.session_state:
+        st.session_state.advising_sessions_cache = {}
+    st.session_state.advising_sessions_cache[session_id] = {"meta": meta, "snapshot": snapshot}
+
 def _save_session_payload(session_id: str, snapshot: Dict[str, Any], meta: Dict[str, Any]) -> None:
+    """Save session payload with local-first approach."""
+    # Save locally first (instant)
+    _save_session_payload_local(session_id, snapshot, meta)
+    
+    # Background save to Drive (best effort, non-blocking)
     try:
         service = initialize_drive_service()
-        folder_id = st.secrets["google"]["folder_id"]
+        folder_id = _get_folder_id()
+        if not folder_id:
+            log_info(f"Session saved locally only (no Drive folder configured): {session_id}")
+            return
         data = json.dumps({"meta": meta, "snapshot": snapshot}, ensure_ascii=False, indent=2).encode("utf-8")
         sync_file_with_drive(service, data, _session_filename(session_id), "application/json", folder_id)
-        log_info(f"Session payload saved: {_session_filename(session_id)}")
+        log_info(f"Session payload synced to Drive: {_session_filename(session_id)}")
     except Exception as e:
-        log_error("Failed to save session payload to Drive", e)
+        log_error(f"Failed to sync session to Drive (local copy preserved): {session_id}", e)
 
 def _load_session_payload_by_id(session_id: str) -> Optional[Dict[str, Any]]:
+    # Try local cache first
+    if "advising_sessions_cache" in st.session_state:
+        cached = st.session_state.advising_sessions_cache.get(session_id)
+        if cached:
+            return cached
+    
+    # Fall back to Drive
     try:
         service = initialize_drive_service()
-        folder_id = st.secrets["google"]["folder_id"]
+        folder_id = _get_folder_id()
+        if not folder_id:
+            return None
         fid = find_file_in_drive(service, _session_filename(session_id), folder_id)
         if not fid:
             return None
         data = download_file_from_drive(service, fid)
-        return json.loads(data.decode("utf-8"))
+        payload = json.loads(data.decode("utf-8"))
+        # Cache it locally for next time
+        _save_session_payload_local(session_id, payload.get("snapshot", {}), payload.get("meta", {}))
+        return payload
     except Exception as e:
-        log_error("Failed to load session payload", e)
+        log_error("Failed to load session payload from Drive", e)
         return None
 
 

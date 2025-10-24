@@ -29,6 +29,20 @@ def _secrets() -> dict:
         return {}
 
 
+def _get_credentials_hash() -> str:
+    """Generate a hash of credentials for cache key."""
+    import os
+    import hashlib
+    
+    s = _secrets()
+    client_id = s.get("client_id") or os.getenv("GOOGLE_CLIENT_ID") or ""
+    client_secret = s.get("client_secret") or os.getenv("GOOGLE_CLIENT_SECRET") or ""
+    refresh_token = s.get("refresh_token") or os.getenv("GOOGLE_REFRESH_TOKEN") or ""
+    
+    cred_string = f"{client_id}:{client_secret}:{refresh_token}"
+    return hashlib.md5(cred_string.encode()).hexdigest()
+
+
 def _build_credentials() -> Credentials:
     import os
     
@@ -73,14 +87,21 @@ def _build_credentials() -> Credentials:
     return creds
 
 
-def initialize_drive_service():
-    """Return an authenticated Drive service or raise GoogleAuthError."""
+@st.cache_resource(ttl=3600)
+def _get_cached_drive_service(_cred_hash: str):
+    """Cached Drive service - only recreates if credentials change or after 1 hour."""
     creds = _build_credentials()
     try:
         service = build("drive", "v3", credentials=creds, cache_discovery=False)
         return service
     except Exception as e:
         raise GoogleAuthError(f"Failed to initialize Drive service: {e}") from e
+
+
+def initialize_drive_service():
+    """Return a cached authenticated Drive service or raise GoogleAuthError."""
+    cred_hash = _get_credentials_hash()
+    return _get_cached_drive_service(cred_hash)
 
 
 def find_file_in_drive(service, filename: str, parent_folder_id: str) -> Optional[str]:
@@ -105,6 +126,8 @@ def find_file_in_drive(service, filename: str, parent_folder_id: str) -> Optiona
 
 def download_file_from_drive(service, file_id: str) -> bytes:
     """Download file content by id."""
+    # Note: Removed caching here because Drive service object cannot be hashed.
+    # Caching is now handled at the application level for specific files.
     try:
         req = service.files().get_media(fileId=file_id)
         fh = io.BytesIO()

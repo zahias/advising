@@ -71,24 +71,39 @@ except Exception as e:
     st.sidebar.warning("Google Drive not configured or unreachable. You can still upload files locally.")
     log_error("initialize_drive_service failed", e)
 
-def _load_first_from_drive(filenames: list[str]) -> bytes | None:
+@st.cache_data(ttl=600)
+def _load_file_from_drive_cached(filename: str, folder_id: str) -> bytes | None:
+    """Cached file download - avoids repeated downloads of same file."""
+    try:
+        if not service:
+            return None
+        file_id = find_file_in_drive(service, filename, folder_id)
+        if file_id:
+            return download_file_from_drive(service, file_id)
+        return None
+    except Exception as e:
+        log_error(f"Drive download failed for {filename}", e)
+        return None
+
+def _load_first_from_drive(filenames: list[str]) -> tuple[bytes | None, str | None]:
     """
-    Try a list of names and return the first file's bytes that exists in Drive.
+    Try a list of names and return (bytes, matched_filename) for the first file found.
+    Returns (None, None) if no files found. Uses caching to avoid redundant downloads.
     """
     if service is None:
-        return None
+        return None, None
     try:
         folder_id = st.secrets.get("google", {}).get("folder_id", "") or os.getenv("GOOGLE_FOLDER_ID", "")
         if not folder_id:
-            return None
+            return None, None
         for name in filenames:
-            file_id = find_file_in_drive(service, name, folder_id)
-            if file_id:
-                return download_file_from_drive(service, file_id)
-        return None
+            bytes_data = _load_file_from_drive_cached(name, folder_id)
+            if bytes_data:
+                return bytes_data, name
+        return None, None
     except Exception as e:
         log_error(f"Drive load failed for {filenames}", e)
-        return None
+        return None, None
 
 # ---------- Auto-load per-major files (with legacy fallbacks) ----------
 # Per-major names
@@ -98,12 +113,17 @@ progress_name_major = f"{selected_major}_progress_report.xlsx"
 courses_name_legacy = "courses_table.xlsx"
 progress_name_legacy = "progress_report.xlsx"
 
-if st.session_state.courses_df.empty:
-    courses_bytes = _load_first_from_drive([courses_name_major, courses_name_legacy])
+# Use a session state key to track if we've already loaded for this major
+load_key = f"_loaded_{selected_major}"
+if load_key not in st.session_state:
+    st.session_state[load_key] = False
+
+if not st.session_state[load_key] and st.session_state.courses_df.empty:
+    courses_bytes, matched_name = _load_first_from_drive([courses_name_major, courses_name_legacy])
     if courses_bytes:
         try:
             st.session_state.courses_df = pd.read_excel(BytesIO(courses_bytes))
-            if _load_first_from_drive([courses_name_major]) is not None:
+            if matched_name == courses_name_major:
                 st.success(f"✅ Courses table loaded from Drive for {selected_major}.")
                 log_info(f"Courses table loaded from Drive ({selected_major}).")
             else:
@@ -113,17 +133,18 @@ if st.session_state.courses_df.empty:
             st.error(f"❌ Error loading courses table: {e}")
             log_error("Error loading courses table (Drive)", e)
 
-if st.session_state.progress_df.empty:
-    prog_bytes = _load_first_from_drive([progress_name_major, progress_name_legacy])
+if not st.session_state[load_key] and st.session_state.progress_df.empty:
+    prog_bytes, matched_name = _load_first_from_drive([progress_name_major, progress_name_legacy])
     if prog_bytes:
         try:
             st.session_state.progress_df = load_progress_excel(prog_bytes)
-            if _load_first_from_drive([progress_name_major]) is not None:
+            if matched_name == progress_name_major:
                 st.success(f"✅ Progress report loaded from Drive for {selected_major} (Required + Intensive merged).")
                 log_info(f"Progress report loaded & merged from Drive ({selected_major}).")
             else:
                 st.info(f"Loaded legacy progress report ({progress_name_legacy}). Consider syncing as {progress_name_major}.")
                 log_info(f"Progress report loaded from legacy filename for {selected_major}.")
+            st.session_state[load_key] = True
         except Exception as e:
             st.error(f"❌ Error loading progress report: {e}")
             log_error("Error loading progress report (Drive)", e)
