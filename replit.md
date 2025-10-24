@@ -19,10 +19,17 @@ This is a **Streamlit-based Advising Dashboard** for Phoenix University that hel
 
 ## Recent Changes
 
-### 2025-10-24: Modern UI/UX Overhaul
-- ✅ **Workflow Progress Header**: Visual status bar showing data load progress and current advising step
-- ✅ **Smart Student Search**: Searchable interface with fuzzy search, standing filters, and recently viewed students
-- ✅ **Action Dock**: Persistent right sidebar with quick access to save, email, and exclusion management
+### 2025-10-24: UI Refinements & Repeat Courses Feature
+- ✅ **Minimized Sidebar**: Sidebar is now collapsed by default for more workspace
+- ✅ **Simplified Search**: Removed standing filter from student search for cleaner interface
+- ✅ **Repeat Courses**: New selector for marking completed/registered courses for repeat - displays as "Advised-Repeat" in tables and Excel exports
+- ✅ **Inline Actions**: Replaced action dock with inline Save/Email/Download buttons in 3-column layout within advising form
+- ✅ **Auto-load Sessions**: Most recent advising session automatically loads when selecting a student
+- ✅ **Clear Button**: Quick reset button in metrics row to clear all recommendations
+- ✅ **Excel Support**: Full Excel download support for "ar" (Advised-Repeat) status with proper color formatting
+
+### 2025-10-24: Modern UI/UX Overhaul  
+- ✅ **Smart Student Search**: Searchable interface with fuzzy search and recently viewed students
 - ✅ **Stepwise Upload Interface**: Accordion-style data upload with inline validation and status feedback
 - ✅ **Unified Notifications**: Consistent alert system with persistent and toast-style messages
 - ✅ **Accessibility Improvements**: WCAG AA compliant colors, keyboard navigation, and mobile responsiveness
@@ -78,9 +85,7 @@ This is a **Streamlit-based Advising Dashboard** for Phoenix University that hel
 ├── eligibility_view.py       # Student eligibility checking (with smart search)
 ├── email_manager.py          # Email roster and Outlook SMTP integration
 ├── full_student_view.py      # Complete student dashboard
-├── workflow_header.py        # Workflow progress header component
-├── student_search.py         # Smart student search with filters
-├── action_dock.py            # Persistent action sidebar component
+├── student_search.py         # Smart student search component
 ├── notification_system.py    # Unified notification/alert system
 ├── visual_theme.py           # Accessibility and visual enhancements
 ├── get_refresh_token.py      # Google OAuth helper
@@ -113,6 +118,7 @@ Location: `.streamlit/config.toml`
 - Server bound to `0.0.0.0:5000` (required for Replit)
 - CORS and XSRF protection disabled for iframe compatibility
 - Headless mode enabled
+- Sidebar minimized by default (`initial_sidebar_state = "collapsed"`)
 
 ### Google Drive Integration (Optional)
 The app can sync with Google Drive for data backup and collaboration. To enable:
