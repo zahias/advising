@@ -15,7 +15,7 @@ I prefer:
 ## System Architecture
 
 ### UI/UX Decisions
-The dashboard features a modern, accessible design with WCAG AA compliant colors, keyboard navigation, and mobile responsiveness. It incorporates a smart student search with fuzzy matching, a stepwise accordion-style data upload interface with inline validation, and a unified notification system with persistent and toast-style messages. The sidebar is minimized by default for more workspace, and inline action buttons are used for efficiency.
+The dashboard features a modern, accessible design with WCAG AA compliant colors, keyboard navigation, and mobile responsiveness. It uses a simple dropdown for student selection, a stepwise accordion-style data upload interface with inline validation, and a unified notification system with persistent and toast-style messages. The sidebar is minimized by default for more workspace, and inline action buttons are used for efficiency.
 
 ### Technical Implementations
 The application is built using Streamlit in Python 3.11. It utilizes Pandas for data manipulation, particularly with Excel files. Google Drive API is optionally integrated for cloud storage and synchronization. Email functionality is implemented using standard Python SMTP for Outlook/Office 365, supporting HTML email templates and per-major email rosters. The system supports multi-major data tracking, course eligibility checks, and persistent advising sessions.
@@ -27,7 +27,8 @@ The application is built using Streamlit in Python 3.11. It utilizes Pandas for 
 - **Advising Sessions**: Records advisor recommendations and notes, persisting them across sessions and syncing to Drive.
 - **Email Integration**: Sends formatted advising sheets directly to students via Outlook/Office 365.
 - **Data Upload**: Stepwise, validated interface for `courses_table.xlsx`, `progress_report.xlsx`, and email rosters.
-- **Student Search**: Smart search with fuzzy matching, recently viewed students, and filters.
+- **Student Selection**: Simple dropdown selector showing student name, ID, and standing.
+- **Utility Buttons**: Clear All Selections (clears all current advising selections) and Restore Latest Sessions (loads most recent saved sessions for all students).
 - **Repeat Courses**: Functionality to mark courses for repeat, displayed as "Advised-Repeat".
 
 ### System Design Choices
