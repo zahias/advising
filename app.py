@@ -65,8 +65,11 @@ with st.expander("⚙️ Advising Utilities"):
                     if key.startswith("_autoloaded_"):
                         del st.session_state[key]
                     # Clear student search selections and queries to return to search view
-                    elif key.startswith("student_search_") or key.startswith("student_select_"):
+                    elif key.startswith("student_search_") or key.startswith("student_select_") or key.startswith("student_selectbox_"):
                         del st.session_state[key]
+            # Clear the current student ID to deselect any loaded student
+            if "current_student_id" in st.session_state:
+                del st.session_state["current_student_id"]
             st.success(f"✅ Cleared all advising selections for {selected_major}")
             st.rerun()
     
