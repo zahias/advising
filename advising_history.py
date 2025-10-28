@@ -29,6 +29,7 @@ from utils import (
     get_student_standing,
     style_df,
 )
+from advising_period import get_current_period
 
 try:
     from zoneinfo import ZoneInfo
@@ -359,6 +360,10 @@ def save_session_for_student(student_id: Union[int, str]) -> Optional[str]:
         now = _now_beirut()
         sid = str(uuid4())
         title = f"{now.strftime('%Y-%m-%d %H:%M')} — {student_name} ({student_id})"
+        
+        # Get current period information
+        current_period = get_current_period()
+        
         meta = {
             "id": sid,
             "title": title,
@@ -366,6 +371,10 @@ def save_session_for_student(student_id: Union[int, str]) -> Optional[str]:
             "major": st.session_state.get("current_major", ""),
             "student_id": students[0].get("ID", student_id),
             "student_name": student_name,
+            "period_id": current_period.get("period_id", ""),
+            "semester": current_period.get("semester", ""),
+            "year": current_period.get("year", ""),
+            "advisor_name": current_period.get("advisor_name", ""),
         }
 
         # best-effort payload save to Drive
@@ -382,6 +391,10 @@ def save_session_for_student(student_id: Union[int, str]) -> Optional[str]:
             "student_name": meta["student_name"],
             "major": meta["major"],
             "session_file": _session_filename(sid),
+            "period_id": meta["period_id"],
+            "semester": meta["semester"],
+            "year": meta["year"],
+            "advisor_name": meta["advisor_name"],
         })
         _save_index(st.session_state.advising_index)
 
@@ -401,9 +414,11 @@ def autosave_current_student_session() -> Optional[str]:
     return save_session_for_student(sid)
 
 
-def _find_latest_session_for_student(student_id: Union[int, str]) -> Optional[Dict[str, Any]]:
+def _find_latest_session_for_student(student_id: Union[int, str], period_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """
     Find the most recent advising session for a given student.
+    If period_id is provided, only returns sessions from that period.
+    If period_id is None, uses current period.
     Returns the session metadata if found, None otherwise.
     """
     if "advising_index" not in st.session_state:
@@ -411,10 +426,16 @@ def _find_latest_session_for_student(student_id: Union[int, str]) -> Optional[Di
     
     index = st.session_state.advising_index or []
     
-    # Filter sessions for this student
+    # Get period filter
+    if period_id is None:
+        current_period = get_current_period()
+        period_id = current_period.get("period_id", "")
+    
+    # Filter sessions for this student in the specified period
     student_sessions = [
         r for r in index 
         if str(r.get("student_id", "")) == str(student_id)
+        and r.get("period_id", "") == period_id
     ]
     
     if not student_sessions:

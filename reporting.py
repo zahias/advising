@@ -28,7 +28,8 @@ def apply_excel_formatting(
     standing: str,
     note: str,
     advised_credits: int,
-    optional_credits: int
+    optional_credits: int,
+    period_info: str = ""
 ):
     """
     Apply Excel formatting to individual student advising sheet.
@@ -38,29 +39,33 @@ def apply_excel_formatting(
     wb = load_workbook(output)
     ws = wb.active
     
-    ws.insert_rows(1, 6)
+    ws.insert_rows(1, 7)
     
     ws["A1"] = "Student Advising Sheet"
     ws["A1"].font = Font(bold=True, size=16)
     
-    ws["A2"] = f"Name: {student_name}"
-    ws["A3"] = f"ID: {student_id}"
-    ws["A4"] = f"Credits Completed: {credits_completed} | Standing: {standing}"
-    ws["A5"] = f"Advised Credits: {advised_credits} | Optional Credits: {optional_credits}"
+    if period_info:
+        ws["A2"] = period_info
+        ws["A2"].font = Font(bold=True, color="0066CC")
+    
+    ws["A3"] = f"Name: {student_name}"
+    ws["A4"] = f"ID: {student_id}"
+    ws["A5"] = f"Credits Completed: {credits_completed} | Standing: {standing}"
+    ws["A6"] = f"Advised Credits: {advised_credits} | Optional Credits: {optional_credits}"
     
     if note:
-        ws["A6"] = f"Notes: {note}"
-        ws["A6"].font = Font(italic=True)
+        ws["A7"] = f"Notes: {note}"
+        ws["A7"].font = Font(italic=True)
     
     header_fill = PatternFill(start_color="667EEA", end_color="667EEA", fill_type="solid")
     header_font = Font(bold=True, color="FFFFFF")
     
-    for cell in ws[7]:
+    for cell in ws[8]:
         cell.fill = header_fill
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center", vertical="center")
     
-    for row in ws.iter_rows(min_row=8):
+    for row in ws.iter_rows(min_row=9):
         for cell in row:
             cell.alignment = Alignment(horizontal="left", vertical="center")
     

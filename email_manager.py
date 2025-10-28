@@ -246,6 +246,7 @@ def send_advising_email(
     note: str,
     courses_df: pd.DataFrame,
     remaining_credits: int = 0,
+    period_info: str = "",
 ) -> tuple[bool, str]:
     """
     Send advising sheet email to student via Outlook/Office 365 SMTP.
@@ -260,6 +261,7 @@ def send_advising_email(
         note: Advisor's note/message
         courses_df: Courses table for course details
         remaining_credits: Remaining credits to graduation
+        period_info: Advising period information (semester/year/advisor)
     
     Returns:
         (success: bool, message: str)
@@ -286,6 +288,8 @@ def send_advising_email(
         
         # Build email content
         subject = f"Academic Advising - {st.session_state.get('current_major', '')} Program"
+        if period_info:
+            subject = f"{subject} - {period_info}"
         
         # Create HTML email body
         html_body = f"""
@@ -294,6 +298,7 @@ def send_advising_email(
             <style>
                 body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
                 .header {{ background-color: #0066cc; color: white; padding: 20px; text-align: center; }}
+                .period {{ background-color: #0052a3; color: white; padding: 10px; text-align: center; font-weight: bold; }}
                 .content {{ padding: 20px; }}
                 .summary {{ background-color: #f0f8ff; padding: 15px; margin: 15px 0; border-radius: 5px; }}
                 .course-list {{ margin: 15px 0; }}
@@ -309,6 +314,7 @@ def send_advising_email(
                 <h1>Academic Advising Sheet</h1>
                 <p>{st.session_state.get('current_major', '')} Program</p>
             </div>
+            {f'<div class="period">{period_info}</div>' if period_info else ''}
             <div class="content">
                 <p>Dear {student_name},</p>
                 <p>Below is your academic advising recommendation for the upcoming semester.</p>

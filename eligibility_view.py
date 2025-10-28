@@ -26,6 +26,7 @@ from course_exclusions import (
 from advising_history import save_session_for_student, _load_session_and_apply
 from student_search import render_student_search
 from notification_system import show_notification, show_action_feedback
+from advising_period import get_current_period
 
 
 # ---------- helpers ----------
@@ -298,6 +299,10 @@ def student_eligibility_view():
                     )
                     st.rerun()
                 else:
+                    # Get period info for email
+                    current_period = get_current_period()
+                    period_info = f"{current_period.get('semester', '')} {current_period.get('year', '')} — Advisor: {current_period.get('advisor_name', '')}"
+                    
                     success, message = send_advising_email(
                         to_email=student_email,
                         student_name=str(student_row["NAME"]),
@@ -308,6 +313,7 @@ def student_eligibility_view():
                         note=note_input,
                         courses_df=st.session_state.courses_df,
                         remaining_credits=int(cr_remaining),
+                        period_info=period_info,
                     )
                     
                     if success:
@@ -349,6 +355,10 @@ def student_eligibility_view():
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             export_df.to_excel(writer, index=False, sheet_name="Advising")
 
+        # Get period info for report header
+        current_period = get_current_period()
+        period_info = f"Advising Period: {current_period.get('semester', '')} {current_period.get('year', '')} — Advisor: {current_period.get('advisor_name', '')}"
+        
         apply_excel_formatting(
             output=output,
             student_name=str(student_row["NAME"]),
@@ -358,6 +368,7 @@ def student_eligibility_view():
             note=st.session_state.advising_selections[norm_sid].get("note", ""),
             advised_credits=_sum_credits(st.session_state.advising_selections[norm_sid].get("advised", [])),
             optional_credits=_sum_credits(st.session_state.advising_selections[norm_sid].get("optional", [])),
+            period_info=period_info,
         )
         st.download_button(
             "Download Excel",

@@ -20,6 +20,8 @@ from google_drive import (
 )
 from utils import log_info, log_error, load_progress_excel
 from advising_history import _load_session_and_apply
+from advising_period import get_current_period, start_new_period, get_all_periods
+from datetime import datetime
 
 st.set_page_config(page_title="Advising Dashboard", layout="wide")
 
@@ -49,8 +51,50 @@ if "majors" not in st.session_state:
 # Choose major up-front
 selected_major = st.selectbox("Major", MAJORS, key="current_major")
 
+# ---------- Current Advising Period Display ----------
+current_period = get_current_period()
+st.markdown(f"**Current Advising Period:** {current_period.get('semester', '')} {current_period.get('year', '')} — Advisor: {current_period.get('advisor_name', 'Not set')}")
+
 # Utility buttons for advising selections
 with st.expander("⚙️ Advising Utilities"):
+    st.markdown("### Advising Period Management")
+    
+    # Start New Period
+    with st.form("new_period_form"):
+        st.markdown("**Start New Advising Period**")
+        col_sem, col_year, col_advisor = st.columns(3)
+        
+        with col_sem:
+            semester = st.selectbox("Semester", ["Fall", "Spring", "Summer"], key="new_period_semester")
+        
+        with col_year:
+            current_year = datetime.now().year
+            year = st.number_input("Year", min_value=2020, max_value=2099, value=current_year, step=1, key="new_period_year")
+        
+        with col_advisor:
+            advisor_name = st.text_input("Advisor Name", key="new_period_advisor")
+        
+        if st.form_submit_button("🆕 Start New Period", use_container_width=True, type="primary"):
+            if not advisor_name:
+                st.error("Please enter advisor name")
+            else:
+                # Clear all selections when starting new period
+                st.session_state.advising_selections = {}
+                st.session_state.majors[selected_major]["advising_selections"] = {}
+                for key in list(st.session_state.keys()):
+                    if isinstance(key, str) and key.startswith("_autoloaded_"):
+                        del st.session_state[key]
+                if "current_student_id" in st.session_state:
+                    del st.session_state["current_student_id"]
+                
+                # Start new period
+                new_period = start_new_period(semester, int(year), advisor_name)
+                st.success(f"✅ Started new period: {semester} {year}")
+                st.rerun()
+    
+    st.markdown("---")
+    st.markdown("### Session Management")
+    
     col1, col2 = st.columns(2)
     
     with col1:
@@ -74,7 +118,7 @@ with st.expander("⚙️ Advising Utilities"):
             st.rerun()
     
     with col2:
-        if st.button("📥 Restore Latest Sessions", help="Load most recent advising session for all students from saved sessions", use_container_width=True):
+        if st.button("📥 Restore Latest Sessions", help="Load most recent advising session for all students from current period", use_container_width=True):
             # Get all unique student IDs from progress report
             if not st.session_state.progress_df.empty and "ID" in st.session_state.progress_df.columns:
                 student_ids = st.session_state.progress_df["ID"].unique()
@@ -88,10 +132,37 @@ with st.expander("⚙️ Advising Utilities"):
                         loaded_count += 1
                 # Sync the restored selections to the per-major bucket
                 st.session_state.majors[selected_major]["advising_selections"] = st.session_state.advising_selections.copy()
-                st.success(f"✅ Restored latest sessions for {loaded_count} students in {selected_major}")
+                st.success(f"✅ Restored latest sessions for {loaded_count} students in {current_period.get('semester', '')} {current_period.get('year', '')}")
                 st.rerun()
             else:
                 st.warning("No students found in progress report. Upload progress report first.")
+    
+    st.markdown("---")
+    st.markdown("### View Previous Periods")
+    
+    all_periods = get_all_periods()
+    if len(all_periods) > 1:
+        # Create dropdown of periods (excluding current)
+        period_options = []
+        period_map = {}
+        for p in all_periods:
+            if p.get("period_id") != current_period.get("period_id"):
+                label = f"{p.get('semester', '')} {p.get('year', '')} — {p.get('advisor_name', 'Unknown')}"
+                period_options.append(label)
+                period_map[label] = p
+        
+        if period_options:
+            selected_period_label = st.selectbox("Select Previous Period", ["Select a period..."] + period_options, key="view_previous_period")
+            
+            if selected_period_label != "Select a period...":
+                selected_period = period_map[selected_period_label]
+                st.info(f"📅 Viewing: {selected_period_label}")
+                st.caption(f"Created: {selected_period.get('created_at', 'Unknown')}")
+                st.caption("Note: View archived sessions for this period in the Advising History tab.")
+        else:
+            st.info("No previous periods found. Start a new period to archive the current one.")
+    else:
+        st.info("No previous periods found. Start a new period to archive the current one.")
 
 # Helpers to map between the current major bucket and the global aliases used elsewhere
 def _sync_globals_from_bucket():

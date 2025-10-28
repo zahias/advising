@@ -28,12 +28,15 @@ The application is built using Streamlit in Python 3.11. It utilizes Pandas for 
 - **Email Integration**: Sends formatted advising sheets directly to students via Outlook/Office 365.
 - **Data Upload**: Stepwise, validated interface for `courses_table.xlsx`, `progress_report.xlsx`, and email rosters.
 - **Student Selection**: Simple dropdown selector showing student name, ID, and standing.
-- **Utility Buttons**: Clear All Selections (clears all current advising selections) and Restore Latest Sessions (loads most recent saved sessions for all students).
+- **Advising Periods**: Track advising cycles by semester/year/advisor. Starting a new period archives previous sessions and creates a clean slate.
+- **Utility Buttons**: Clear All Selections (clears all current advising selections) and Restore Latest Sessions (loads most recent saved sessions from current period for all students).
 - **Repeat Courses**: Functionality to mark courses for repeat, displayed as "Advised-Repeat".
+- **Period History**: View previous advising periods and browse archived sessions from past semesters.
 
 ### System Design Choices
-- **File Organization**: Google Drive uses a major-specific folder hierarchy (`{ROOT}/{MAJOR}/`) for all related files (e.g., `courses_table.xlsx`, `advising_index.json`).
-- **Data Storage**: Advising sessions are saved locally first for responsiveness, then synced to Google Drive in the background.
+- **File Organization**: Google Drive uses a major-specific folder hierarchy (`{ROOT}/{MAJOR}/`) for all related files (e.g., `courses_table.xlsx`, `advising_index.json`). Sessions are stored in `{ROOT}/{MAJOR}/sessions/` subfolder.
+- **Period Tracking**: Each advising period (semester/year/advisor) is tracked per major. Sessions are tagged with period_id. Current period stored in `current_period.json`, historical periods in `periods_history.json`.
+- **Data Storage**: Advising sessions are saved locally first for responsiveness, then synced to Google Drive in the background. Each session includes period metadata.
 - **Configuration**: Streamlit configuration (`.streamlit/config.toml`) sets server port, disables CORS for iframe compatibility, and minimizes the sidebar.
 - **Security**: Sensitive credentials are managed via Replit Secrets, and `.gitignore` excludes them from version control.
 

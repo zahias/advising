@@ -1,0 +1,240 @@
+# advising_period.py
+from __future__ import annotations
+
+import json
+from typing import Dict, Any, List, Optional
+from datetime import datetime
+import streamlit as st
+
+from google_drive import (
+    initialize_drive_service,
+    find_file_in_drive,
+    download_file_from_drive,
+    sync_file_with_drive,
+    get_major_folder_id,
+)
+from utils import log_info, log_error
+
+__all__ = [
+    "get_current_period",
+    "start_new_period",
+    "get_all_periods",
+    "load_period_from_drive",
+    "save_period_to_drive",
+]
+
+
+PERIOD_FILENAME = "current_period.json"
+PERIODS_HISTORY_FILENAME = "periods_history.json"
+
+
+def _get_major_folder_id() -> str:
+    """Get major-specific folder ID."""
+    import os
+    try:
+        service = initialize_drive_service()
+        major = st.session_state.get("current_major", "DEFAULT")
+        
+        root_folder_id = ""
+        try:
+            if "google" in st.secrets:
+                root_folder_id = st.secrets["google"].get("folder_id", "")
+        except:
+            pass
+        
+        if not root_folder_id:
+            root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
+        
+        if not root_folder_id:
+            return ""
+        
+        return get_major_folder_id(service, major, root_folder_id)
+    except Exception:
+        return ""
+
+
+def get_current_period() -> Dict[str, Any]:
+    """
+    Get current advising period for the selected major.
+    Returns dict with semester, year, advisor_name, and period_id.
+    Creates default if none exists.
+    """
+    major = st.session_state.get("current_major", "DEFAULT")
+    
+    # Check session state cache first
+    if "current_periods" not in st.session_state:
+        st.session_state.current_periods = {}
+    
+    if major in st.session_state.current_periods:
+        return st.session_state.current_periods[major]
+    
+    # Try to load from Drive
+    period = load_period_from_drive()
+    
+    # If no period found, create default
+    if not period:
+        current_year = datetime.now().year
+        period = {
+            "period_id": f"default_{current_year}",
+            "semester": "Fall",
+            "year": current_year,
+            "advisor_name": "",
+            "created_at": datetime.now().isoformat(),
+        }
+    
+    st.session_state.current_periods[major] = period
+    return period
+
+
+def load_period_from_drive() -> Optional[Dict[str, Any]]:
+    """Load current period from Drive for current major."""
+    try:
+        service = initialize_drive_service()
+        folder_id = _get_major_folder_id()
+        
+        if not folder_id:
+            return None
+        
+        file_id = find_file_in_drive(service, PERIOD_FILENAME, folder_id)
+        if not file_id:
+            return None
+        
+        payload = download_file_from_drive(service, file_id)
+        period = json.loads(payload.decode("utf-8"))
+        
+        log_info(f"Loaded period from Drive: {period.get('period_id', 'unknown')}")
+        return period
+    except Exception as e:
+        log_error(f"Failed to load period from Drive", e)
+        return None
+
+
+def save_period_to_drive(period: Dict[str, Any]) -> bool:
+    """Save current period to Drive for current major."""
+    try:
+        service = initialize_drive_service()
+        folder_id = _get_major_folder_id()
+        
+        if not folder_id:
+            log_error("save_period_to_drive: no folder_id", Exception("No folder ID"))
+            return False
+        
+        payload = json.dumps(period, indent=2).encode("utf-8")
+        sync_file_with_drive(service, PERIOD_FILENAME, payload, folder_id)
+        
+        log_info(f"Saved period to Drive: {period.get('period_id', 'unknown')}")
+        return True
+    except Exception as e:
+        log_error(f"Failed to save period to Drive", e)
+        return False
+
+
+def start_new_period(semester: str, year: int, advisor_name: str) -> Dict[str, Any]:
+    """
+    Start a new advising period. Archives current period to history.
+    
+    Args:
+        semester: Fall, Spring, or Summer
+        year: Year of the period
+        advisor_name: Name of the advisor
+    
+    Returns:
+        New period dict
+    """
+    major = st.session_state.get("current_major", "DEFAULT")
+    
+    # Get current period to archive
+    current_period = get_current_period()
+    
+    # Add to history
+    _archive_period_to_history(current_period)
+    
+    # Create new period
+    period_id = f"{semester}_{year}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    new_period = {
+        "period_id": period_id,
+        "semester": semester,
+        "year": year,
+        "advisor_name": advisor_name,
+        "created_at": datetime.now().isoformat(),
+    }
+    
+    # Save to session state and Drive
+    if "current_periods" not in st.session_state:
+        st.session_state.current_periods = {}
+    st.session_state.current_periods[major] = new_period
+    
+    save_period_to_drive(new_period)
+    
+    log_info(f"Started new period: {period_id}")
+    return new_period
+
+
+def _archive_period_to_history(period: Dict[str, Any]) -> None:
+    """Archive a period to the history file in Drive."""
+    try:
+        service = initialize_drive_service()
+        folder_id = _get_major_folder_id()
+        
+        if not folder_id:
+            return
+        
+        # Load existing history
+        history = []
+        file_id = find_file_in_drive(service, PERIODS_HISTORY_FILENAME, folder_id)
+        if file_id:
+            try:
+                payload = download_file_from_drive(service, file_id)
+                history = json.loads(payload.decode("utf-8"))
+                if not isinstance(history, list):
+                    history = []
+            except:
+                history = []
+        
+        # Add current period to history (avoid duplicates)
+        period_id = period.get("period_id", "")
+        if period_id and not any(p.get("period_id") == period_id for p in history):
+            period_copy = period.copy()
+            period_copy["archived_at"] = datetime.now().isoformat()
+            history.append(period_copy)
+        
+        # Save updated history
+        payload = json.dumps(history, indent=2).encode("utf-8")
+        sync_file_with_drive(service, PERIODS_HISTORY_FILENAME, payload, folder_id)
+        
+        log_info(f"Archived period to history: {period_id}")
+    except Exception as e:
+        log_error(f"Failed to archive period to history", e)
+
+
+def get_all_periods() -> List[Dict[str, Any]]:
+    """
+    Get all periods (current + history) for the current major.
+    Returns list sorted by creation date (newest first).
+    """
+    periods = []
+    
+    # Add current period
+    current = get_current_period()
+    if current:
+        periods.append(current)
+    
+    # Add historical periods
+    try:
+        service = initialize_drive_service()
+        folder_id = _get_major_folder_id()
+        
+        if folder_id:
+            file_id = find_file_in_drive(service, PERIODS_HISTORY_FILENAME, folder_id)
+            if file_id:
+                payload = download_file_from_drive(service, file_id)
+                history = json.loads(payload.decode("utf-8"))
+                if isinstance(history, list):
+                    periods.extend(history)
+    except Exception as e:
+        log_error(f"Failed to load period history", e)
+    
+    # Sort by created_at (newest first)
+    periods.sort(key=lambda p: p.get("created_at", ""), reverse=True)
+    
+    return periods
