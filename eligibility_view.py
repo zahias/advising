@@ -242,14 +242,12 @@ def student_eligibility_view():
             "Repeat Courses (Completed or Registered)", options=repeat_opts, default=default_repeat, key=f"repeat_ms_{norm_sid}",
             help="Select courses that the student should repeat"
         )
-        # Optional courses - filter options to exclude currently advised courses
-        available_for_optional = [c for c in eligible_opts if c not in advised_selection]
         optional_selection = st.multiselect(
             "Optional Courses",
-            options=available_for_optional,
-            default=[c for c in default_optional if c in available_for_optional],
+            options=eligible_opts,
+            default=default_optional,
             key=f"optional_ms_{norm_sid}",
-            help="Additional courses to suggest (excludes courses currently in advised)"
+            help="Additional courses to suggest"
         )
         note_input = st.text_area(
             "Advisor Note (optional)", value=slot.get("note", ""), key=f"note_{norm_sid}"
