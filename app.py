@@ -51,13 +51,104 @@ if "majors" not in st.session_state:
 # Choose major up-front
 selected_major = st.selectbox("Major", MAJORS, key="current_major")
 
-# ---------- Current Advising Period Display ----------
+# ---------- Period Selection Gate ----------
+# Check if period has been selected for this major
+period_selected_key = f"period_selected_{selected_major}"
+if period_selected_key not in st.session_state:
+    st.session_state[period_selected_key] = False
+
+# Get current period to check if one exists
 current_period = get_current_period()
+all_periods = get_all_periods()
+
+# If period not yet selected, show selection interface
+if not st.session_state[period_selected_key]:
+    st.markdown("---")
+    st.markdown("## 📅 Select Advising Period")
+    st.markdown("Before accessing the advising dashboard, please select an advising period.")
+    
+    # Create two columns for the two options
+    col_new, col_existing = st.columns(2)
+    
+    with col_new:
+        st.markdown("### 🆕 Start New Period")
+        with st.form("period_selection_new"):
+            semester = st.selectbox("Semester", ["Fall", "Spring", "Summer"], key="period_select_semester")
+            current_year = datetime.now().year
+            year = st.number_input("Year", min_value=2020, max_value=2099, value=current_year, step=1, key="period_select_year")
+            advisor_name = st.text_input("Advisor Name", key="period_select_advisor")
+            
+            if st.form_submit_button("Start New Period", use_container_width=True, type="primary"):
+                if not advisor_name:
+                    st.error("Please enter advisor name")
+                else:
+                    # Clear all selections when starting new period
+                    st.session_state.advising_selections = {}
+                    st.session_state.majors[selected_major]["advising_selections"] = {}
+                    for key in list(st.session_state.keys()):
+                        if isinstance(key, str) and key.startswith("_autoloaded_"):
+                            del st.session_state[key]
+                    if "current_student_id" in st.session_state:
+                        del st.session_state["current_student_id"]
+                    
+                    # Start new period
+                    new_period = start_new_period(semester, int(year), advisor_name)
+                    st.session_state[period_selected_key] = True
+                    st.success(f"✅ Started new period: {semester} {year}")
+                    st.rerun()
+    
+    with col_existing:
+        st.markdown("### 📂 Use Existing Period")
+        
+        if all_periods:
+            # Create dropdown of all periods (including current)
+            period_options = []
+            period_map = {}
+            for p in all_periods:
+                label = f"{p.get('semester', '')} {p.get('year', '')} — {p.get('advisor_name', 'Unknown')}"
+                period_options.append(label)
+                period_map[label] = p
+            
+            with st.form("period_selection_existing"):
+                selected_period_label = st.selectbox("Select Period", period_options, key="period_select_existing")
+                
+                if st.form_submit_button("Use This Period", use_container_width=True):
+                    selected_period = period_map[selected_period_label]
+                    
+                    # If selecting a different period than current, we need to switch to it
+                    if selected_period.get("period_id") != current_period.get("period_id"):
+                        # Set as current period
+                        from advising_period import set_current_period
+                        set_current_period(selected_period)
+                        
+                        # Clear selections
+                        st.session_state.advising_selections = {}
+                        st.session_state.majors[selected_major]["advising_selections"] = {}
+                        for key in list(st.session_state.keys()):
+                            if isinstance(key, str) and key.startswith("_autoloaded_"):
+                                del st.session_state[key]
+                        if "current_student_id" in st.session_state:
+                            del st.session_state["current_student_id"]
+                    
+                    st.session_state[period_selected_key] = True
+                    st.success(f"✅ Using period: {selected_period_label}")
+                    st.rerun()
+        else:
+            st.info("No existing periods found. Please start a new period.")
+    
+    st.stop()  # Stop execution here until period is selected
+
+# ---------- Current Advising Period Display ----------
 st.markdown(f"**Current Advising Period:** {current_period.get('semester', '')} {current_period.get('year', '')} — Advisor: {current_period.get('advisor_name', 'Not set')}")
 
 # Utility buttons for advising selections
 with st.expander("⚙️ Advising Utilities"):
     st.markdown("### Advising Period Management")
+    
+    # Add button to change period
+    if st.button("🔄 Change Advising Period", help="Switch to a different advising period", use_container_width=True):
+        st.session_state[period_selected_key] = False
+        st.rerun()
     
     # Start New Period
     with st.form("new_period_form"):

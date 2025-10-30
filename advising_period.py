@@ -129,6 +129,30 @@ def save_period_to_drive(period: Dict[str, Any]) -> bool:
         return False
 
 
+def set_current_period(period: Dict[str, Any]) -> bool:
+    """
+    Set an existing period as the current period.
+    
+    Args:
+        period: Period dict to set as current
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    major = st.session_state.get("current_major", "DEFAULT")
+    
+    # Save to session state
+    if "current_periods" not in st.session_state:
+        st.session_state.current_periods = {}
+    st.session_state.current_periods[major] = period
+    
+    # Save to Drive
+    success = save_period_to_drive(period)
+    
+    log_info(f"Set current period: {period.get('period_id', 'unknown')}")
+    return success
+
+
 def start_new_period(semester: str, year: int, advisor_name: str) -> Dict[str, Any]:
     """
     Start a new advising period. Archives current period to history.

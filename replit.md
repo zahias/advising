@@ -3,6 +3,9 @@
 ## Overview
 This Streamlit-based Advising Dashboard for Phoenix University assists academic advisors in tracking student progress and course eligibility across multiple majors (PBHL, SPTH-New, SPTH-Old). Its primary purpose is to enable advisors to view student course completion and registration status, check course eligibility based on prerequisites, manage advising sessions, and sync data with Google Drive for backup and collaboration. The project aims to streamline the advising process, providing a comprehensive and user-friendly tool for academic guidance.
 
+## Recent Changes
+- **2025-10-30**: Added mandatory period selection gate. Users must now select or create an advising period before accessing the dashboard. Period selection screen appears immediately after major selection with two options: "Start New Period" or "Use Existing Period". Added "Change Advising Period" button in Advising Utilities for easy period switching.
+
 ## User Preferences
 I prefer:
 - Simple, direct language in explanations.
@@ -15,7 +18,7 @@ I prefer:
 ## System Architecture
 
 ### UI/UX Decisions
-The dashboard features a modern, accessible design with WCAG AA compliant colors, keyboard navigation, and mobile responsiveness. It uses a simple dropdown for student selection, a stepwise accordion-style data upload interface with inline validation, and a unified notification system with persistent and toast-style messages. The sidebar is minimized by default for more workspace, and inline action buttons are used for efficiency.
+The dashboard features a modern, accessible design with WCAG AA compliant colors, keyboard navigation, and mobile responsiveness. Before accessing any functionality, users must select or create an advising period via a mandatory selection gate. The dashboard uses a simple dropdown for student selection, a stepwise accordion-style data upload interface with inline validation, and a unified notification system with persistent and toast-style messages. The sidebar is minimized by default for more workspace, and inline action buttons are used for efficiency. A "Change Advising Period" button in Advising Utilities allows users to switch periods at any time.
 
 ### Technical Implementations
 The application is built using Streamlit in Python 3.11. It utilizes Pandas for data manipulation, particularly with Excel files. Google Drive API is optionally integrated for cloud storage and synchronization. Email functionality is implemented using standard Python SMTP for Outlook/Office 365, supporting HTML email templates and per-major email rosters. The system supports multi-major data tracking, course eligibility checks, and persistent advising sessions.
