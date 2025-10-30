@@ -89,43 +89,65 @@ def get_current_period() -> Dict[str, Any]:
 def load_period_from_drive() -> Optional[Dict[str, Any]]:
     """Load current period from Drive for current major."""
     try:
+        major = st.session_state.get("current_major", "DEFAULT")
+        log_info(f"Attempting to load period from Drive for major {major}")
+        
         service = initialize_drive_service()
+        if not service:
+            log_info("load_period_from_drive: Drive service not initialized")
+            return None
+        
         folder_id = _get_major_folder_id()
         
         if not folder_id:
+            log_info("load_period_from_drive: no folder_id found")
             return None
         
+        log_info(f"Looking for {PERIOD_FILENAME} in folder_id: {folder_id}")
         file_id = find_file_in_drive(service, PERIOD_FILENAME, folder_id)
         if not file_id:
+            log_info(f"{PERIOD_FILENAME} not found in Drive")
             return None
         
         payload = download_file_from_drive(service, file_id)
         period = json.loads(payload.decode("utf-8"))
         
-        log_info(f"Loaded period from Drive: {period.get('period_id', 'unknown')}")
+        log_info(f"✓ Successfully loaded period from Drive: {period.get('period_id', 'unknown')}")
         return period
     except Exception as e:
         log_error(f"Failed to load period from Drive", e)
+        import traceback
+        log_error(f"Traceback: {traceback.format_exc()}", Exception("Stack trace"))
         return None
 
 
 def save_period_to_drive(period: Dict[str, Any]) -> bool:
     """Save current period to Drive for current major."""
     try:
+        major = st.session_state.get("current_major", "DEFAULT")
+        log_info(f"Attempting to save period to Drive for major {major}: {period.get('period_id', 'unknown')}")
+        
         service = initialize_drive_service()
+        if not service:
+            log_error("save_period_to_drive: Drive service not initialized", Exception("No service"))
+            return False
+        
         folder_id = _get_major_folder_id()
         
         if not folder_id:
             log_error("save_period_to_drive: no folder_id", Exception("No folder ID"))
             return False
         
+        log_info(f"Saving to folder_id: {folder_id}")
         payload = json.dumps(period, indent=2).encode("utf-8")
         sync_file_with_drive(service, PERIOD_FILENAME, payload, folder_id)
         
-        log_info(f"Saved period to Drive: {period.get('period_id', 'unknown')}")
+        log_info(f"✓ Successfully saved period to Drive: {period.get('period_id', 'unknown')}")
         return True
     except Exception as e:
         log_error(f"Failed to save period to Drive", e)
+        import traceback
+        log_error(f"Traceback: {traceback.format_exc()}", Exception("Stack trace"))
         return False
 
 

@@ -61,11 +61,36 @@ if period_selected_key not in st.session_state:
 current_period = get_current_period()
 all_periods = get_all_periods()
 
+# Debug: Show what periods were found
+if not st.session_state[period_selected_key]:
+    from utils import log_info
+    log_info(f"Period selection gate: Found {len(all_periods)} periods")
+    for p in all_periods:
+        log_info(f"  - {p.get('period_id')}: {p.get('semester')} {p.get('year')} - {p.get('advisor_name')}")
+
 # If period not yet selected, show selection interface
 if not st.session_state[period_selected_key]:
     st.markdown("---")
     st.markdown("## 📅 Select Advising Period")
     st.markdown("Before accessing the advising dashboard, please select an advising period.")
+    
+    # Debug display
+    with st.expander("🔍 Debug Info", expanded=False):
+        st.caption(f"Total periods found: {len(all_periods)}")
+        st.caption(f"Periods with advisor: {len([p for p in all_periods if p.get('advisor_name', '').strip()])}")
+        for i, p in enumerate(all_periods):
+            st.caption(f"{i+1}. {p.get('period_id', 'unknown')}: {p.get('semester', '')} {p.get('year', '')} - '{p.get('advisor_name', '(empty)')}'")
+        
+        # Check Drive status
+        try:
+            from google_drive import initialize_drive_service
+            service = initialize_drive_service()
+            if service:
+                st.caption("✓ Google Drive: Connected")
+            else:
+                st.caption("✗ Google Drive: Not connected")
+        except Exception as e:
+            st.caption(f"✗ Google Drive: Error - {str(e)}")
     
     # Create two columns for the two options
     col_new, col_existing = st.columns(2)
@@ -92,19 +117,34 @@ if not st.session_state[period_selected_key]:
                         del st.session_state["current_student_id"]
                     
                     # Start new period
-                    new_period = start_new_period(semester, int(year), advisor_name)
-                    st.session_state[period_selected_key] = True
-                    st.success(f"✅ Started new period: {semester} {year}")
-                    st.rerun()
+                    with st.spinner("Creating new period and saving to Drive..."):
+                        new_period = start_new_period(semester, int(year), advisor_name)
+                    
+                    # Check if Drive save was successful
+                    from advising_period import load_period_from_drive
+                    saved_period = load_period_from_drive()
+                    
+                    if saved_period and saved_period.get('period_id') == new_period.get('period_id'):
+                        st.session_state[period_selected_key] = True
+                        st.success(f"✅ Started new period: {semester} {year} (saved to Drive)")
+                        st.rerun()
+                    else:
+                        st.session_state[period_selected_key] = True
+                        st.warning(f"⚠️ Started new period: {semester} {year} (WARNING: Not saved to Drive - period may not persist)")
+                        st.info("Check your Google Drive connection in the Debug Info section")
+                        st.rerun()
     
     with col_existing:
         st.markdown("### 📂 Use Existing Period")
         
-        if all_periods:
-            # Create dropdown of all periods (including current)
+        # Filter out default periods (those with empty advisor_name)
+        real_periods = [p for p in all_periods if p.get('advisor_name', '').strip()]
+        
+        if real_periods:
+            # Create dropdown of all real periods (excluding defaults)
             period_options = []
             period_map = {}
-            for p in all_periods:
+            for p in real_periods:
                 label = f"{p.get('semester', '')} {p.get('year', '')} — {p.get('advisor_name', 'Unknown')}"
                 period_options.append(label)
                 period_map[label] = p

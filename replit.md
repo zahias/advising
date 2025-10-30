@@ -4,7 +4,7 @@
 This Streamlit-based Advising Dashboard for Phoenix University assists academic advisors in tracking student progress and course eligibility across multiple majors (PBHL, SPTH-New, SPTH-Old). Its primary purpose is to enable advisors to view student course completion and registration status, check course eligibility based on prerequisites, manage advising sessions, and sync data with Google Drive for backup and collaboration. The project aims to streamline the advising process, providing a comprehensive and user-friendly tool for academic guidance.
 
 ## Recent Changes
-- **2025-10-30**: Added mandatory period selection gate. Users must now select or create an advising period before accessing the dashboard. Period selection screen appears immediately after major selection with two options: "Start New Period" or "Use Existing Period". Added "Change Advising Period" button in Advising Utilities for easy period switching.
+- **2025-10-30**: Added mandatory period selection gate. Users must now select or create an advising period before accessing the dashboard. Period selection screen appears immediately after major selection with two options: "Start New Period" or "Use Existing Period". Added "Change Advising Period" button in Advising Utilities for easy period switching. Added debug info panel and Drive save verification to troubleshoot period persistence issues.
 
 ## User Preferences
 I prefer:
