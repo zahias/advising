@@ -25,6 +25,9 @@ def course_planning_view():
         st.warning("Progress report not loaded.")
         return
     
+    if "selected_courses_to_offer" not in st.session_state:
+        st.session_state.selected_courses_to_offer = []
+    
     st.markdown("## 📊 Course Planning & Optimization")
     st.markdown(
         """
@@ -33,15 +36,34 @@ def course_planning_view():
         - **Students who are 1-2 prerequisites away** from becoming eligible
         - **Graduation proximity** - prioritizing students close to degree completion
         - **Prerequisite chains** - identifying bottleneck and critical path courses
+        - **Interactive simulation** - Select courses to offer and see live eligibility updates
         """
     )
+    
+    st.markdown("#### 🎯 Course Selection Simulator")
+    if st.session_state.selected_courses_to_offer:
+        st.info(f"**Simulating {len(st.session_state.selected_courses_to_offer)} selected course(s):** {', '.join(st.session_state.selected_courses_to_offer)}")
+        st.caption("_Assuming all eligible students will take these courses, eligibility for other courses updates automatically._")
+    else:
+        st.caption("_Select courses below to simulate their impact on student eligibility for other courses._")
+    
+    col_reset, col_spacer = st.columns([1, 3])
+    with col_reset:
+        if st.button("🔄 Clear Selection", use_container_width=True):
+            for course_code in st.session_state.selected_courses_to_offer:
+                checkbox_key = f"offer_{course_code}"
+                if checkbox_key in st.session_state:
+                    del st.session_state[checkbox_key]
+            st.session_state.selected_courses_to_offer = []
+            st.rerun()
     
     with st.spinner("Analyzing course eligibility across all students..."):
         log_info("Running course eligibility analysis")
         try:
             analysis_df = analyze_course_eligibility_across_students(
                 st.session_state.courses_df,
-                st.session_state.progress_df
+                st.session_state.progress_df,
+                st.session_state.selected_courses_to_offer
             )
             
             prereq_analysis = analyze_prerequisite_chains(
@@ -97,8 +119,8 @@ def course_planning_view():
 
 def _render_course_analysis_table(analysis_df: pd.DataFrame):
     """Render the main course analysis table with filters and sorting."""
-    st.markdown("### Course Offering Analysis")
-    st.markdown("Click on any column header to sort. Use filters below to narrow your view.")
+    st.markdown("### 📋 Interactive Course Offering Analysis")
+    st.markdown("Select courses to offer and watch eligibility update in real-time. Click column headers to sort.")
     
     col1, col2, col3 = st.columns(3)
     
@@ -142,12 +164,33 @@ def _render_course_analysis_table(analysis_df: pd.DataFrame):
     
     display_df = display_df.sort_values("Priority Score", ascending=False)
     
-    st.dataframe(
-        display_df,
-        use_container_width=True,
-        height=500,
-        hide_index=True
-    )
+    st.markdown("#### Select Courses to Offer")
+    st.caption("Check courses you plan to offer this semester. Eligibility will update assuming all eligible students take these courses.")
+    
+    for idx, row in display_df.iterrows():
+        course_code = row["Course Code"]
+        col_check, col_info = st.columns([0.5, 9.5])
+        
+        with col_check:
+            is_selected = course_code in st.session_state.selected_courses_to_offer
+            if st.checkbox("", value=is_selected, key=f"offer_{course_code}", label_visibility="collapsed"):
+                if course_code not in st.session_state.selected_courses_to_offer:
+                    st.session_state.selected_courses_to_offer.append(course_code)
+                    st.rerun()
+            else:
+                if course_code in st.session_state.selected_courses_to_offer:
+                    st.session_state.selected_courses_to_offer.remove(course_code)
+                    st.rerun()
+        
+        with col_info:
+            badge = "✅ SELECTED" if is_selected else ""
+            st.markdown(
+                f"**{course_code}** - {row['Course Title']} ({row['Credits']} cr) {badge}  \n"
+                f"📊 Eligible: **{row['Currently Eligible']}** | 1-Away: **{row['One Course Away']}** | "
+                f"2+ Away: **{row['Two+ Courses Away']}** | Priority: **{row['Priority Score']:.1f}**  \n"
+                f"{row['Recommendation']}"
+            )
+            st.markdown("---")
     
     with st.expander("🔍 View Detailed Student Information"):
         selected_course = st.selectbox(
@@ -227,22 +270,58 @@ def _render_prerequisite_chains(prereq_analysis: dict):
         st.markdown("#### ⚠️ Critical Path Courses")
         st.caption("Required to prevent delays for students near graduation")
         
-        critical_paths = prereq_analysis.get("critical_path_courses", [])
-        if critical_paths:
-            critical_data = []
-            for course_code, student_count in critical_paths[:15]:
-                critical_data.append({
-                    "Course": course_code,
-                    "Students Affected": student_count
-                })
-            st.dataframe(
-                pd.DataFrame(critical_data),
-                use_container_width=True,
-                hide_index=True,
-                height=400
-            )
+        credits_threshold = st.slider(
+            "Credits Remaining Threshold",
+            min_value=0,
+            max_value=60,
+            value=15,
+            step=3,
+            help="Only show courses needed by students with this many or fewer credits remaining"
+        )
+        
+        critical_paths_raw = prereq_analysis.get("critical_path_courses_detail", [])
+        
+        if critical_paths_raw:
+            filtered_critical = []
+            for course_code, students_list in critical_paths_raw:
+                filtered_students = [s for s in students_list if s.get("remaining_credits", 999) <= credits_threshold]
+                if filtered_students:
+                    filtered_critical.append((course_code, len(filtered_students)))
+            
+            filtered_critical = sorted(filtered_critical, key=lambda x: x[1], reverse=True)
+            
+            if filtered_critical:
+                critical_data = []
+                for course_code, student_count in filtered_critical[:15]:
+                    critical_data.append({
+                        "Course": course_code,
+                        f"Students (≤{credits_threshold} cr)": student_count
+                    })
+                st.dataframe(
+                    pd.DataFrame(critical_data),
+                    use_container_width=True,
+                    hide_index=True,
+                    height=400
+                )
+            else:
+                st.info(f"No critical path courses for students with ≤{credits_threshold} credits remaining")
         else:
-            st.info("No critical path courses identified")
+            critical_paths = prereq_analysis.get("critical_path_courses", [])
+            if critical_paths:
+                critical_data = []
+                for course_code, student_count in critical_paths[:15]:
+                    critical_data.append({
+                        "Course": course_code,
+                        "Students Affected": student_count
+                    })
+                st.dataframe(
+                    pd.DataFrame(critical_data),
+                    use_container_width=True,
+                    hide_index=True,
+                    height=400
+                )
+            else:
+                st.info("No critical path courses identified")
 
 
 def _render_priority_courses(analysis_df: pd.DataFrame):

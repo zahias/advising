@@ -75,12 +75,58 @@ def get_student_eligibility_status(
     return status, justification, missing_prereqs
 
 
+def simulate_course_offerings(
+    progress_df: pd.DataFrame,
+    offered_courses: List[str],
+    courses_df: pd.DataFrame
+) -> pd.DataFrame:
+    """
+    Simulate student progress assuming they take all eligible offered courses.
+    
+    Args:
+        progress_df: Original student progress data
+        offered_courses: List of course codes being offered
+        courses_df: Course catalog data
+        
+    Returns:
+        Modified progress_df with simulated completions
+    """
+    if not offered_courses:
+        return progress_df.copy()
+    
+    simulated_df = progress_df.copy()
+    
+    for idx, student_row in simulated_df.iterrows():
+        for course_code in offered_courses:
+            status, _, _ = get_student_eligibility_status(
+                student_row, course_code, courses_df, []
+            )
+            
+            if status == "Eligible":
+                if pd.notna(student_row.get("Completed Courses", "")):
+                    completed_str = str(student_row["Completed Courses"])
+                    completed_set = set(c.strip() for c in completed_str.split(",") if c.strip())
+                    
+                    if course_code not in completed_set:
+                        simulated_df.at[idx, "Completed Courses"] = f"{completed_str}, {course_code}"
+                else:
+                    simulated_df.at[idx, "Completed Courses"] = course_code
+    
+    return simulated_df
+
+
 def analyze_course_eligibility_across_students(
     courses_df: pd.DataFrame,
-    progress_df: pd.DataFrame
+    progress_df: pd.DataFrame,
+    offered_courses: List[str] = None
 ) -> pd.DataFrame:
     """
     Generate a comprehensive eligibility analysis for all courses across all students.
+    
+    Args:
+        courses_df: Course catalog
+        progress_df: Student progress data
+        offered_courses: List of courses selected to be offered (for simulation)
     
     Returns:
         DataFrame with columns:
@@ -99,6 +145,11 @@ def analyze_course_eligibility_across_students(
     """
     log_info("Starting course eligibility analysis across all students")
     
+    if offered_courses is None:
+        offered_courses = []
+    
+    working_progress_df = simulate_course_offerings(progress_df, offered_courses, courses_df)
+    
     results = []
     
     for _, course_row in courses_df.iterrows():
@@ -111,7 +162,7 @@ def analyze_course_eligibility_across_students(
         one_away_students = {}
         two_away_students = {}
         
-        for _, student_row in progress_df.iterrows():
+        for _, student_row in working_progress_df.iterrows():
             student_id = student_row["ID"]
             student_name = student_row.get("NAME", "Unknown")
             remaining_credits = calculate_student_remaining_credits(student_row)
@@ -316,17 +367,26 @@ def analyze_prerequisite_chains(
     )[:10]
     
     critical_courses = []
+    critical_course_students = defaultdict(list)
+    
     for _, student_row in progress_df.iterrows():
         remaining = calculate_student_remaining_credits(student_row)
-        if remaining <= 15:
-            for course_code in prereq_graph:
-                status, _, missing = get_student_eligibility_status(
-                    student_row, course_code, courses_df, []
-                )
-                if status == "Not Eligible" and missing and len(missing) > 0:
-                    for prereq in missing:
-                        if prereq and not check_course_completed(student_row, prereq):
-                            critical_courses.append((prereq, student_row["ID"], course_code))
+        student_id = student_row["ID"]
+        student_name = student_row.get("NAME", "Unknown")
+        
+        for course_code in prereq_graph:
+            status, _, missing = get_student_eligibility_status(
+                student_row, course_code, courses_df, []
+            )
+            if status == "Not Eligible" and missing and len(missing) > 0:
+                for prereq in missing:
+                    if prereq and not check_course_completed(student_row, prereq):
+                        critical_courses.append((prereq, student_id, course_code))
+                        critical_course_students[prereq].append({
+                            "id": student_id,
+                            "name": student_name,
+                            "remaining_credits": remaining
+                        })
     
     critical_course_counts = defaultdict(int)
     for course, _, _ in critical_courses:
@@ -338,8 +398,15 @@ def analyze_prerequisite_chains(
         reverse=True
     )[:10]
     
+    critical_path_courses_detail = sorted(
+        [(course, students) for course, students in critical_course_students.items()],
+        key=lambda x: len(x[1]),
+        reverse=True
+    )
+    
     return {
         "bottleneck_courses": bottleneck_courses,
         "critical_path_courses": critical_path_courses,
+        "critical_path_courses_detail": critical_path_courses_detail,
         "prerequisite_graph": prereq_graph
     }
