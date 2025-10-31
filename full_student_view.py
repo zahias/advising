@@ -63,6 +63,7 @@ def full_student_view():
         _render_individual_student()
 
 def _render_all_students():
+    progress_df_original = st.session_state.progress_df.copy().set_index("ID")
     df = st.session_state.progress_df.copy()
     # Compute derived columns
     df["Total Credits Completed"] = df.get("# of Credits Completed", 0).fillna(0).astype(float) + \
@@ -76,8 +77,8 @@ def _render_all_students():
     selected_courses = st.multiselect("Select course columns", options=available_courses, default=available_courses)
 
     # Build compact status codes (includes Optional = 'o' and Repeat = 'ar')
-    def status_code(row, course):
-        sid = int(row["ID"])
+    def status_code(row_original, row_id, course):
+        sid = int(row_id)
         sel = st.session_state.advising_selections.get(sid, {})
         advised_list = sel.get("advised", []) or []
         optional_list = sel.get("optional", []) or []
@@ -85,20 +86,24 @@ def _render_all_students():
 
         if course in repeat_list:
             return "ar"
-        if check_course_completed(row, course):
+        if check_course_completed(row_original, course):
             return "c"
-        if check_course_registered(row, course):
+        if check_course_registered(row_original, course):
             return "r"
         if course in optional_list:
             return "o"
         if course in advised_list:
             return "a"
 
-        stt, _ = check_eligibility(row, course, advised_list, st.session_state.courses_df)
+        stt, _ = check_eligibility(row_original, course, advised_list, st.session_state.courses_df)
         return "na" if stt == "Eligible" else "ne"
 
     for c in selected_courses:
-        df[c] = df.apply(lambda r, cc=c: status_code(r, cc), axis=1)
+        df[c] = df.apply(lambda r: status_code(
+            progress_df_original.loc[r["ID"]],
+            r["ID"],
+            c
+        ), axis=1)
 
     display_cols = ["ID", "NAME", "Total Credits Completed", "Standing", "Advising Status"] + selected_courses
 
@@ -127,6 +132,7 @@ def _render_individual_student():
     students_df["DISPLAY"] = students_df["NAME"].astype(str) + " — " + students_df["ID"].astype(str)
     choice = st.selectbox("Select a student", students_df["DISPLAY"].tolist(), key="full_single_select")
     sid = int(students_df.loc[students_df["DISPLAY"] == choice, "ID"].iloc[0])
+    row_original = st.session_state.progress_df.loc[st.session_state.progress_df["ID"] == sid].iloc[0]
     row = students_df.loc[students_df["ID"] == sid].iloc[0]
 
     # IMPORTANT: do NOT overwrite st.session_state["current_student_id"] here.
@@ -146,16 +152,16 @@ def _render_individual_student():
     for c in selected_courses:
         if c in repeat_list:
             data[c] = ["ar"]
-        elif check_course_completed(row, c):
+        elif check_course_completed(row_original, c):
             data[c] = ["c"]
-        elif check_course_registered(row, c):
+        elif check_course_registered(row_original, c):
             data[c] = ["r"]
         elif c in optional_list:
             data[c] = ["o"]
         elif c in advised_list:
             data[c] = ["a"]
         else:
-            stt, _ = check_eligibility(row, c, advised_list, st.session_state.courses_df)
+            stt, _ = check_eligibility(row_original, c, advised_list, st.session_state.courses_df)
             data[c] = ["na" if stt == "Eligible" else "ne"]
 
     indiv_df = pd.DataFrame(data)
