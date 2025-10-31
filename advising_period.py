@@ -175,7 +175,7 @@ def set_current_period(period: Dict[str, Any]) -> bool:
     return success
 
 
-def start_new_period(semester: str, year: int, advisor_name: str) -> Dict[str, Any]:
+def start_new_period(semester: str, year: int, advisor_name: str) -> tuple[Dict[str, Any], bool]:
     """
     Start a new advising period. Archives current period to history.
     
@@ -185,7 +185,7 @@ def start_new_period(semester: str, year: int, advisor_name: str) -> Dict[str, A
         advisor_name: Name of the advisor
     
     Returns:
-        New period dict
+        Tuple of (new period dict, drive_saved flag)
     """
     major = st.session_state.get("current_major", "DEFAULT")
     
@@ -209,11 +209,11 @@ def start_new_period(semester: str, year: int, advisor_name: str) -> Dict[str, A
     if "current_periods" not in st.session_state:
         st.session_state.current_periods = {}
     st.session_state.current_periods[major] = new_period
-    
-    save_period_to_drive(new_period)
-    
+
+    drive_saved = save_period_to_drive(new_period)
+
     log_info(f"Started new period: {period_id}")
-    return new_period
+    return new_period, drive_saved
 
 
 def _archive_period_to_history(period: Dict[str, Any]) -> None:

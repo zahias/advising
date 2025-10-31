@@ -2,7 +2,6 @@
 
 import os
 from io import BytesIO
-import importlib
 
 import pandas as pd
 import streamlit as st
@@ -16,7 +15,7 @@ from google_drive import (
     initialize_drive_service,
     find_file_in_drive,
     get_major_folder_id,
-    GoogleAuthError,  # <-- add this import
+    GoogleAuthError,
 )
 from utils import log_info, log_error, load_progress_excel
 from advising_history import _load_session_and_apply
@@ -128,21 +127,17 @@ if not st.session_state[period_selected_key]:
                     
                     # Start new period
                     with st.spinner("Creating new period and saving to Drive..."):
-                        new_period = start_new_period(semester, int(year), advisor_name)
-                    
-                    # Check if Drive save was successful
-                    from advising_period import load_period_from_drive
-                    saved_period = load_period_from_drive()
-                    
-                    if saved_period and saved_period.get('period_id') == new_period.get('period_id'):
-                        st.session_state[period_selected_key] = True
+                        new_period, drive_saved = start_new_period(semester, int(year), advisor_name)
+
+                    st.session_state[period_selected_key] = True
+                    if drive_saved:
                         st.success(f"✅ Started new period: {semester} {year} (saved to Drive)")
-                        st.rerun()
                     else:
-                        st.session_state[period_selected_key] = True
-                        st.warning(f"⚠️ Started new period: {semester} {year} (WARNING: Not saved to Drive - period may not persist)")
+                        st.warning(
+                            f"⚠️ Started new period: {semester} {year} (WARNING: Not saved to Drive - period may not persist)"
+                        )
                         st.info("Check your Google Drive connection and try again.")
-                        st.rerun()
+                    st.rerun()
     
     with col_existing:
         st.markdown("### 📂 Use Existing Period")
@@ -247,8 +242,13 @@ with st.expander("⚙️ Advising Utilities"):
                     del st.session_state["current_student_id"]
                 
                 # Start new period
-                new_period = start_new_period(semester, int(year), advisor_name)
-                st.success(f"✅ Started new period: {semester} {year}")
+                new_period, drive_saved = start_new_period(semester, int(year), advisor_name)
+                if drive_saved:
+                    st.success(f"✅ Started new period: {semester} {year}")
+                else:
+                    st.warning(
+                        f"⚠️ Started new period: {semester} {year} (Drive sync failed — working offline, period cached only)"
+                    )
                 st.rerun()
     
     st.markdown("---")

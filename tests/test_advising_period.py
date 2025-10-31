@@ -47,11 +47,22 @@ def _passthrough_cache_decorator(*decorator_args, **decorator_kwargs):
 streamlit_stub.cache_resource = _passthrough_cache_decorator
 streamlit_stub.cache_data = _passthrough_cache_decorator
 
-sys.modules.setdefault("streamlit", streamlit_stub)
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+
+@pytest.fixture(autouse=True, scope="module")
+def install_streamlit_stub():
+    original = sys.modules.get("streamlit")
+    sys.modules["streamlit"] = streamlit_stub
+    try:
+        yield
+    finally:
+        if original is not None:
+            sys.modules["streamlit"] = original
+        else:
+            sys.modules.pop("streamlit", None)
 
 
 @pytest.fixture(autouse=True)
