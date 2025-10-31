@@ -49,7 +49,7 @@ def course_planning_view():
     
     col_reset, col_spacer = st.columns([1, 3])
     with col_reset:
-        if st.button("🔄 Clear Selection", use_container_width=True):
+        if st.button("🔄 Clear Selection", width="stretch"):
             for course_code in st.session_state.selected_courses_to_offer:
                 checkbox_key = f"offer_{course_code}"
                 if checkbox_key in st.session_state:
@@ -173,7 +173,7 @@ def _render_course_analysis_table(analysis_df: pd.DataFrame):
         
         with col_check:
             is_selected = course_code in st.session_state.selected_courses_to_offer
-            if st.checkbox("", value=is_selected, key=f"offer_{course_code}", label_visibility="collapsed"):
+            if st.checkbox(f"Offer {course_code}", value=is_selected, key=f"offer_{course_code}", label_visibility="collapsed"):
                 if course_code not in st.session_state.selected_courses_to_offer:
                     st.session_state.selected_courses_to_offer.append(course_code)
                     st.rerun()
@@ -259,7 +259,7 @@ def _render_prerequisite_chains(prereq_analysis: dict):
                 })
             st.dataframe(
                 pd.DataFrame(bottleneck_data),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
                 height=400
             )
@@ -299,7 +299,7 @@ def _render_prerequisite_chains(prereq_analysis: dict):
                     })
                 st.dataframe(
                     pd.DataFrame(critical_data),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                     height=400
                 )
@@ -316,7 +316,7 @@ def _render_prerequisite_chains(prereq_analysis: dict):
                     })
                 st.dataframe(
                     pd.DataFrame(critical_data),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                     height=400
                 )
@@ -363,7 +363,7 @@ def _render_export_options(analysis_df: pd.DataFrame, prereq_analysis: dict):
     st.markdown("### 💾 Export Course Planning Report")
     st.markdown("Download the complete analysis as an Excel file for sharing and record-keeping.")
     
-    if st.button("📥 Generate Excel Report", use_container_width=True, type="primary"):
+    if st.button("📥 Generate Excel Report", width="stretch", type="primary"):
         try:
             output = BytesIO()
             
@@ -414,7 +414,7 @@ def _render_export_options(analysis_df: pd.DataFrame, prereq_analysis: dict):
                 data=excel_bytes,
                 file_name=filename,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
+                width="stretch"
             )
             
             st.success("✅ Report generated successfully!")
