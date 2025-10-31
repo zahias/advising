@@ -23,6 +23,23 @@ from advising_history import _load_session_and_apply
 from advising_period import get_current_period, start_new_period, get_all_periods
 from datetime import datetime
 
+
+def _default_period_for_today(today: datetime | None = None) -> tuple[str, int]:
+    """Return the default semester and year based on the current date."""
+    today = today or datetime.now()
+    month = today.month
+    year = today.year
+
+    if month == 1:
+        # January belongs to the Fall term of the prior calendar year
+        return "Fall", year - 1
+    if 2 <= month <= 6:
+        return "Spring", year
+    if 7 <= month <= 9:
+        return "Summer", year
+    # October-December (and any remaining months) map to Fall of the current year
+    return "Fall", year
+
 st.set_page_config(page_title="Advising Dashboard", layout="wide")
 
 # Apply visual theme and accessibility improvements
@@ -61,46 +78,39 @@ if period_selected_key not in st.session_state:
 current_period = get_current_period()
 all_periods = get_all_periods()
 
-# Debug: Show what periods were found
-if not st.session_state[period_selected_key]:
-    from utils import log_info
-    log_info(f"Period selection gate: Found {len(all_periods)} periods")
-    for p in all_periods:
-        log_info(f"  - {p.get('period_id')}: {p.get('semester')} {p.get('year')} - {p.get('advisor_name')}")
-
 # If period not yet selected, show selection interface
 if not st.session_state[period_selected_key]:
     st.markdown("---")
     st.markdown("## 📅 Select Advising Period")
     st.markdown("Before accessing the advising dashboard, please select an advising period.")
-    
-    # Debug display
-    with st.expander("🔍 Debug Info", expanded=False):
-        st.caption(f"Total periods found: {len(all_periods)}")
-        st.caption(f"Periods with advisor: {len([p for p in all_periods if p.get('advisor_name', '').strip()])}")
-        for i, p in enumerate(all_periods):
-            st.caption(f"{i+1}. {p.get('period_id', 'unknown')}: {p.get('semester', '')} {p.get('year', '')} - '{p.get('advisor_name', '(empty)')}'")
-        
-        # Check Drive status
-        try:
-            from google_drive import initialize_drive_service
-            service = initialize_drive_service()
-            if service:
-                st.caption("✓ Google Drive: Connected")
-            else:
-                st.caption("✗ Google Drive: Not connected")
-        except Exception as e:
-            st.caption(f"✗ Google Drive: Error - {str(e)}")
-    
+
     # Create two columns for the two options
     col_new, col_existing = st.columns(2)
-    
+
     with col_new:
         st.markdown("### 🆕 Start New Period")
         with st.form("period_selection_new"):
-            semester = st.selectbox("Semester", ["Fall", "Spring", "Summer"], key="period_select_semester")
-            current_year = datetime.now().year
-            year = st.number_input("Year", min_value=2020, max_value=2099, value=current_year, step=1, key="period_select_year")
+            default_semester, default_year = _default_period_for_today()
+            semester_options = ["Fall", "Spring", "Summer"]
+            if "period_select_semester" not in st.session_state or st.session_state["period_select_semester"] not in semester_options:
+                st.session_state["period_select_semester"] = default_semester
+            if "period_select_year" not in st.session_state:
+                st.session_state["period_select_year"] = default_year
+            semester_index = semester_options.index(st.session_state["period_select_semester"])
+            semester = st.selectbox(
+                "Semester",
+                semester_options,
+                index=semester_index,
+                key="period_select_semester",
+            )
+            year = st.number_input(
+                "Year",
+                min_value=2020,
+                max_value=2099,
+                value=st.session_state["period_select_year"],
+                step=1,
+                key="period_select_year",
+            )
             advisor_name = st.text_input("Advisor Name", key="period_select_advisor")
             
             if st.form_submit_button("Start New Period", use_container_width=True, type="primary"):
@@ -131,7 +141,7 @@ if not st.session_state[period_selected_key]:
                     else:
                         st.session_state[period_selected_key] = True
                         st.warning(f"⚠️ Started new period: {semester} {year} (WARNING: Not saved to Drive - period may not persist)")
-                        st.info("Check your Google Drive connection in the Debug Info section")
+                        st.info("Check your Google Drive connection and try again.")
                         st.rerun()
     
     with col_existing:
@@ -194,13 +204,31 @@ with st.expander("⚙️ Advising Utilities"):
     with st.form("new_period_form"):
         st.markdown("**Start New Advising Period**")
         col_sem, col_year, col_advisor = st.columns(3)
-        
+
         with col_sem:
-            semester = st.selectbox("Semester", ["Fall", "Spring", "Summer"], key="new_period_semester")
-        
+            default_semester, default_year = _default_period_for_today()
+            semester_options = ["Fall", "Spring", "Summer"]
+            if "new_period_semester" not in st.session_state or st.session_state["new_period_semester"] not in semester_options:
+                st.session_state["new_period_semester"] = default_semester
+            semester_index = semester_options.index(st.session_state["new_period_semester"])
+            semester = st.selectbox(
+                "Semester",
+                semester_options,
+                index=semester_index,
+                key="new_period_semester",
+            )
+
         with col_year:
-            current_year = datetime.now().year
-            year = st.number_input("Year", min_value=2020, max_value=2099, value=current_year, step=1, key="new_period_year")
+            if "new_period_year" not in st.session_state:
+                st.session_state["new_period_year"] = default_year
+            year = st.number_input(
+                "Year",
+                min_value=2020,
+                max_value=2099,
+                value=st.session_state["new_period_year"],
+                step=1,
+                key="new_period_year",
+            )
         
         with col_advisor:
             advisor_name = st.text_input("Advisor Name", key="new_period_advisor")
