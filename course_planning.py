@@ -103,14 +103,8 @@ def simulate_course_offerings(
             )
             
             if status == "Eligible":
-                if pd.notna(student_row.get("Completed Courses", "")):
-                    completed_str = str(student_row["Completed Courses"])
-                    completed_set = set(c.strip() for c in completed_str.split(",") if c.strip())
-                    
-                    if course_code not in completed_set:
-                        simulated_df.at[idx, "Completed Courses"] = f"{completed_str}, {course_code}"
-                else:
-                    simulated_df.at[idx, "Completed Courses"] = course_code
+                if course_code in simulated_df.columns:
+                    simulated_df.at[idx, course_code] = ""
     
     return simulated_df
 
