@@ -140,7 +140,7 @@ def save_period_to_drive(period: Dict[str, Any]) -> bool:
         
         log_info(f"Saving to folder_id: {folder_id}")
         payload = json.dumps(period, indent=2).encode("utf-8")
-        sync_file_with_drive(service, PERIOD_FILENAME, payload, folder_id)
+        sync_file_with_drive(service, payload, PERIOD_FILENAME, "application/json", folder_id)
         
         log_info(f"✓ Successfully saved period to Drive: {period.get('period_id', 'unknown')}")
         return True
@@ -246,7 +246,7 @@ def _archive_period_to_history(period: Dict[str, Any]) -> None:
         
         # Save updated history
         payload = json.dumps(history, indent=2).encode("utf-8")
-        sync_file_with_drive(service, PERIODS_HISTORY_FILENAME, payload, folder_id)
+        sync_file_with_drive(service, payload, PERIODS_HISTORY_FILENAME, "application/json", folder_id)
         
         log_info(f"Archived period to history: {period_id}")
     except Exception as e:
