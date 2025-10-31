@@ -1,6 +1,7 @@
 # app.py
 
 import os
+import importlib
 from io import BytesIO
 
 import pandas as pd
@@ -9,6 +10,7 @@ import streamlit as st
 from data_upload import upload_data
 from eligibility_view import student_eligibility_view
 from full_student_view import full_student_view
+from course_planning_view import course_planning_view
 from visual_theme import apply_visual_theme
 from google_drive import (
     download_file_from_drive,
@@ -446,11 +448,13 @@ def _render_advising_panel_safely():
 
 # ---------- Main ----------
 if not st.session_state.progress_df.empty and not st.session_state.courses_df.empty:
-    tab1, tab2 = st.tabs(["Student Eligibility View", "Full Student View"])
+    tab1, tab2, tab3 = st.tabs(["Student Eligibility View", "Full Student View", "Course Planning"])
     with tab1:
         student_eligibility_view()
     with tab2:
         full_student_view()
+    with tab3:
+        course_planning_view()
 
     # Advising Sessions (per major)
     _render_advising_panel_safely()

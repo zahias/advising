@@ -4,6 +4,8 @@
 This Streamlit-based Advising Dashboard for Phoenix University assists academic advisors in tracking student progress and course eligibility across multiple majors (PBHL, SPTH-New, SPTH-Old). Its primary purpose is to enable advisors to view student course completion and registration status, check course eligibility based on prerequisites, manage advising sessions, and sync data with Google Drive for backup and collaboration. The project aims to streamline the advising process, providing a comprehensive and user-friendly tool for academic guidance.
 
 ## Recent Changes
+- **2025-10-31**: Added Course Planning feature with comprehensive semester offering optimization. New "Course Planning" tab analyzes all courses across all students to suggest optimal offerings based on current eligibility, students 1-2 prerequisites away, graduation proximity (remaining credits), and prerequisite chain analysis. Includes priority scoring, bottleneck course identification, critical path analysis, and exportable Excel reports.
+- **2025-10-31**: Fixed period persistence bug where sync_file_with_drive() was being called with incorrect parameter order, preventing periods from saving to Google Drive.
 - **2025-10-30**: Added mandatory period selection gate. Users must now select or create an advising period before accessing the dashboard. Period selection screen appears immediately after major selection with two options: "Start New Period" or "Use Existing Period". Added "Change Advising Period" button in Advising Utilities for easy period switching. Added debug info panel and Drive save verification to troubleshoot period persistence issues.
 
 ## User Preferences
@@ -27,6 +29,7 @@ The application is built using Streamlit in Python 3.11. It utilizes Pandas for 
 - **Multi-Major Support**: Handles data and configurations for PBHL, SPTH-New, SPTH-Old.
 - **Course Eligibility**: Automated checking against prerequisites, corequisites, concurrent requirements, and student standing.
 - **Student Views**: Provides both an "Eligibility view" (courses a student can take) and a "Full student view" (complete progress tracking).
+- **Course Planning**: Comprehensive semester planning tool that analyzes optimal course offerings by calculating student eligibility status (currently eligible, 1 prerequisite away, 2+ away), prioritizing students close to graduation, identifying bottleneck courses that unlock many downstream courses, and flagging critical path courses needed to prevent delays. Includes exportable Excel reports with detailed recommendations.
 - **Advising Sessions**: Records advisor recommendations and notes, persisting them across sessions and syncing to Drive.
 - **Email Integration**: Sends formatted advising sheets directly to students via Outlook/Office 365.
 - **Data Upload**: Stepwise, validated interface for `courses_table.xlsx`, `progress_report.xlsx`, and email rosters.
