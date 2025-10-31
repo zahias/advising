@@ -33,19 +33,21 @@ def log_error(message: str, error: Exception | str) -> None:
 def _norm_cell(val: Any) -> str:
     """
     Normalize a progress cell to one of:
-      - 'c'   -> completed
-      - 'nc'  -> not completed
-      - 'reg' -> currently registered  (BLANK / NaN)
+      - 'c'  -> completed
+      - 'cr' -> currently registered (BLANK / NaN)
+      - 'nc' -> not completed
     Any unexpected token is treated as 'nc'.
     """
     # IMPORTANT: in Excel -> pandas, blanks usually arrive as NaN
     if val is None or (isinstance(val, float) and pd.isna(val)) or pd.isna(val):
-        return "reg"
+        return "cr"
     s = str(val).strip().lower()
     if s == "":
-        return "reg"
+        return "cr"
     if s == "c":
         return "c"
+    if s in {"cr", "reg"}:  # accept legacy 'reg' tokens for compatibility
+        return "cr"
     if s == "nc":
         return "nc"
     return "nc"
@@ -54,7 +56,7 @@ def check_course_completed(row: pd.Series, course_code: str) -> bool:
     return _norm_cell(row.get(course_code)) == "c"
 
 def check_course_registered(row: pd.Series, course_code: str) -> bool:
-    return _norm_cell(row.get(course_code)) == "reg"
+    return _norm_cell(row.get(course_code)) == "cr"
 
 
 # ------------- Standing -------------------
