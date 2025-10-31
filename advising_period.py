@@ -221,10 +221,11 @@ def _archive_period_to_history(period: Dict[str, Any]) -> None:
     try:
         service = initialize_drive_service()
         folder_id = _get_major_folder_id()
-        
+        major = st.session_state.get("current_major", "DEFAULT")
+
         if not folder_id:
             return
-        
+
         # Load existing history
         history = []
         file_id = find_file_in_drive(service, PERIODS_HISTORY_FILENAME, folder_id)
@@ -247,10 +248,35 @@ def _archive_period_to_history(period: Dict[str, Any]) -> None:
         # Save updated history
         payload = json.dumps(history, indent=2).encode("utf-8")
         sync_file_with_drive(service, payload, PERIODS_HISTORY_FILENAME, "application/json", folder_id)
-        
+
+        if "period_history_cache" not in st.session_state:
+            st.session_state.period_history_cache = {}
+        st.session_state.period_history_cache[major] = history
+
         log_info(f"Archived period to history: {period_id}")
     except Exception as e:
         log_error(f"Failed to archive period to history", e)
+
+
+def _merge_period_entries(existing: Dict[str, Any], new_entry: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge two period records, preserving archived metadata when available."""
+
+    merged = existing.copy()
+    merged.update({k: v for k, v in new_entry.items()})
+
+    archived_at = new_entry.get("archived_at") or existing.get("archived_at")
+    if archived_at:
+        merged["archived_at"] = archived_at
+
+    # Ensure we keep the latest created_at timestamp if both exist
+    created_existing = existing.get("created_at", "")
+    created_new = new_entry.get("created_at", "")
+    if created_new and created_new > created_existing:
+        merged["created_at"] = created_new
+    elif created_existing and not created_new:
+        merged["created_at"] = created_existing
+
+    return merged
 
 
 def get_all_periods() -> List[Dict[str, Any]]:
@@ -258,29 +284,60 @@ def get_all_periods() -> List[Dict[str, Any]]:
     Get all periods (current + history) for the current major.
     Returns list sorted by creation date (newest first).
     """
-    periods = []
-    
-    # Add current period
-    current = get_current_period()
-    if current:
-        periods.append(current)
-    
-    # Add historical periods
+
+    major = st.session_state.get("current_major", "DEFAULT")
+
+    if "period_history_cache" not in st.session_state:
+        st.session_state.period_history_cache = {}
+
+    cached_history: List[Dict[str, Any]] = st.session_state.period_history_cache.get(major, [])
+    history: List[Dict[str, Any]] = []
+    history_loaded = False
+
     try:
         service = initialize_drive_service()
         folder_id = _get_major_folder_id()
-        
-        if folder_id:
+
+        if service and folder_id:
             file_id = find_file_in_drive(service, PERIODS_HISTORY_FILENAME, folder_id)
             if file_id:
                 payload = download_file_from_drive(service, file_id)
-                history = json.loads(payload.decode("utf-8"))
-                if isinstance(history, list):
-                    periods.extend(history)
+                history_payload = json.loads(payload.decode("utf-8"))
+                if isinstance(history_payload, list):
+                    history = history_payload
+                    history_loaded = True
     except Exception as e:
         log_error(f"Failed to load period history", e)
-    
-    # Sort by created_at (newest first)
-    periods.sort(key=lambda p: p.get("created_at", ""), reverse=True)
-    
-    return periods
+
+    if history_loaded:
+        st.session_state.period_history_cache[major] = history
+    else:
+        history = cached_history
+
+    combined_periods: List[Dict[str, Any]] = []
+
+    current = get_current_period()
+    if current:
+        combined_periods.append(current)
+
+    combined_periods.extend(history)
+
+    unique_periods: Dict[str, Dict[str, Any]] = {}
+    order: List[str] = []
+
+    for period in combined_periods:
+        period_id = period.get("period_id")
+        if not period_id:
+            # If there is no period_id, treat as unique by object id to avoid collisions
+            period_id = f"__unnamed__{id(period)}"
+
+        if period_id in unique_periods:
+            unique_periods[period_id] = _merge_period_entries(unique_periods[period_id], period)
+        else:
+            unique_periods[period_id] = period.copy()
+            order.append(period_id)
+
+    deduped_periods = [unique_periods[pid] for pid in order]
+    deduped_periods.sort(key=lambda p: p.get("created_at", ""), reverse=True)
+
+    return deduped_periods
