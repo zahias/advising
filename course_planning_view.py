@@ -239,32 +239,99 @@ def _render_quick_actions():
 def _render_selected_courses_panel(analysis_df: pd.DataFrame):
     """Render panel showing currently selected courses."""
     st.markdown("### ✅ Selected Courses")
-    
+
     if not st.session_state.selected_courses_to_offer:
         st.info("No courses selected")
         return
-    
-    # Calculate impact
-    total_eligible_before = analysis_df["Currently Eligible"].sum()
-    
-    # Show selected courses
-    for i, course_code in enumerate(st.session_state.selected_courses_to_offer):
-        course_row = analysis_df[analysis_df["Course Code"] == course_code]
-        if not course_row.empty:
-            row = course_row.iloc[0]
-            col_code, col_remove = st.columns([4, 1])
-            with col_code:
-                st.markdown(f"**{course_code}**")
-                st.caption(f"{int(row['Currently Eligible'])} eligible")
-            with col_remove:
-                if st.button("❌", key=f"remove_{course_code}", help="Remove"):
-                    st.session_state.selected_courses_to_offer.remove(course_code)
-                    st.rerun()
-    
-    # Impact summary
-    st.markdown("---")
-    st.markdown(f"**{len(st.session_state.selected_courses_to_offer)}** course(s) selected")
-    st.markdown(f"**{int(total_eligible_before)}** total eligible students")
+
+    selected_df = analysis_df[
+        analysis_df["Course Code"].isin(st.session_state.selected_courses_to_offer)
+    ].copy()
+
+    if selected_df.empty:
+        st.info("No courses selected")
+        return
+
+    # Aggregate student impact metrics
+    unique_students: set[str] = set()
+    near_grad_students: set[str] = set()
+
+    for _, row in selected_df.iterrows():
+        for student in row.get("Eligible Students", []) or []:
+            student_id = str(student.get("id")) if student.get("id") is not None else None
+            if student_id:
+                unique_students.add(student_id)
+                if student.get("remaining_credits", 999) <= 15:
+                    near_grad_students.add(student_id)
+
+        for student_id, info in (row.get("One Away Details", {}) or {}).items():
+            if student_id:
+                unique_students.add(str(student_id))
+                if info.get("remaining_credits", 999) <= 15:
+                    near_grad_students.add(str(student_id))
+
+    total_courses = len(selected_df)
+    total_unique_students = len(unique_students)
+    total_near_grad = len(near_grad_students)
+
+    col_courses, col_students, col_near_grad, col_clear = st.columns([1, 1, 1, 0.8])
+    with col_courses:
+        st.metric("Courses Selected", total_courses)
+    with col_students:
+        st.metric("Unique Students Served", total_unique_students)
+    with col_near_grad:
+        st.metric("Near-Grad Students", total_near_grad)
+    with col_clear:
+        if st.button("🧹 Clear All", use_container_width=True):
+            st.session_state.selected_courses_to_offer = []
+            st.rerun()
+
+    table_rows = []
+
+    def _priority_badge(rec_value: str) -> str:
+        rec_str = str(rec_value)
+        if "🔴" in rec_str:
+            return "🔴 Critical"
+        if "🟠" in rec_str:
+            return "🟠 High"
+        if "🟡" in rec_str:
+            return "🟡 Medium"
+        if "🟢" in rec_str:
+            return "🟢 Standard"
+        return "⚪ Low"
+
+    for _, row in selected_df.iterrows():
+        table_rows.append({
+            "Course": row.get("Course Code", ""),
+            "Priority": _priority_badge(row.get("Recommendation", "")),
+            "Eligible": int(row.get("Currently Eligible", 0) or 0),
+            "Remove": False,
+        })
+
+    selection_table = pd.DataFrame(table_rows)
+
+    edited_table = st.data_editor(
+        selection_table,
+        hide_index=True,
+        use_container_width=True,
+        height=min(400, 100 + len(selection_table) * 35),
+        column_config={
+            "Course": st.column_config.TextColumn("Course", width="small"),
+            "Priority": st.column_config.TextColumn("Priority", width="medium"),
+            "Eligible": st.column_config.NumberColumn("Eligible", format="%d", width="small"),
+            "Remove": st.column_config.CheckboxColumn("Remove", help="Mark to remove from plan"),
+        },
+        key="selected_courses_editor",
+    )
+
+    courses_to_remove = edited_table[edited_table["Remove"] == True]["Course"].tolist()
+
+    if courses_to_remove:
+        st.session_state.selected_courses_to_offer = [
+            course for course in st.session_state.selected_courses_to_offer
+            if course not in courses_to_remove
+        ]
+        st.rerun()
 
 
 def _render_course_selection_table(analysis_df: pd.DataFrame):
