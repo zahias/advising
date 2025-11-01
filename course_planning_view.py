@@ -117,14 +117,16 @@ def _render_summary_dashboard(analysis_df: pd.DataFrame):
     total_eligible = analysis_df["Currently Eligible"].sum()
     
     # Calculate students near graduation who need courses
-    near_grad_courses = []
+    # Keep a running total of students across courses so the metric reflects
+    # the actual number of near-grad students rather than just the number of courses
+    near_grad_student_total = 0
     for _, row in analysis_df.iterrows():
         eligible_students = row.get("Eligible Students", [])
         one_away = row.get("One Away Details", {})
         near_grad_count = sum(1 for s in eligible_students if s.get("remaining_credits", 999) <= 15)
         near_grad_count += sum(1 for s in one_away.values() if s.get("remaining_credits", 999) <= 15)
         if near_grad_count > 0:
-            near_grad_courses.append(near_grad_count)
+            near_grad_student_total += near_grad_count
     
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
@@ -136,7 +138,7 @@ def _render_summary_dashboard(analysis_df: pd.DataFrame):
     with col4:
         st.metric("Total Eligible", int(total_eligible))
     with col5:
-        st.metric("Near Grad Need", len(near_grad_courses))
+        st.metric("Near Grad Students", near_grad_student_total)
     
     # Simulation status
     if st.session_state.selected_courses_to_offer:
