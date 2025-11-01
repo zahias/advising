@@ -73,8 +73,43 @@ def _render_all_students():
         lambda sid: "Advised" if st.session_state.advising_selections.get(int(sid), {}).get("advised") else "Not Advised"
     )
 
+    # Normalize remaining credits for filtering and display
+    remaining_credits_series = pd.to_numeric(df.get("# Remaining", 0), errors="coerce").fillna(0)
+    df["Remaining Credits"] = remaining_credits_series
+    min_remaining = int(remaining_credits_series.min()) if not remaining_credits_series.empty else 0
+    max_remaining = int(remaining_credits_series.max()) if not remaining_credits_series.empty else 0
+
+    if min_remaining == max_remaining:
+        remaining_range = (min_remaining, max_remaining)
+        st.caption(
+            f"All students currently have {min_remaining} remaining credits."
+        )
+    else:
+        remaining_range = st.slider(
+            "Filter by remaining credits",
+            min_value=min_remaining,
+            max_value=max_remaining,
+            value=(min_remaining, max_remaining),
+            help="Narrow the table to students within the selected remaining-credit range.",
+        )
+
+    if min_remaining != max_remaining:
+        df = df[
+            (df["Remaining Credits"] >= remaining_range[0])
+            & (df["Remaining Credits"] <= remaining_range[1])
+        ]
+
     available_courses = st.session_state.courses_df["Course Code"].tolist()
-    selected_courses = st.multiselect("Select course columns", options=available_courses, default=available_courses)
+    with st.expander("Select course columns", expanded=False):
+        selected_courses = st.multiselect(
+            "Course columns",
+            options=available_courses,
+            default=available_courses,
+            key="all_students_course_columns",
+        )
+    if not selected_courses:
+        st.info("Select at least one course column to display student eligibility statuses.")
+        return
 
     # Build compact status codes (includes Optional = 'o' and Repeat = 'ar')
     def status_code(row_original, row_id, course):
@@ -105,12 +140,22 @@ def _render_all_students():
             c
         ), axis=1)
 
-    display_cols = ["ID", "NAME", "Total Credits Completed", "Standing", "Advising Status"] + selected_courses
+    display_cols = [
+        "NAME",
+        "ID",
+        "Total Credits Completed",
+        "Remaining Credits",
+        "Standing",
+        "Advising Status",
+    ] + selected_courses
 
-    # Show table (color-coded)
+    # Show table (color-coded) with student name pinned via index
     st.write("*Legend:* c=Completed, r=Registered, a=Advised, ar=Advised-Repeat, o=Optional, na=Eligible not chosen, ne=Not Eligible")
-    styled = _style_codes(df[display_cols], selected_courses)
-    st.dataframe(styled, width='stretch', height=600)
+    display_df = df[display_cols].copy()
+    display_df = display_df.set_index("NAME")
+    display_df.index.name = "Student"
+    styled = _style_codes(display_df, selected_courses)
+    st.dataframe(styled, use_container_width=True, height=600)
 
     # Export full advising report with summary + COLORS in Excel
     if st.button("Download Full Advising Report"):
