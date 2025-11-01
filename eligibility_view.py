@@ -235,6 +235,55 @@ def student_eligibility_view():
     st.markdown("---")
     st.markdown("### Advising Recommendations")
     
+    def _persist_student_selections(
+        advised_selection: List[str],
+        repeat_selection: List[str],
+        optional_selection: List[str],
+        note_value: str,
+    ) -> None:
+        st.session_state.advising_selections[norm_sid] = {
+            "advised": list(advised_selection),
+            "repeat": list(repeat_selection),
+            "optional": list(optional_selection),
+            "note": note_value,
+        }
+
+    def _build_student_download_bytes(
+        advised_selection: List[str],
+        repeat_selection: List[str],
+        optional_selection: List[str],
+        note_value: str,
+    ) -> bytes:
+        export_df = display_df.copy()
+        for col in ("Type", "Requisites"):
+            if col in export_df.columns:
+                export_df.drop(columns=[col], inplace=True)
+
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            export_df.to_excel(writer, index=False, sheet_name="Advising")
+
+        current_period = get_current_period()
+        period_info = (
+            f"Advising Period: {current_period.get('semester', '')} {current_period.get('year', '')} — "
+            f"Advisor: {current_period.get('advisor_name', '')}"
+        )
+
+        apply_excel_formatting(
+            output=output,
+            student_name=str(student_row["NAME"]),
+            student_id=norm_sid,
+            credits_completed=int(cr_comp),
+            standing=standing,
+            note=note_value,
+            advised_credits=_sum_credits(advised_selection),
+            optional_credits=_sum_credits(optional_selection),
+            period_info=period_info,
+        )
+
+        output.seek(0)
+        return output.getvalue()
+
     with st.form(key=f"advise_form_{norm_sid}"):
         advised_selection = st.multiselect(
             "Advised Courses (Eligible, Not Yet Taken)", options=eligible_opts, default=default_advised, key=f"advised_ms_{norm_sid}"
@@ -256,24 +305,33 @@ def student_eligibility_view():
 
         # Three buttons side by side
         btn_col1, btn_col2, btn_col3 = st.columns(3)
-        
+
         with btn_col1:
             submitted = st.form_submit_button("💾 Save Selections", width='stretch', type="primary")
-        
+
         with btn_col2:
             email_clicked = st.form_submit_button("✉️ Email Student", width='stretch')
-        
+
         with btn_col3:
-            download_clicked = st.form_submit_button("📥 Download Report", width='stretch')
-        
-        if submitted or email_clicked or download_clicked:
-            # Save selections exactly as the user selected them
-            st.session_state.advising_selections[norm_sid] = {
-                "advised": list(advised_selection),
-                "repeat": list(repeat_selection),
-                "optional": list(optional_selection),
-                "note": note_input,
-            }
+            st.download_button(
+                "📥 Download Report",
+                data=_build_student_download_bytes(
+                    advised_selection,
+                    repeat_selection,
+                    optional_selection,
+                    note_input,
+                ),
+                file_name=f"Advising_{norm_sid}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+                use_container_width=True,
+                key=f"download_advising_{norm_sid}",
+                on_click=_persist_student_selections,
+                args=(advised_selection, repeat_selection, optional_selection, note_input),
+            )
+
+        if submitted or email_clicked:
+            _persist_student_selections(advised_selection, repeat_selection, optional_selection, note_input)
 
             if submitted:
                 # EXPLICIT autosave for this student
@@ -285,11 +343,11 @@ def student_eligibility_view():
                 else:
                     show_action_feedback("save", False, "Check logs for details")
                 st.rerun()
-            
+
             elif email_clicked:
                 # Email student
                 from email_manager import get_student_email, send_advising_email
-                
+
                 student_email = get_student_email(str(norm_sid))
                 if not student_email:
                     show_notification(
@@ -302,7 +360,7 @@ def student_eligibility_view():
                     # Get period info for email
                     current_period = get_current_period()
                     period_info = f"{current_period.get('semester', '')} {current_period.get('year', '')} — Advisor: {current_period.get('advisor_name', '')}"
-                    
+
                     success, message = send_advising_email(
                         to_email=student_email,
                         student_name=str(student_row["NAME"]),
@@ -315,18 +373,13 @@ def student_eligibility_view():
                         remaining_credits=int(cr_remaining),
                         period_info=period_info,
                     )
-                    
+
                     if success:
                         show_action_feedback("email", True, f"Sent to {student_email}")
                         log_info(f"Advising email sent to {student_email} for student {norm_sid}")
                     else:
                         show_action_feedback("email", False, message)
                     st.rerun()
-            
-            elif download_clicked:
-                # Generate download
-                st.session_state[f"_download_trigger_{norm_sid}"] = True
-                st.rerun()
 
     # ---------- Hidden courses manager ----------
     with st.expander("🚫 Manage Hidden Courses"):
@@ -345,37 +398,4 @@ def student_eligibility_view():
             st.rerun()
 
     # ---------- Download Report (triggered by form button) ----------
-    if st.session_state.get(f"_download_trigger_{norm_sid}", False):
-        export_df = display_df.copy()
-        for col in ("Type", "Requisites"):
-            if col in export_df.columns:
-                export_df.drop(columns=[col], inplace=True)
-
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            export_df.to_excel(writer, index=False, sheet_name="Advising")
-
-        # Get period info for report header
-        current_period = get_current_period()
-        period_info = f"Advising Period: {current_period.get('semester', '')} {current_period.get('year', '')} — Advisor: {current_period.get('advisor_name', '')}"
-        
-        apply_excel_formatting(
-            output=output,
-            student_name=str(student_row["NAME"]),
-            student_id=norm_sid,
-            credits_completed=int(cr_comp),
-            standing=standing,
-            note=st.session_state.advising_selections[norm_sid].get("note", ""),
-            advised_credits=_sum_credits(st.session_state.advising_selections[norm_sid].get("advised", [])),
-            optional_credits=_sum_credits(st.session_state.advising_selections[norm_sid].get("optional", [])),
-            period_info=period_info,
-        )
-        st.download_button(
-            "Download Excel",
-            data=output.getvalue(),
-            file_name=f"Advising_{norm_sid}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            width='stretch',
-        )
-        # Clear the trigger
-        del st.session_state[f"_download_trigger_{norm_sid}"]
+    # Single-click download handled directly in the form above.

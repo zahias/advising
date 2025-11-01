@@ -927,62 +927,60 @@ def _render_export_options(analysis_df: pd.DataFrame, prereq_analysis: dict):
     st.markdown("### 💾 Export Course Planning Report")
     st.markdown("Download the complete analysis as an Excel file for sharing and record-keeping.")
     
-    if st.button("📥 Generate Excel Report", use_container_width=True, type="primary"):
-        try:
-            output = BytesIO()
-            
-            export_df = analysis_df[[
-                "Course Code",
-                "Course Title",
-                "Credits",
-                "Currently Eligible",
-                "One Course Away",
-                "Two+ Courses Away",
-                "Priority Score",
-                "Impact Score",
-                "Recommendation"
-            ]].copy()
-            
-            export_df = export_df.sort_values("Priority Score", ascending=False)
-            
-            with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                export_df.to_excel(writer, sheet_name="Course Analysis", index=False)
-                
-                bottlenecks = prereq_analysis.get("bottleneck_courses", [])
-                if bottlenecks:
-                    bottleneck_df = pd.DataFrame([
-                        {"Course": code, "Unlocks Courses": count}
-                        for code, count in bottlenecks
-                    ])
-                    bottleneck_df.to_excel(writer, sheet_name="Bottleneck Courses", index=False)
-                
-                critical_paths = prereq_analysis.get("critical_path_courses", [])
-                if critical_paths:
-                    critical_df = pd.DataFrame([
-                        {"Course": code, "Students Affected": count}
-                        for code, count in critical_paths
-                    ])
-                    critical_df.to_excel(writer, sheet_name="Critical Path Courses", index=False)
-            
-            excel_bytes = output.getvalue()
-            
-            from advising_period import get_current_period
-            current_period = get_current_period()
-            semester = current_period.get("semester", "")
-            year = current_period.get("year", "")
-            major = st.session_state.get("current_major", "")
-            filename = f"Course_Planning_{major}_{semester}_{year}.xlsx"
-            
-            st.download_button(
-                label=f"⬇️ Download {filename}",
-                data=excel_bytes,
-                file_name=filename,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
-            
-            st.success("✅ Report generated successfully!")
-            
-        except Exception as e:
-            st.error(f"Error generating report: {e}")
-            log_error("Course planning export failed", e)
+    try:
+        output = BytesIO()
+
+        export_df = analysis_df[[
+            "Course Code",
+            "Course Title",
+            "Credits",
+            "Currently Eligible",
+            "One Course Away",
+            "Two+ Courses Away",
+            "Priority Score",
+            "Impact Score",
+            "Recommendation"
+        ]].copy()
+
+        export_df = export_df.sort_values("Priority Score", ascending=False)
+
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            export_df.to_excel(writer, sheet_name="Course Analysis", index=False)
+
+            bottlenecks = prereq_analysis.get("bottleneck_courses", [])
+            if bottlenecks:
+                bottleneck_df = pd.DataFrame([
+                    {"Course": code, "Unlocks Courses": count}
+                    for code, count in bottlenecks
+                ])
+                bottleneck_df.to_excel(writer, sheet_name="Bottleneck Courses", index=False)
+
+            critical_paths = prereq_analysis.get("critical_path_courses", [])
+            if critical_paths:
+                critical_df = pd.DataFrame([
+                    {"Course": code, "Students Affected": count}
+                    for code, count in critical_paths
+                ])
+                critical_df.to_excel(writer, sheet_name="Critical Path Courses", index=False)
+
+        excel_bytes = output.getvalue()
+
+        from advising_period import get_current_period
+        current_period = get_current_period()
+        semester = current_period.get("semester", "")
+        year = current_period.get("year", "")
+        major = st.session_state.get("current_major", "")
+        filename = f"Course_Planning_{major}_{semester}_{year}.xlsx"
+
+        st.download_button(
+            label=f"⬇️ Download {filename}",
+            data=excel_bytes,
+            file_name=filename,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            type="primary"
+        )
+
+    except Exception as e:
+        st.error(f"Error generating report: {e}")
+        log_error("Course planning export failed", e)
