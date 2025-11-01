@@ -182,7 +182,7 @@ def _render_all_students():
 
         st.write(legend_md)
         styled = _style_codes(display_df, selected)
-        st.dataframe(styled, use_container_width=True, height=600)
+        st.dataframe(styled, width="stretch", height=600)
         return export_df, selected
 
     required_tab, intensive_tab = st.tabs(["Required Courses", "Intensive Courses"])

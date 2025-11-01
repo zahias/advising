@@ -338,20 +338,20 @@ def _render_quick_actions():
     """Render quick action buttons for bulk selection."""
     st.markdown("### ⚡ Quick Actions")
     
-    if st.button("✅ Select All Critical", use_container_width=True):
+    if st.button("✅ Select All Critical", width="stretch"):
         # This will be handled in the table rendering
         st.session_state["quick_select_critical"] = True
         st.rerun()
     
-    if st.button("📊 Select Top 10 by Priority", use_container_width=True):
+    if st.button("📊 Select Top 10 by Priority", width="stretch"):
         st.session_state["quick_select_top10"] = True
         st.rerun()
     
-    if st.button("👥 Select Courses (5+ Eligible)", use_container_width=True):
+    if st.button("👥 Select Courses (5+ Eligible)", width="stretch"):
         st.session_state["quick_select_5plus"] = True
         st.rerun()
 
-    if st.button("🔄 Clear All Selections", use_container_width=True):
+    if st.button("🔄 Clear All Selections", width="stretch"):
         st.session_state.pending_courses_to_offer = []
         st.rerun()
 
@@ -420,7 +420,7 @@ def _render_selected_courses_panel(analysis_df: pd.DataFrame):
     with col_near_grad:
         st.metric("Near-Grad Students", total_near_grad)
     with col_clear:
-        if st.button("🧹 Clear All", use_container_width=True):
+        if st.button("🧹 Clear All", width="stretch"):
             st.session_state.pending_courses_to_offer = []
             st.rerun()
 
@@ -450,7 +450,7 @@ def _render_selected_courses_panel(analysis_df: pd.DataFrame):
     st.dataframe(
         selection_table,
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
         height=min(400, 100 + len(selection_table) * 35),
     )
 
@@ -563,7 +563,7 @@ def _render_course_selection_table(analysis_df: pd.DataFrame):
     # Use data editor for selection
     edited_df = st.data_editor(
         display_df,
-        use_container_width=True,
+        width="stretch",
         height=600,
         hide_index=True,
         column_config={
@@ -606,7 +606,7 @@ def _render_course_selection_table(analysis_df: pd.DataFrame):
     with col_apply:
         if st.button(
             "Apply Selection",
-            use_container_width=True,
+            width="stretch",
             type="primary",
             disabled=not pending_differs
         ):
@@ -616,7 +616,7 @@ def _render_course_selection_table(analysis_df: pd.DataFrame):
     with col_discard:
         if st.button(
             "Discard Changes",
-            use_container_width=True,
+            width="stretch",
             disabled=not pending_differs
         ):
             st.session_state.pending_courses_to_offer = list(confirmed_courses)
@@ -762,7 +762,7 @@ def _render_analysis_insights(analysis_df: pd.DataFrame, prereq_analysis: dict):
                 })
             st.dataframe(
                 pd.DataFrame(bottleneck_data),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
                 height=400
             )
@@ -803,7 +803,7 @@ def _render_analysis_insights(analysis_df: pd.DataFrame, prereq_analysis: dict):
                     })
                 st.dataframe(
                     pd.DataFrame(critical_data),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                     height=400
                 )
@@ -820,7 +820,7 @@ def _render_analysis_insights(analysis_df: pd.DataFrame, prereq_analysis: dict):
                     })
                 st.dataframe(
                     pd.DataFrame(critical_data),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                     height=400
                 )
@@ -855,7 +855,7 @@ def _render_analysis_insights(analysis_df: pd.DataFrame, prereq_analysis: dict):
                     confirmed_courses = st.session_state.confirmed_courses_to_offer
 
                     if course_code not in pending_courses:
-                        if st.button("➕ Add", key=f"quick_add_{course_code}", use_container_width=True):
+                        if st.button("➕ Add", key=f"quick_add_{course_code}", width="stretch"):
                             updated_pending = pending_courses + [course_code]
                             # Deduplicate while preserving order
                             seen = set()
@@ -888,14 +888,14 @@ def _render_visualizations(analysis_df: pd.DataFrame, prereq_analysis: dict):
     }
     
     priority_df = pd.DataFrame(list(priority_counts.items()), columns=["Priority", "Count"])
-    st.bar_chart(priority_df.set_index("Priority"), use_container_width=True)
+    st.bar_chart(priority_df.set_index("Priority"), width="stretch")
     
     # Top courses by priority score
     st.markdown("---")
     st.markdown("#### Top 20 Courses by Priority Score")
     top20 = analysis_df.nlargest(20, "Priority Score")[["Course Code", "Priority Score", "Currently Eligible", "One Course Away"]]
     top20 = top20.set_index("Course Code")
-    st.bar_chart(top20[["Priority Score"]], use_container_width=True)
+    st.bar_chart(top20[["Priority Score"]], width="stretch")
     
     # Eligible vs One-Away scatter
     st.markdown("---")
@@ -909,7 +909,7 @@ def _render_visualizations(analysis_df: pd.DataFrame, prereq_analysis: dict):
         y="One Course Away",
         size="Size",
         color="Priority Score",
-        use_container_width=True
+        width="stretch"
     )
     
     # Bottleneck courses visualization
@@ -919,7 +919,7 @@ def _render_visualizations(analysis_df: pd.DataFrame, prereq_analysis: dict):
     if bottlenecks:
         bottleneck_df = pd.DataFrame(bottlenecks[:15], columns=["Course", "Unlocks"])
         bottleneck_df = bottleneck_df.set_index("Course")
-        st.bar_chart(bottleneck_df, use_container_width=True)
+        st.bar_chart(bottleneck_df, width="stretch")
 
 
 def _render_export_options(analysis_df: pd.DataFrame, prereq_analysis: dict):
@@ -977,7 +977,7 @@ def _render_export_options(analysis_df: pd.DataFrame, prereq_analysis: dict):
             data=excel_bytes,
             file_name=filename,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
+            width="stretch",
             type="primary"
         )
 

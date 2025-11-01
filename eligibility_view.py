@@ -324,7 +324,7 @@ def student_eligibility_view():
                 file_name=f"Advising_{norm_sid}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 type="primary",
-                use_container_width=True,
+                width="stretch",
                 key=f"download_advising_{norm_sid}",
                 on_click=_persist_student_selections,
                 args=(advised_selection, repeat_selection, optional_selection, note_input),
