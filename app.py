@@ -114,7 +114,7 @@ if not st.session_state[period_selected_key]:
             )
             advisor_name = st.text_input("Advisor Name", key="period_select_advisor")
             
-            if st.form_submit_button("Start New Period", use_container_width=True, type="primary"):
+            if st.form_submit_button("Start New Period", width="stretch", type="primary"):
                 if not advisor_name:
                     st.error("Please enter advisor name")
                 else:
@@ -159,7 +159,7 @@ if not st.session_state[period_selected_key]:
             with st.form("period_selection_existing"):
                 selected_period_label = st.selectbox("Select Period", period_options, key="period_select_existing")
                 
-                if st.form_submit_button("Use This Period", use_container_width=True):
+                if st.form_submit_button("Use This Period", width="stretch"):
                     selected_period = period_map[selected_period_label]
                     
                     # If selecting a different period than current, we need to switch to it
@@ -193,7 +193,7 @@ with st.expander("⚙️ Advising Utilities"):
     st.markdown("### Advising Period Management")
     
     # Add button to change period
-    if st.button("🔄 Change Advising Period", help="Switch to a different advising period", use_container_width=True):
+    if st.button("🔄 Change Advising Period", help="Switch to a different advising period", width="stretch"):
         st.session_state[period_selected_key] = False
         st.rerun()
     
@@ -230,7 +230,7 @@ with st.expander("⚙️ Advising Utilities"):
         with col_advisor:
             advisor_name = st.text_input("Advisor Name", key="new_period_advisor")
         
-        if st.form_submit_button("🆕 Start New Period", use_container_width=True, type="primary"):
+        if st.form_submit_button("🆕 Start New Period", width="stretch", type="primary"):
             if not advisor_name:
                 st.error("Please enter advisor name")
             else:
@@ -259,7 +259,7 @@ with st.expander("⚙️ Advising Utilities"):
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("🗑️ Clear All Selections", help="Clear current advising selections for all students (does not affect saved sessions)", use_container_width=True):
+        if st.button("🗑️ Clear All Selections", help="Clear current advising selections for all students (does not affect saved sessions)", width="stretch"):
             # Clear advising selections for all students in current major
             st.session_state.advising_selections = {}
             # Clear the per-major bucket so it persists across reruns
@@ -279,7 +279,7 @@ with st.expander("⚙️ Advising Utilities"):
             st.rerun()
     
     with col2:
-        if st.button("📥 Restore Latest Sessions", help="Load most recent advising session for all students from current period", use_container_width=True):
+        if st.button("📥 Restore Latest Sessions", help="Load most recent advising session for all students from current period", width="stretch"):
             # Get all unique student IDs from progress report
             if not st.session_state.progress_df.empty and "ID" in st.session_state.progress_df.columns:
                 student_ids = st.session_state.progress_df["ID"].unique()
