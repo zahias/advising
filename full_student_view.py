@@ -63,8 +63,14 @@ def full_student_view():
         _render_individual_student()
 
 def _render_all_students():
-    progress_df_original = st.session_state.progress_df.copy().set_index("ID")
     df = st.session_state.progress_df.copy()
+    df["ID"] = pd.to_numeric(df["ID"], errors="coerce")
+    df = df.dropna(subset=["ID"])
+    df["ID"] = df["ID"].astype(int)
+
+    progress_df_original = df.copy().set_index("ID")
+    original_rows = {int(idx): row for idx, row in progress_df_original.iterrows()}
+
     # Compute derived columns
     df["Total Credits Completed"] = df.get("# of Credits Completed", 0).fillna(0).astype(float) + \
                                     df.get("# Registered", 0).fillna(0).astype(float)
@@ -99,22 +105,29 @@ def _render_all_students():
             & (df["Remaining Credits"] <= remaining_range[1])
         ]
 
-    available_courses = st.session_state.courses_df["Course Code"].tolist()
-    with st.expander("Select course columns", expanded=False):
-        selected_courses = st.multiselect(
-            "Course columns",
-            options=available_courses,
-            default=available_courses,
-            key="all_students_course_columns",
-        )
-    if not selected_courses:
-        st.info("Select at least one course column to display student eligibility statuses.")
-        return
+    courses_df = st.session_state.courses_df
+    type_series = courses_df.get("Type", pd.Series(dtype=str))
+    required_courses = courses_df.loc[
+        type_series.astype(str).str.lower() == "required",
+        "Course Code",
+    ].dropna().tolist()
+    intensive_courses = courses_df.loc[
+        type_series.astype(str).str.lower() == "intensive",
+        "Course Code",
+    ].dropna().tolist()
 
-    # Build compact status codes (includes Optional = 'o' and Repeat = 'ar')
-    def status_code(row_original, row_id, course):
-        sid = int(row_id)
-        sel = st.session_state.advising_selections.get(sid, {})
+    base_display_cols = [
+        "NAME",
+        "ID",
+        "Total Credits Completed",
+        "Remaining Credits",
+        "Standing",
+        "Advising Status",
+    ]
+    legend_md = "*Legend:* c=Completed, r=Registered, a=Advised, ar=Advised-Repeat, o=Optional, na=Eligible not chosen, ne=Not Eligible"
+
+    def status_code(row_original: pd.Series, student_id: int, course: str) -> str:
+        sel = st.session_state.advising_selections.get(int(student_id), {})
         advised_list = sel.get("advised", []) or []
         optional_list = sel.get("optional", []) or []
         repeat_list = sel.get("repeat", []) or []
@@ -133,38 +146,90 @@ def _render_all_students():
         stt, _ = check_eligibility(row_original, course, advised_list, st.session_state.courses_df)
         return "na" if stt == "Eligible" else "ne"
 
-    for c in selected_courses:
-        df[c] = df.apply(lambda r: status_code(
-            progress_df_original.loc[r["ID"]],
-            r["ID"],
-            c
-        ), axis=1)
+    def render_course_table(label: str, course_codes: list[str], key_suffix: str):
+        if not course_codes:
+            st.info(f"No {label.lower()} courses available.")
+            return None, []
 
-    display_cols = [
-        "NAME",
-        "ID",
-        "Total Credits Completed",
-        "Remaining Credits",
-        "Standing",
-        "Advising Status",
-    ] + selected_courses
+        with st.expander(f"Select {label.lower()} course columns", expanded=False):
+            selected = st.multiselect(
+                f"{label} course columns",
+                options=course_codes,
+                default=course_codes,
+                key=f"all_students_{key_suffix}_course_columns",
+            )
 
-    # Show table (color-coded) with student name pinned via index
-    st.write("*Legend:* c=Completed, r=Registered, a=Advised, ar=Advised-Repeat, o=Optional, na=Eligible not chosen, ne=Not Eligible")
-    display_df = df[display_cols].copy()
-    display_df = display_df.set_index("NAME")
-    display_df.index.name = "Student"
-    styled = _style_codes(display_df, selected_courses)
-    st.dataframe(styled, use_container_width=True, height=600)
+        if not selected:
+            st.info("Select at least one course column to display student eligibility statuses.")
+            return None, []
 
-    # Export full advising report with summary + COLORS in Excel
+        table_df = df[base_display_cols].copy()
+        student_ids = table_df["ID"].astype(int).tolist()
+
+        for course in selected:
+            statuses = []
+            for sid in student_ids:
+                row_original = original_rows.get(int(sid))
+                if row_original is None:
+                    statuses.append("")
+                    continue
+                statuses.append(status_code(row_original, sid, course))
+            table_df[course] = statuses
+
+        export_df = table_df.copy()
+        display_df = export_df.set_index("NAME")
+        display_df.index.name = "Student"
+
+        st.write(legend_md)
+        styled = _style_codes(display_df, selected)
+        st.dataframe(styled, use_container_width=True, height=600)
+        return export_df, selected
+
+    required_tab, intensive_tab = st.tabs(["Required Courses", "Intensive Courses"])
+
+    required_display_df = None
+    required_selected = []
+    intensive_display_df = None
+    intensive_selected = []
+
+    with required_tab:
+        required_display_df, required_selected = render_course_table("Required", required_courses, "required")
+
+    with intensive_tab:
+        intensive_display_df, intensive_selected = render_course_table("Intensive", intensive_courses, "intensive")
+
+    has_required = required_display_df is not None and len(required_selected) > 0
+    has_intensive = intensive_display_df is not None and len(intensive_selected) > 0
+
+    if not has_required and not has_intensive:
+        return
+
     if st.button("Download Full Advising Report"):
         output = BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            df[display_cols].to_excel(writer, index=False, sheet_name="Full Report")
-            add_summary_sheet(writer, df[display_cols], selected_courses)  # includes Optional (o)
-        # Apply color formatting to code columns in the saved workbook
-        apply_full_report_formatting(output=output, sheet_name="Full Report", course_cols=selected_courses)
+            if has_required:
+                required_display_df.to_excel(writer, index=False, sheet_name="Required Courses")
+            if has_intensive:
+                intensive_display_df.to_excel(writer, index=False, sheet_name="Intensive Courses")
+
+            summary_frames = []
+            summary_courses: list[str] = []
+            if has_required:
+                summary_frames.append(required_display_df)
+                summary_courses.extend(required_selected)
+            if has_intensive:
+                summary_frames.append(intensive_display_df)
+                summary_courses.extend(intensive_selected)
+
+            if summary_frames and summary_courses:
+                summary_input = pd.concat(summary_frames, ignore_index=True)
+                add_summary_sheet(writer, summary_input, summary_courses)
+
+        if has_required:
+            apply_full_report_formatting(output=output, sheet_name="Required Courses", course_cols=required_selected)
+        if has_intensive:
+            apply_full_report_formatting(output=output, sheet_name="Intensive Courses", course_cols=intensive_selected)
+
         st.download_button(
             "Download Excel",
             data=output.getvalue(),
