@@ -204,42 +204,47 @@ def _render_all_students():
     if not has_required and not has_intensive:
         return
 
-    if st.button("Download Full Advising Report"):
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            if has_required:
-                required_display_df.to_excel(writer, index=False, sheet_name="Required Courses")
-            if has_intensive:
-                intensive_display_df.to_excel(writer, index=False, sheet_name="Intensive Courses")
+    if has_required or has_intensive:
+        def _build_full_report_bytes() -> bytes:
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                if has_required:
+                    required_display_df.to_excel(writer, index=False, sheet_name="Required Courses")
+                if has_intensive:
+                    intensive_display_df.to_excel(writer, index=False, sheet_name="Intensive Courses")
 
-            summary_frames = []
-            summary_courses: list[str] = []
-            if has_required:
-                summary_frames.append(required_display_df)
-                summary_courses.extend(required_selected)
-            if has_intensive:
-                summary_frames.append(intensive_display_df)
-                summary_courses.extend(intensive_selected)
+                summary_frames = []
+                summary_courses: list[str] = []
+                if has_required:
+                    summary_frames.append(required_display_df)
+                    summary_courses.extend(required_selected)
+                if has_intensive:
+                    summary_frames.append(intensive_display_df)
+                    summary_courses.extend(intensive_selected)
 
-            if summary_frames and summary_courses:
-                summary_input = pd.concat(summary_frames, ignore_index=True)
-                add_summary_sheet(writer, summary_input, summary_courses)
+                if summary_frames and summary_courses:
+                    summary_input = pd.concat(summary_frames, ignore_index=True)
+                    add_summary_sheet(writer, summary_input, summary_courses)
 
-            if has_required:
-                apply_full_report_formatting(
-                    writer.book, sheet_name="Required Courses", course_cols=required_selected
-                )
-            if has_intensive:
-                apply_full_report_formatting(
-                    writer.book, sheet_name="Intensive Courses", course_cols=intensive_selected
-                )
+                if has_required:
+                    apply_full_report_formatting(
+                        writer.book, sheet_name="Required Courses", course_cols=required_selected
+                    )
+                if has_intensive:
+                    apply_full_report_formatting(
+                        writer.book, sheet_name="Intensive Courses", course_cols=intensive_selected
+                    )
 
-        output.seek(0)
+            output.seek(0)
+            return output.getvalue()
+
+        full_report_bytes = _build_full_report_bytes()
         st.download_button(
-            "Download Excel",
-            data=output.getvalue(),
+            "Download Full Advising Report",
+            data=full_report_bytes,
             file_name="Full_Advising_Report.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
         )
 
 def _render_individual_student():
@@ -287,17 +292,21 @@ def _render_individual_student():
     # Download colored sheet for this student (compact codes)
     col1, col2 = st.columns([1, 1])
     with col1:
-        if st.button("Download Individual Report"):
+        def _build_individual_report_bytes() -> bytes:
             output = BytesIO()
             with pd.ExcelWriter(output, engine="openpyxl") as writer:
                 indiv_df.to_excel(writer, index=False, sheet_name="Student")
             apply_individual_compact_formatting(output=output, sheet_name="Student", course_cols=selected_courses)
-            st.download_button(
-                "Download Excel",
-                data=output.getvalue(),
-                file_name=f"Student_{sid}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
+            output.seek(0)
+            return output.getvalue()
+
+        st.download_button(
+            "Download Individual Report",
+            data=_build_individual_report_bytes(),
+            file_name=f"Student_{sid}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+        )
     
     with col2:
         # Email advising sheet to student
@@ -331,11 +340,21 @@ def _render_individual_student():
                     st.error(f"❌ {message}")
 
     # Download sheets for all advised students into one workbook + sync to Drive (unchanged)
-    if st.button("Download All Advised Students Reports"):
-        all_sel = [(int(k), v) for k, v in st.session_state.advising_selections.items() if v.get("advised")]
-        if not all_sel:
-            st.info("No advised students found.")
-            return
+    all_sel = [(int(k), v) for k, v in st.session_state.advising_selections.items() if v.get("advised")]
+    if not all_sel:
+        st.info("No advised students found.")
+        st.download_button(
+            "Download All Advised Students Reports",
+            data=b"",
+            file_name="All_Advised_Students.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+            disabled=True,
+            help="Advise at least one student to enable the export.",
+        )
+        return
+
+    def _build_all_advised_bytes() -> bytes:
         output = BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             for sid_, sel_ in all_sel:
@@ -356,26 +375,30 @@ def _render_individual_student():
                     data_rows["Eligibility Status"].append(status)
                     data_rows["Justification"].append(just)
                 pd.DataFrame(data_rows).to_excel(writer, index=False, sheet_name=str(sid_))
-            # Add an index sheet
             index_df = st.session_state.progress_df.loc[
-                st.session_state.progress_df["ID"].isin([sid for sid,_ in all_sel]),
+                st.session_state.progress_df["ID"].isin([sid for sid, _ in all_sel]),
                 ["ID", "NAME"]
             ]
             index_df.to_excel(writer, index=False, sheet_name="Index")
 
-        st.download_button(
-            "Download All (Excel)",
-            data=output.getvalue(),
-            file_name="All_Advised_Students.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+        output.seek(0)
+        return output.getvalue()
 
-        # Drive sync preserved
+    all_reports_bytes = _build_all_advised_bytes()
+    download_clicked = st.download_button(
+        "Download All Advised Students Reports",
+        data=all_reports_bytes,
+        file_name="All_Advised_Students.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        type="primary",
+    )
+
+    if download_clicked:
         try:
             service = initialize_drive_service()
             sync_file_with_drive(
                 service=service,
-                file_content=output.getvalue(),
+                file_content=all_reports_bytes,
                 drive_file_name="All_Advised_Students.xlsx",
                 mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 parent_folder_id=st.secrets["google"]["folder_id"],
