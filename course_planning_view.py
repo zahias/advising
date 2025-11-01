@@ -14,6 +14,20 @@ from utils import log_info, log_error
 from reporting import apply_excel_formatting
 
 
+DEFAULT_COURSE_PLANNING_FILTERS = {
+    "search_text": "",
+    "priority_filter": [],
+    "min_eligible": 0,
+    "max_eligible": None,
+    "min_one_away": 0,
+    "max_one_away": None,
+    "near_graduation_only": False,
+    "critical_only": False,
+    "min_credits": 0,
+    "max_credits": None,
+}
+
+
 def course_planning_view():
     """
     Course Planning Dashboard - Suggests optimal course offerings each semester
@@ -30,18 +44,7 @@ def course_planning_view():
         st.session_state.selected_courses_to_offer = []
     
     if "course_planning_filters" not in st.session_state:
-        st.session_state.course_planning_filters = {
-            "search_text": "",
-            "priority_filter": [],
-            "min_eligible": 0,
-            "max_eligible": None,
-            "min_one_away": 0,
-            "max_one_away": None,
-            "near_graduation_only": False,
-            "critical_only": False,
-            "min_credits": 0,
-            "max_credits": None
-        }
+        st.session_state.course_planning_filters = DEFAULT_COURSE_PLANNING_FILTERS.copy()
     
     st.markdown("## 📊 Course Planning & Optimization")
     st.markdown(
@@ -147,73 +150,113 @@ def _render_summary_dashboard(analysis_df: pd.DataFrame):
 
 def _render_filter_sidebar(analysis_df: pd.DataFrame):
     """Render sidebar with filters and quick actions."""
-    st.markdown("### 🔍 Filters")
-    
+    filters = st.session_state.course_planning_filters
+
+    header_col, reset_col = st.columns([3, 1])
+    with header_col:
+        st.markdown("### 🔍 Filters")
+    with reset_col:
+        if st.button("↺ Reset", key="course_planning_reset_filters", help="Restore all filters to their defaults."):
+            default_filters = DEFAULT_COURSE_PLANNING_FILTERS.copy()
+            filters.clear()
+            filters.update(default_filters)
+            st.session_state.course_search_filter = default_filters["search_text"]
+            st.session_state.priority_filter_select = default_filters["priority_filter"]
+            st.rerun()
+
     # Search
     search_text = st.text_input(
         "Search Course",
-        value=st.session_state.course_planning_filters["search_text"],
+        value=filters["search_text"],
         key="course_search_filter",
         placeholder="Course code or title..."
     )
-    st.session_state.course_planning_filters["search_text"] = search_text
-    
+    filters["search_text"] = search_text
+
     # Priority filter
     priority_options = ["🔴 Critical", "🟠 High Priority", "🟡 Medium Priority", "🟢 Standard", "⚪ Low Priority"]
     priority_filter = st.multiselect(
         "Priority Level",
         priority_options,
-        default=st.session_state.course_planning_filters["priority_filter"],
+        default=filters["priority_filter"],
         key="priority_filter_select"
     )
-    st.session_state.course_planning_filters["priority_filter"] = priority_filter
-    
-    # Eligibility filters
-    st.markdown("**Eligibility Range**")
-    col_min, col_max = st.columns(2)
-    with col_min:
-        min_eligible = st.number_input("Min Eligible", min_value=0, value=st.session_state.course_planning_filters["min_eligible"], step=1, key="min_eligible_filter")
-        st.session_state.course_planning_filters["min_eligible"] = min_eligible
-    with col_max:
-        max_eligible = st.number_input("Max Eligible", min_value=0, value=st.session_state.course_planning_filters.get("max_eligible") or int(analysis_df["Currently Eligible"].max() or 100), step=1, key="max_eligible_filter")
-        st.session_state.course_planning_filters["max_eligible"] = max_eligible if max_eligible > 0 else None
-    
-    # One-away filters
-    col_min2, col_max2 = st.columns(2)
-    with col_min2:
-        min_one_away = st.number_input("Min One-Away", min_value=0, value=st.session_state.course_planning_filters["min_one_away"], step=1, key="min_one_away_filter")
-        st.session_state.course_planning_filters["min_one_away"] = min_one_away
-    with col_max2:
-        max_one_away = st.number_input("Max One-Away", min_value=0, value=st.session_state.course_planning_filters.get("max_one_away") or int(analysis_df["One Course Away"].max() or 100), step=1, key="max_one_away_filter")
-        st.session_state.course_planning_filters["max_one_away"] = max_one_away if max_one_away > 0 else None
-    
-    # Student proximity filters
-    st.markdown("**Student Filters**")
-    near_grad_only = st.checkbox(
-        "Only courses needed by students ≤15 credits from graduation",
-        value=st.session_state.course_planning_filters["near_graduation_only"],
-        key="near_grad_filter"
-    )
-    st.session_state.course_planning_filters["near_graduation_only"] = near_grad_only
-    
-    critical_only = st.checkbox(
-        "Only critical courses (students ≤9 credits)",
-        value=st.session_state.course_planning_filters["critical_only"],
-        key="critical_only_filter"
-    )
-    st.session_state.course_planning_filters["critical_only"] = critical_only
-    
-    # Credits filter
-    st.markdown("**Course Credits**")
-    credits_range = st.slider(
-        "Credits Range",
-        min_value=0,
-        max_value=int(analysis_df["Credits"].max() or 6),
-        value=(st.session_state.course_planning_filters["min_credits"], st.session_state.course_planning_filters.get("max_credits") or int(analysis_df["Credits"].max() or 6)),
-        key="credits_range_filter"
-    )
-    st.session_state.course_planning_filters["min_credits"] = credits_range[0]
-    st.session_state.course_planning_filters["max_credits"] = credits_range[1]
+    filters["priority_filter"] = priority_filter
+
+    max_eligible_default = int(analysis_df["Currently Eligible"].max() or 100)
+    max_eligible_default = max(max_eligible_default, filters["min_eligible"])
+    max_one_away_default = int(analysis_df["One Course Away"].max() or 100)
+    max_one_away_default = max(max_one_away_default, filters["min_one_away"])
+    credit_max_from_data = int(analysis_df["Credits"].max() or 0)
+    slider_max_value = max(credit_max_from_data, filters.get("max_credits") or credit_max_from_data, filters["min_credits"], 1)
+    current_credit_upper = filters.get("max_credits") if filters.get("max_credits") is not None else slider_max_value
+    current_credit_upper = max(current_credit_upper, filters["min_credits"])
+
+    with st.expander("Advanced filters"):
+        with st.form("advanced_course_filters"):
+            st.markdown("**Eligibility Range**")
+            col_min, col_max = st.columns(2)
+            with col_min:
+                min_eligible = st.number_input(
+                    "Min Eligible",
+                    min_value=0,
+                    value=filters["min_eligible"],
+                    step=1,
+                )
+            with col_max:
+                max_eligible = st.number_input(
+                    "Max Eligible",
+                    min_value=0,
+                    value=filters.get("max_eligible") or max_eligible_default,
+                    step=1,
+                )
+
+            st.markdown("**One-Away Range**")
+            col_min2, col_max2 = st.columns(2)
+            with col_min2:
+                min_one_away = st.number_input(
+                    "Min One-Away",
+                    min_value=0,
+                    value=filters["min_one_away"],
+                    step=1,
+                )
+            with col_max2:
+                max_one_away = st.number_input(
+                    "Max One-Away",
+                    min_value=0,
+                    value=filters.get("max_one_away") or max_one_away_default,
+                    step=1,
+                )
+
+            st.markdown("**Student Filters**")
+            near_grad_only = st.checkbox(
+                "Only courses needed by students ≤15 credits from graduation",
+                value=filters["near_graduation_only"],
+            )
+            critical_only = st.checkbox(
+                "Only critical courses (students ≤9 credits)",
+                value=filters["critical_only"],
+            )
+
+            st.markdown("**Course Credits**")
+            credits_range = st.slider(
+                "Credits Range",
+                min_value=0,
+                max_value=slider_max_value,
+                value=(filters["min_credits"], current_credit_upper),
+            )
+
+            if st.form_submit_button("Apply filters"):
+                filters["min_eligible"] = int(min_eligible)
+                filters["max_eligible"] = int(max_eligible) if max_eligible > 0 else None
+                filters["min_one_away"] = int(min_one_away)
+                filters["max_one_away"] = int(max_one_away) if max_one_away > 0 else None
+                filters["near_graduation_only"] = bool(near_grad_only)
+                filters["critical_only"] = bool(critical_only)
+                filters["min_credits"] = int(credits_range[0])
+                max_credits_value = int(credits_range[1])
+                filters["max_credits"] = None if max_credits_value >= slider_max_value else max_credits_value
+                st.rerun()
 
 
 def _render_quick_actions():
