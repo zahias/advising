@@ -225,11 +225,16 @@ def _render_all_students():
                 summary_input = pd.concat(summary_frames, ignore_index=True)
                 add_summary_sheet(writer, summary_input, summary_courses)
 
-        if has_required:
-            apply_full_report_formatting(output=output, sheet_name="Required Courses", course_cols=required_selected)
-        if has_intensive:
-            apply_full_report_formatting(output=output, sheet_name="Intensive Courses", course_cols=intensive_selected)
+            if has_required:
+                apply_full_report_formatting(
+                    writer.book, sheet_name="Required Courses", course_cols=required_selected
+                )
+            if has_intensive:
+                apply_full_report_formatting(
+                    writer.book, sheet_name="Intensive Courses", course_cols=intensive_selected
+                )
 
+        output.seek(0)
         st.download_button(
             "Download Excel",
             data=output.getvalue(),
