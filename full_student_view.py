@@ -21,6 +21,7 @@ from reporting import add_summary_sheet, apply_full_report_formatting, apply_ind
 _CODE_COLORS = {
     "c":  "#C6E0B4",   # Completed -> light green
     "r":  "#BDD7EE",   # Registered -> light blue
+    "s":  "#D9E1F2",   # Simulated (will register) -> light purple/blue
     "a":  "#FFF2CC",   # Advised -> light yellow
     "ar": "#FFD966",   # Advised-Repeat -> darker yellow/orange
     "o":  "#FFE699",   # Optional -> light orange
@@ -63,6 +64,42 @@ def full_student_view():
         _render_individual_student()
 
 def _render_all_students():
+    if "simulated_courses" not in st.session_state:
+        st.session_state.simulated_courses = []
+    
+    st.markdown("### 🎯 Course Offering Simulation")
+    st.caption("Select courses you plan to offer. The table below will update to show eligibility assuming all eligible students register for selected courses.")
+    
+    col_select, col_actions = st.columns([3, 1])
+    
+    with col_select:
+        available_courses = st.session_state.courses_df["Course Code"].tolist()
+        selected_sim_courses = st.multiselect(
+            "Select courses to simulate",
+            options=available_courses,
+            default=st.session_state.simulated_courses,
+            key="course_sim_multiselect",
+            help="Choose courses that will be offered. Eligible students will be assumed to register for these courses."
+        )
+    
+    with col_actions:
+        st.write("")
+        st.write("")
+        col_apply, col_clear = st.columns(2)
+        with col_apply:
+            if st.button("✅ Apply", key="apply_simulation", width="stretch", type="primary"):
+                st.session_state.simulated_courses = selected_sim_courses
+                st.rerun()
+        with col_clear:
+            if st.button("🔄 Clear", key="clear_simulation", width="stretch"):
+                st.session_state.simulated_courses = []
+                st.rerun()
+    
+    if st.session_state.simulated_courses:
+        st.info(f"🎬 **Simulation Active:** {len(st.session_state.simulated_courses)} course(s) selected - {', '.join(st.session_state.simulated_courses[:5])}{' ...' if len(st.session_state.simulated_courses) > 5 else ''}")
+    
+    st.markdown("---")
+    
     df = st.session_state.progress_df.copy()
     df["ID"] = pd.to_numeric(df["ID"], errors="coerce")
     df = df.dropna(subset=["ID"])
@@ -124,9 +161,25 @@ def _render_all_students():
         "Standing",
         "Advising Status",
     ]
-    legend_md = "*Legend:* c=Completed, r=Registered, a=Advised, ar=Advised-Repeat, o=Optional, na=Eligible not chosen, ne=Not Eligible"
+    legend_md = "*Legend:* c=Completed, r=Registered, s=Simulated (will register), a=Advised, ar=Advised-Repeat, o=Optional, na=Eligible not chosen, ne=Not Eligible"
+    
+    simulated_courses = st.session_state.simulated_courses
+    simulated_completions = {}
+    
+    if simulated_courses:
+        for sid in df["ID"].astype(int).tolist():
+            row_original = original_rows.get(int(sid))
+            if row_original is None:
+                continue
+            
+            simulated_completions[sid] = []
+            for sim_course in simulated_courses:
+                advised_list = st.session_state.advising_selections.get(int(sid), {}).get("advised", []) or []
+                stt, _ = check_eligibility(row_original, sim_course, advised_list, st.session_state.courses_df)
+                if stt == "Eligible":
+                    simulated_completions[sid].append(sim_course)
 
-    def status_code(row_original: pd.Series, student_id: int, course: str) -> str:
+    def status_code(row_original: pd.Series, student_id: int, course: str, simulated_for_student: list) -> str:
         sel = st.session_state.advising_selections.get(int(student_id), {})
         advised_list = sel.get("advised", []) or []
         optional_list = sel.get("optional", []) or []
@@ -138,12 +191,14 @@ def _render_all_students():
             return "c"
         if check_course_registered(row_original, course):
             return "r"
+        if course in simulated_for_student:
+            return "s"
         if course in optional_list:
             return "o"
         if course in advised_list:
             return "a"
 
-        stt, _ = check_eligibility(row_original, course, advised_list, st.session_state.courses_df)
+        stt, _ = check_eligibility(row_original, course, advised_list + simulated_for_student, st.session_state.courses_df)
         return "na" if stt == "Eligible" else "ne"
 
     def render_course_table(label: str, course_codes: list[str], key_suffix: str):
@@ -173,7 +228,8 @@ def _render_all_students():
                 if row_original is None:
                     statuses.append("")
                     continue
-                statuses.append(status_code(row_original, sid, course))
+                student_simulated = simulated_completions.get(sid, [])
+                statuses.append(status_code(row_original, sid, course, student_simulated))
             table_df[course] = statuses
 
         export_df = table_df.copy()
