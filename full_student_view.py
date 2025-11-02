@@ -173,11 +173,22 @@ def _render_all_students():
                 continue
             
             simulated_completions[sid] = []
-            for sim_course in simulated_courses:
-                advised_list = st.session_state.advising_selections.get(int(sid), {}).get("advised", []) or []
-                stt, _ = check_eligibility(row_original, sim_course, advised_list, st.session_state.courses_df)
-                if stt == "Eligible":
-                    simulated_completions[sid].append(sim_course)
+            advised_list = st.session_state.advising_selections.get(int(sid), {}).get("advised", []) or []
+            
+            max_iterations = len(simulated_courses)
+            for iteration in range(max_iterations):
+                added_this_iteration = False
+                for sim_course in simulated_courses:
+                    if sim_course in simulated_completions[sid]:
+                        continue
+                    
+                    stt, _ = check_eligibility(row_original, sim_course, advised_list + simulated_completions[sid], st.session_state.courses_df)
+                    if stt == "Eligible":
+                        simulated_completions[sid].append(sim_course)
+                        added_this_iteration = True
+                
+                if not added_this_iteration:
+                    break
 
     def status_code(row_original: pd.Series, student_id: int, course: str, simulated_for_student: list) -> str:
         sel = st.session_state.advising_selections.get(int(student_id), {})
