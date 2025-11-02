@@ -105,12 +105,23 @@ def _courses_differ(first: List[str], second: List[str]) -> bool:
     return set(first) != set(second)
 
 
+def _update_course_selection_dirty() -> None:
+    """Update the dirty flag comparing pending and confirmed selections."""
+    pending = _ensure_ordered_unique(st.session_state.get("pending_courses_to_offer", []))
+    confirmed = _ensure_ordered_unique(st.session_state.get("confirmed_courses_to_offer", []))
+    st.session_state.course_selection_dirty = pending != confirmed
+
+
+def _pending_differs_from_confirmed() -> bool:
+    """Compare session-state pending and confirmed course selections."""
+    return bool(st.session_state.get("course_selection_dirty", False))
+
+
 def _set_pending_courses(new_courses: List[str]) -> None:
     """Persist pending course selections and update dirty flag."""
     normalized = _ensure_ordered_unique(new_courses)
     st.session_state.pending_courses_to_offer = normalized
-    confirmed = st.session_state.get("confirmed_courses_to_offer", [])
-    st.session_state.course_selection_dirty = _courses_differ(normalized, confirmed)
+    _update_course_selection_dirty()
 
 
 def _set_confirmed_courses(new_courses: List[str]) -> None:
@@ -118,8 +129,7 @@ def _set_confirmed_courses(new_courses: List[str]) -> None:
     normalized = _ensure_ordered_unique(new_courses)
     st.session_state.confirmed_courses_to_offer = normalized
     st.session_state.selected_courses_to_offer = list(normalized)
-    pending = st.session_state.get("pending_courses_to_offer", [])
-    st.session_state.course_selection_dirty = _courses_differ(pending, normalized)
+    _update_course_selection_dirty()
 
 
 def course_planning_view():
@@ -144,7 +154,10 @@ def course_planning_view():
     if "pending_courses_to_offer" not in st.session_state:
         _set_pending_courses(st.session_state.confirmed_courses_to_offer)
     else:
-        _set_pending_courses(st.session_state.pending_courses_to_offer)
+        st.session_state.pending_courses_to_offer = _ensure_ordered_unique(
+            st.session_state.pending_courses_to_offer
+        )
+        _update_course_selection_dirty()
 
     if "course_planning_filters" not in st.session_state:
         st.session_state.course_planning_filters = DEFAULT_COURSE_PLANNING_FILTERS.copy()
@@ -259,7 +272,7 @@ def _render_summary_dashboard(analysis_df: pd.DataFrame):
             )
         )
 
-    pending_differs = st.session_state.course_selection_dirty
+    pending_differs = _pending_differs_from_confirmed()
 
     if pending_differs:
         st.caption("⚠️ Pending selection changes not yet applied. Use **Apply Selection** to refresh the simulation.")
@@ -408,7 +421,7 @@ def _render_selected_courses_panel(analysis_df: pd.DataFrame):
     confirmed_courses = st.session_state.confirmed_courses_to_offer
     pending_courses = st.session_state.pending_courses_to_offer
 
-    pending_differs = st.session_state.course_selection_dirty
+    pending_differs = _pending_differs_from_confirmed()
 
     if not confirmed_courses:
         st.info("No courses confirmed for simulation.")
@@ -681,27 +694,31 @@ def _render_course_selection_table(analysis_df: pd.DataFrame):
             _set_pending_courses(current_pending)
 
     pending_courses = list(st.session_state.pending_courses_to_offer)
-    pending_differs = st.session_state.course_selection_dirty
+    pending_differs = _pending_differs_from_confirmed()
 
-    col_apply, col_discard = st.columns(2)
-    with col_apply:
-        if st.button(
-            "Apply Selection",
-            use_container_width=True,
-            type="primary",
-            disabled=not pending_differs
-        ):
-            _set_confirmed_courses(list(pending_courses))
-            _set_pending_courses(list(pending_courses))
-            st.rerun()
-    with col_discard:
-        if st.button(
-            "Discard Changes",
-            use_container_width=True,
-            disabled=not pending_differs
-        ):
-            _set_pending_courses(list(confirmed_courses))
-            st.rerun()
+    actions_col = st.container()
+    with actions_col:
+        col_apply, col_discard = st.columns(2)
+        with col_apply:
+            if st.button(
+                "Apply Selection",
+                key="course_selection_apply",
+                use_container_width=True,
+                type="primary",
+                disabled=not pending_differs
+            ):
+                _set_confirmed_courses(list(pending_courses))
+                _set_pending_courses(list(pending_courses))
+                st.rerun()
+        with col_discard:
+            if st.button(
+                "Discard Changes",
+                key="course_selection_discard",
+                use_container_width=True,
+                disabled=not pending_differs
+            ):
+                _set_pending_courses(list(confirmed_courses))
+                st.rerun()
 
     if pending_differs:
         st.caption("⚠️ Pending selection changes not yet applied. Apply changes to refresh the simulation metrics.")
