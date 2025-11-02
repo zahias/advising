@@ -4,7 +4,7 @@ from __future__ import annotations
 import streamlit as st
 import pandas as pd
 from io import BytesIO
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 from course_planning import (
     analyze_course_eligibility_across_students,
@@ -12,6 +12,62 @@ from course_planning import (
 )
 from utils import log_info, log_error
 from reporting import apply_excel_formatting
+
+
+def _dataframe_signature(df: pd.DataFrame) -> Tuple[str, int, int]:
+    """Create a lightweight signature so cached analysis refreshes when data changes."""
+    if df is None:
+        return ("none", 0, 0)
+
+    try:
+        hashed = int(pd.util.hash_pandas_object(df, index=True).sum())
+    except Exception:
+        # Fallback if hashing fails for any reason
+        hashed = hash((tuple(df.columns), tuple(df.dtypes.astype(str)), df.shape))
+
+    return (str(hashed), len(df), len(df.columns))
+
+
+def _load_course_planning_analysis(
+    courses_df: pd.DataFrame,
+    progress_df: pd.DataFrame,
+    confirmed_courses: Tuple[str, ...],
+) -> Tuple[pd.DataFrame, dict]:
+    """Return cached analysis results or recompute when inputs change."""
+
+    cache_key = (
+        _dataframe_signature(courses_df),
+        _dataframe_signature(progress_df),
+        confirmed_courses,
+    )
+
+    cache = st.session_state.get("course_planning_analysis_cache")
+    cached_key = st.session_state.get("course_planning_analysis_cache_key")
+
+    if cache_key == cached_key and cache:
+        return cache["analysis_df"], cache["prereq_analysis"]
+
+    with st.spinner("Analyzing course eligibility across all students..."):
+        log_info("Running course eligibility analysis")
+
+        analysis_df = analyze_course_eligibility_across_students(
+            courses_df,
+            progress_df,
+            list(confirmed_courses),
+        )
+
+        prereq_analysis = analyze_prerequisite_chains(
+            courses_df,
+            progress_df,
+        )
+
+    st.session_state.course_planning_analysis_cache_key = cache_key
+    st.session_state.course_planning_analysis_cache = {
+        "analysis_df": analysis_df,
+        "prereq_analysis": prereq_analysis,
+    }
+
+    return analysis_df, prereq_analysis
 
 
 DEFAULT_COURSE_PLANNING_FILTERS = {
@@ -324,17 +380,20 @@ def _render_quick_actions():
     """Render quick action buttons for bulk selection."""
     st.markdown("### ⚡ Quick Actions")
     
-    if st.button("✅ Select All Critical", use_container_width=True):
+    if st.button("✅ Select All Critical", width="stretch"):
         # This will be handled in the table rendering
         st.session_state["quick_select_critical"] = True
+        st.session_state.pop("course_selection_editor", None)
         st.rerun()
-    
-    if st.button("📊 Select Top 10 by Priority", use_container_width=True):
+
+    if st.button("📊 Select Top 10 by Priority", width="stretch"):
         st.session_state["quick_select_top10"] = True
+        st.session_state.pop("course_selection_editor", None)
         st.rerun()
-    
-    if st.button("👥 Select Courses (5+ Eligible)", use_container_width=True):
+
+    if st.button("👥 Select Courses (5+ Eligible)", width="stretch"):
         st.session_state["quick_select_5plus"] = True
+        st.session_state.pop("course_selection_editor", None)
         st.rerun()
 
     if st.button("🔄 Clear All Selections", use_container_width=True):
@@ -427,7 +486,7 @@ def _render_selected_courses_panel(analysis_df: pd.DataFrame):
     st.dataframe(
         selection_table,
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
         height=min(400, 100 + len(selection_table) * 35),
     )
 
@@ -459,6 +518,7 @@ def _render_course_selection_table(analysis_df: pd.DataFrame):
                 updated_pending.append(course)
         _set_pending_courses(updated_pending)
         st.session_state["quick_select_critical"] = False
+        st.session_state.pop("course_selection_editor", None)
         st.rerun()
 
     if st.session_state.get("quick_select_top10", False):
@@ -469,6 +529,7 @@ def _render_course_selection_table(analysis_df: pd.DataFrame):
                 updated_pending.append(course)
         _set_pending_courses(updated_pending)
         st.session_state["quick_select_top10"] = False
+        st.session_state.pop("course_selection_editor", None)
         st.rerun()
 
     if st.session_state.get("quick_select_5plus", False):
@@ -479,6 +540,7 @@ def _render_course_selection_table(analysis_df: pd.DataFrame):
                 updated_pending.append(course)
         _set_pending_courses(updated_pending)
         st.session_state["quick_select_5plus"] = False
+        st.session_state.pop("course_selection_editor", None)
         st.rerun()
 
     pending_courses = list(st.session_state.pending_courses_to_offer)
@@ -534,30 +596,72 @@ def _render_course_selection_table(analysis_df: pd.DataFrame):
         "Impact Score": "Impact"
     })
     
-    # Use data editor for selection
-    edited_df = st.data_editor(
-        display_df,
-        use_container_width=True,
-        height=600,
-        hide_index=True,
-        column_config={
-            "Select": st.column_config.CheckboxColumn(
-                "Select",
-                help="Select courses to offer this semester",
-                default=False,
-            ),
-            "Priority": st.column_config.TextColumn("Priority", width="small"),
-            "Code": st.column_config.TextColumn("Code", width="small"),
-            "Title": st.column_config.TextColumn("Title", width="medium"),
-            "Credits": st.column_config.NumberColumn("Credits", width="small", format="%d"),
-            "Eligible": st.column_config.NumberColumn("Eligible", width="small", format="%d"),
-            "1-Away": st.column_config.NumberColumn("1-Away", width="small", format="%d"),
-            "2+-Away": st.column_config.NumberColumn("2+-Away", width="small", format="%d"),
-            "Priority Score": st.column_config.NumberColumn("Priority", width="small", format="%.1f"),
-            "Impact": st.column_config.NumberColumn("Impact", width="small", format="%.1f"),
-            "Recommendation": st.column_config.TextColumn("Recommendation", width="large"),
-        },
-        key="course_selection_editor"
+    with st.form("course_selection_form"):
+        edited_df = st.data_editor(
+            display_df,
+            width="stretch",
+            height=600,
+            hide_index=True,
+            column_config={
+                "Select": st.column_config.CheckboxColumn(
+                    "Select",
+                    help="Select courses to offer this semester",
+                    default=False,
+                ),
+                "Priority": st.column_config.TextColumn("Priority", width="small"),
+                "Code": st.column_config.TextColumn("Code", width="small"),
+                "Title": st.column_config.TextColumn("Title", width="medium"),
+                "Credits": st.column_config.NumberColumn("Credits", width="small", format="%d"),
+                "Eligible": st.column_config.NumberColumn("Eligible", width="small", format="%d"),
+                "1-Away": st.column_config.NumberColumn("1-Away", width="small", format="%d"),
+                "2+-Away": st.column_config.NumberColumn("2+-Away", width="small", format="%d"),
+                "Priority Score": st.column_config.NumberColumn("Priority", width="small", format="%.1f"),
+                "Impact": st.column_config.NumberColumn("Impact", width="small", format="%.1f"),
+                "Recommendation": st.column_config.TextColumn("Recommendation", width="large"),
+            },
+            key="course_selection_editor"
+        )
+
+        editor_selected = edited_df[edited_df["Select"] == True]["Code"].tolist()
+        editor_differs_from_confirmed = (
+            len(editor_selected) != len(confirmed_courses)
+            or set(editor_selected) != set(confirmed_courses)
+        )
+
+        st.caption("Selections update the simulation only after you press **Apply Selection**.")
+
+        col_apply, col_discard = st.columns(2)
+        apply_clicked = col_apply.form_submit_button(
+            "Apply Selection",
+            type="primary",
+            width="stretch",
+            disabled=not editor_differs_from_confirmed
+        )
+        discard_clicked = col_discard.form_submit_button(
+            "Discard Changes",
+            width="stretch",
+            disabled=not editor_differs_from_confirmed
+        )
+
+    if apply_clicked or discard_clicked:
+        staged_selection = list(editor_selected)
+
+        if apply_clicked:
+            st.session_state.pending_courses_to_offer = list(staged_selection)
+            st.session_state.confirmed_courses_to_offer = list(staged_selection)
+            st.session_state.selected_courses_to_offer = list(staged_selection)
+            st.session_state.pop("course_selection_editor", None)
+            st.rerun()
+
+        if discard_clicked:
+            st.session_state.pending_courses_to_offer = list(confirmed_courses)
+            st.session_state.pop("course_selection_editor", None)
+            st.rerun()
+
+    pending_courses = list(st.session_state.pending_courses_to_offer)
+    pending_differs = (
+        len(pending_courses) != len(confirmed_courses)
+        or set(pending_courses) != set(confirmed_courses)
     )
     
     # Update pending courses based on checkbox changes
@@ -736,7 +840,7 @@ def _render_analysis_insights(analysis_df: pd.DataFrame, prereq_analysis: dict):
                 })
             st.dataframe(
                 pd.DataFrame(bottleneck_data),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
                 height=400
             )
@@ -777,7 +881,7 @@ def _render_analysis_insights(analysis_df: pd.DataFrame, prereq_analysis: dict):
                     })
                 st.dataframe(
                     pd.DataFrame(critical_data),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                     height=400
                 )
@@ -794,7 +898,7 @@ def _render_analysis_insights(analysis_df: pd.DataFrame, prereq_analysis: dict):
                     })
                 st.dataframe(
                     pd.DataFrame(critical_data),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                     height=400
                 )
@@ -855,14 +959,14 @@ def _render_visualizations(analysis_df: pd.DataFrame, prereq_analysis: dict):
     }
     
     priority_df = pd.DataFrame(list(priority_counts.items()), columns=["Priority", "Count"])
-    st.bar_chart(priority_df.set_index("Priority"), use_container_width=True)
+    st.bar_chart(priority_df.set_index("Priority"), width="stretch")
     
     # Top courses by priority score
     st.markdown("---")
     st.markdown("#### Top 20 Courses by Priority Score")
     top20 = analysis_df.nlargest(20, "Priority Score")[["Course Code", "Priority Score", "Currently Eligible", "One Course Away"]]
     top20 = top20.set_index("Course Code")
-    st.bar_chart(top20[["Priority Score"]], use_container_width=True)
+    st.bar_chart(top20[["Priority Score"]], width="stretch")
     
     # Eligible vs One-Away scatter
     st.markdown("---")
@@ -876,7 +980,7 @@ def _render_visualizations(analysis_df: pd.DataFrame, prereq_analysis: dict):
         y="One Course Away",
         size="Size",
         color="Priority Score",
-        use_container_width=True
+        width="stretch"
     )
     
     # Bottleneck courses visualization
@@ -886,7 +990,7 @@ def _render_visualizations(analysis_df: pd.DataFrame, prereq_analysis: dict):
     if bottlenecks:
         bottleneck_df = pd.DataFrame(bottlenecks[:15], columns=["Course", "Unlocks"])
         bottleneck_df = bottleneck_df.set_index("Course")
-        st.bar_chart(bottleneck_df, use_container_width=True)
+        st.bar_chart(bottleneck_df, width="stretch")
 
 
 def _render_export_options(analysis_df: pd.DataFrame, prereq_analysis: dict):
@@ -894,62 +998,60 @@ def _render_export_options(analysis_df: pd.DataFrame, prereq_analysis: dict):
     st.markdown("### 💾 Export Course Planning Report")
     st.markdown("Download the complete analysis as an Excel file for sharing and record-keeping.")
     
-    if st.button("📥 Generate Excel Report", use_container_width=True, type="primary"):
-        try:
-            output = BytesIO()
-            
-            export_df = analysis_df[[
-                "Course Code",
-                "Course Title",
-                "Credits",
-                "Currently Eligible",
-                "One Course Away",
-                "Two+ Courses Away",
-                "Priority Score",
-                "Impact Score",
-                "Recommendation"
-            ]].copy()
-            
-            export_df = export_df.sort_values("Priority Score", ascending=False)
-            
-            with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                export_df.to_excel(writer, sheet_name="Course Analysis", index=False)
-                
-                bottlenecks = prereq_analysis.get("bottleneck_courses", [])
-                if bottlenecks:
-                    bottleneck_df = pd.DataFrame([
-                        {"Course": code, "Unlocks Courses": count}
-                        for code, count in bottlenecks
-                    ])
-                    bottleneck_df.to_excel(writer, sheet_name="Bottleneck Courses", index=False)
-                
-                critical_paths = prereq_analysis.get("critical_path_courses", [])
-                if critical_paths:
-                    critical_df = pd.DataFrame([
-                        {"Course": code, "Students Affected": count}
-                        for code, count in critical_paths
-                    ])
-                    critical_df.to_excel(writer, sheet_name="Critical Path Courses", index=False)
-            
-            excel_bytes = output.getvalue()
-            
-            from advising_period import get_current_period
-            current_period = get_current_period()
-            semester = current_period.get("semester", "")
-            year = current_period.get("year", "")
-            major = st.session_state.get("current_major", "")
-            filename = f"Course_Planning_{major}_{semester}_{year}.xlsx"
-            
-            st.download_button(
-                label=f"⬇️ Download {filename}",
-                data=excel_bytes,
-                file_name=filename,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
-            
-            st.success("✅ Report generated successfully!")
-            
-        except Exception as e:
-            st.error(f"Error generating report: {e}")
-            log_error("Course planning export failed", e)
+    try:
+        output = BytesIO()
+
+        export_df = analysis_df[[
+            "Course Code",
+            "Course Title",
+            "Credits",
+            "Currently Eligible",
+            "One Course Away",
+            "Two+ Courses Away",
+            "Priority Score",
+            "Impact Score",
+            "Recommendation"
+        ]].copy()
+
+        export_df = export_df.sort_values("Priority Score", ascending=False)
+
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            export_df.to_excel(writer, sheet_name="Course Analysis", index=False)
+
+            bottlenecks = prereq_analysis.get("bottleneck_courses", [])
+            if bottlenecks:
+                bottleneck_df = pd.DataFrame([
+                    {"Course": code, "Unlocks Courses": count}
+                    for code, count in bottlenecks
+                ])
+                bottleneck_df.to_excel(writer, sheet_name="Bottleneck Courses", index=False)
+
+            critical_paths = prereq_analysis.get("critical_path_courses", [])
+            if critical_paths:
+                critical_df = pd.DataFrame([
+                    {"Course": code, "Students Affected": count}
+                    for code, count in critical_paths
+                ])
+                critical_df.to_excel(writer, sheet_name="Critical Path Courses", index=False)
+
+        excel_bytes = output.getvalue()
+
+        from advising_period import get_current_period
+        current_period = get_current_period()
+        semester = current_period.get("semester", "")
+        year = current_period.get("year", "")
+        major = st.session_state.get("current_major", "")
+        filename = f"Course_Planning_{major}_{semester}_{year}.xlsx"
+
+        st.download_button(
+            label=f"⬇️ Download {filename}",
+            data=excel_bytes,
+            file_name=filename,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            width="stretch",
+            type="primary"
+        )
+
+    except Exception as e:
+        st.error(f"Error generating report: {e}")
+        log_error("Course planning export failed", e)
