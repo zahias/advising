@@ -2,13 +2,10 @@
 # Excel formatting utilities for advising reports
 
 from io import BytesIO
-from typing import Iterable
-
 import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
-from openpyxl.workbook import Workbook
 
 
 # Color mapping for course status codes
@@ -109,57 +106,38 @@ def add_summary_sheet(writer: pd.ExcelWriter, df: pd.DataFrame, course_cols: lis
     summary_df.to_excel(writer, index=False, sheet_name="Summary")
 
 
-def _format_status_columns(ws, course_cols: Iterable[str]):
-    header_row = next(ws.iter_rows(min_row=1, max_row=1))
-    header_values = [cell.value for cell in header_row]
-
-    course_col_indices: list[int] = []
-    for course in course_cols:
-        if course in header_values:
-            course_col_indices.append(header_values.index(course) + 1)
-
-    if not course_col_indices:
-        return
-
-    for row in ws.iter_rows(min_row=2):
-        for col_idx in course_col_indices:
-            cell = row[col_idx - 1]
-            value = str(cell.value).strip().lower() if cell.value else ""
-            if value in STATUS_COLORS:
-                cell.fill = PatternFill(
-                    start_color=STATUS_COLORS[value],
-                    end_color=STATUS_COLORS[value],
-                    fill_type="solid",
-                )
-
-
-def apply_full_report_formatting(output_or_workbook, sheet_name: str, course_cols: list):
+def apply_full_report_formatting(output: BytesIO, sheet_name: str, course_cols: list):
     """
     Apply color formatting to full report with multiple students.
     Colors course status cells based on status code.
     """
-    if not course_cols:
-        return
-
-    if isinstance(output_or_workbook, Workbook):
-        wb = output_or_workbook
-        if sheet_name in wb.sheetnames:
-            ws = wb[sheet_name]
-            _format_status_columns(ws, course_cols)
-        return
-
-    output: BytesIO = output_or_workbook
     output.seek(0)
     wb = load_workbook(output)
-
+    
     if sheet_name in wb.sheetnames:
         ws = wb[sheet_name]
-        _format_status_columns(ws, course_cols)
-
+        
+        header_row = list(ws.iter_rows(min_row=1, max_row=1))[0]
+        header_values = [cell.value for cell in header_row]
+        
+        course_col_indices = []
+        for course in course_cols:
+            if course in header_values:
+                course_col_indices.append(header_values.index(course) + 1)
+        
+        for row in ws.iter_rows(min_row=2):
+            for col_idx in course_col_indices:
+                cell = row[col_idx - 1]
+                value = str(cell.value).strip().lower() if cell.value else ""
+                if value in STATUS_COLORS:
+                    cell.fill = PatternFill(
+                        start_color=STATUS_COLORS[value],
+                        end_color=STATUS_COLORS[value],
+                        fill_type="solid"
+                    )
+    
     output.seek(0)
-    output.truncate(0)
     wb.save(output)
-    wb.close()
     output.seek(0)
 
 
