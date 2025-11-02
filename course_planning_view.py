@@ -28,6 +28,54 @@ DEFAULT_COURSE_PLANNING_FILTERS = {
 }
 
 
+def _ensure_ordered_unique(courses: List[str]) -> List[str]:
+    """Return a list of course codes preserving order without duplicates or blanks."""
+    seen: set[str] = set()
+    ordered: List[str] = []
+    for course in courses:
+        if not course:
+            continue
+        code = str(course)
+        if code not in seen:
+            seen.add(code)
+            ordered.append(code)
+    return ordered
+
+
+def _courses_differ(first: List[str], second: List[str]) -> bool:
+    """Check whether two course selections differ ignoring order."""
+    if len(first) != len(second):
+        return True
+    return set(first) != set(second)
+
+
+def _update_course_selection_dirty() -> None:
+    """Update the dirty flag comparing pending and confirmed selections."""
+    pending = _ensure_ordered_unique(st.session_state.get("pending_courses_to_offer", []))
+    confirmed = _ensure_ordered_unique(st.session_state.get("confirmed_courses_to_offer", []))
+    st.session_state.course_selection_dirty = pending != confirmed
+
+
+def _pending_differs_from_confirmed() -> bool:
+    """Compare session-state pending and confirmed course selections."""
+    return bool(st.session_state.get("course_selection_dirty", False))
+
+
+def _set_pending_courses(new_courses: List[str]) -> None:
+    """Persist pending course selections and update dirty flag."""
+    normalized = _ensure_ordered_unique(new_courses)
+    st.session_state.pending_courses_to_offer = normalized
+    _update_course_selection_dirty()
+
+
+def _set_confirmed_courses(new_courses: List[str]) -> None:
+    """Persist confirmed course selections and sync legacy state."""
+    normalized = _ensure_ordered_unique(new_courses)
+    st.session_state.confirmed_courses_to_offer = normalized
+    st.session_state.selected_courses_to_offer = list(normalized)
+    _update_course_selection_dirty()
+
+
 def course_planning_view():
     """
     Course Planning Dashboard - Suggests optimal course offerings each semester
@@ -40,9 +88,21 @@ def course_planning_view():
         st.warning("Progress report not loaded.")
         return
     
-    if "selected_courses_to_offer" not in st.session_state:
-        st.session_state.selected_courses_to_offer = []
-    
+    if "confirmed_courses_to_offer" not in st.session_state:
+        existing_selection = st.session_state.get("selected_courses_to_offer", [])
+        _set_confirmed_courses(list(existing_selection))
+    else:
+        # Maintain legacy key for backward compatibility with other modules
+        st.session_state.selected_courses_to_offer = list(st.session_state.confirmed_courses_to_offer)
+
+    if "pending_courses_to_offer" not in st.session_state:
+        _set_pending_courses(st.session_state.confirmed_courses_to_offer)
+    else:
+        st.session_state.pending_courses_to_offer = _ensure_ordered_unique(
+            st.session_state.pending_courses_to_offer
+        )
+        _update_course_selection_dirty()
+
     if "course_planning_filters" not in st.session_state:
         st.session_state.course_planning_filters = DEFAULT_COURSE_PLANNING_FILTERS.copy()
     
@@ -60,7 +120,7 @@ def course_planning_view():
             analysis_df = analyze_course_eligibility_across_students(
                 st.session_state.courses_df,
                 st.session_state.progress_df,
-                st.session_state.selected_courses_to_offer
+                st.session_state.confirmed_courses_to_offer
             )
             
             prereq_analysis = analyze_prerequisite_chains(
@@ -144,8 +204,22 @@ def _render_summary_dashboard(analysis_df: pd.DataFrame):
         st.metric("Near Grad Students", near_grad_student_total)
     
     # Simulation status
-    if st.session_state.selected_courses_to_offer:
-        st.info(f"🎯 **Simulating {len(st.session_state.selected_courses_to_offer)} course(s):** {', '.join(st.session_state.selected_courses_to_offer[:5])}{'...' if len(st.session_state.selected_courses_to_offer) > 5 else ''}")
+    confirmed_courses = st.session_state.confirmed_courses_to_offer
+    pending_courses = st.session_state.pending_courses_to_offer
+
+    if confirmed_courses:
+        st.info(
+            "🎯 **Simulating {count} course(s):** {courses}{ellipsis}".format(
+                count=len(confirmed_courses),
+                courses=", ".join(confirmed_courses[:5]),
+                ellipsis="..." if len(confirmed_courses) > 5 else ""
+            )
+        )
+
+    pending_differs = _pending_differs_from_confirmed()
+
+    if pending_differs:
+        st.caption("⚠️ Pending selection changes not yet applied. Use **Apply Selection** to refresh the simulation.")
 
 
 def _render_filter_sidebar(analysis_df: pd.DataFrame):
@@ -275,26 +349,35 @@ def _render_quick_actions():
     if st.button("👥 Select Courses (5+ Eligible)", use_container_width=True):
         st.session_state["quick_select_5plus"] = True
         st.rerun()
-    
+
     if st.button("🔄 Clear All Selections", use_container_width=True):
-        st.session_state.selected_courses_to_offer = []
+        _set_pending_courses([])
         st.rerun()
 
 
 def _render_selected_courses_panel(analysis_df: pd.DataFrame):
-    """Render panel showing currently selected courses."""
+    """Render panel showing currently confirmed courses."""
     st.markdown("### ✅ Selected Courses")
 
-    if not st.session_state.selected_courses_to_offer:
-        st.info("No courses selected")
+    confirmed_courses = st.session_state.confirmed_courses_to_offer
+    pending_courses = st.session_state.pending_courses_to_offer
+
+    pending_differs = _pending_differs_from_confirmed()
+
+    if not confirmed_courses:
+        st.info("No courses confirmed for simulation.")
+        if pending_differs:
+            st.caption("⚠️ Pending selection changes not yet applied.")
         return
 
     selected_df = analysis_df[
-        analysis_df["Course Code"].isin(st.session_state.selected_courses_to_offer)
+        analysis_df["Course Code"].isin(confirmed_courses)
     ].copy()
 
     if selected_df.empty:
-        st.info("No courses selected")
+        st.info("No courses confirmed for simulation.")
+        if pending_differs:
+            st.caption("⚠️ Pending selection changes not yet applied.")
         return
 
     # Aggregate student impact metrics
@@ -321,14 +404,14 @@ def _render_selected_courses_panel(analysis_df: pd.DataFrame):
 
     col_courses, col_students, col_near_grad, col_clear = st.columns([1, 1, 1, 0.8])
     with col_courses:
-        st.metric("Courses Selected", total_courses)
+        st.metric("Courses Confirmed", total_courses)
     with col_students:
         st.metric("Unique Students Served", total_unique_students)
     with col_near_grad:
         st.metric("Near-Grad Students", total_near_grad)
     with col_clear:
         if st.button("🧹 Clear All", use_container_width=True):
-            st.session_state.selected_courses_to_offer = []
+            _set_pending_courses([])
             st.rerun()
 
     table_rows = []
@@ -350,72 +433,69 @@ def _render_selected_courses_panel(analysis_df: pd.DataFrame):
             "Course": row.get("Course Code", ""),
             "Priority": _priority_badge(row.get("Recommendation", "")),
             "Eligible": int(row.get("Currently Eligible", 0) or 0),
-            "Remove": False,
         })
 
     selection_table = pd.DataFrame(table_rows)
 
-    edited_table = st.data_editor(
+    st.dataframe(
         selection_table,
         hide_index=True,
         use_container_width=True,
         height=min(400, 100 + len(selection_table) * 35),
-        column_config={
-            "Course": st.column_config.TextColumn("Course", width="small"),
-            "Priority": st.column_config.TextColumn("Priority", width="medium"),
-            "Eligible": st.column_config.NumberColumn("Eligible", format="%d", width="small"),
-            "Remove": st.column_config.CheckboxColumn("Remove", help="Mark to remove from plan"),
-        },
-        key="selected_courses_editor",
     )
 
-    courses_to_remove = edited_table[edited_table["Remove"] == True]["Course"].tolist()
-
-    if courses_to_remove:
-        st.session_state.selected_courses_to_offer = [
-            course for course in st.session_state.selected_courses_to_offer
-            if course not in courses_to_remove
-        ]
-        st.rerun()
+    if pending_differs:
+        st.caption("⚠️ Pending selection changes not yet applied. Apply updates from the Course Selection tab.")
 
 
 def _render_course_selection_table(analysis_df: pd.DataFrame):
     """Render the main course selection table with filters applied."""
     st.markdown("### 📋 Course Selection")
     st.caption("Select rows to add/remove courses from your offering plan. Click column headers to sort.")
-    
+
     # Apply filters
     filtered_df = _apply_filters(analysis_df)
-    
+
     if filtered_df.empty:
         st.warning("No courses match the current filters. Adjust your filters to see more results.")
         return
-    
+
+    pending_courses = list(st.session_state.pending_courses_to_offer)
+    confirmed_courses = st.session_state.confirmed_courses_to_offer
+
     # Handle quick actions
     if st.session_state.get("quick_select_critical", False):
         critical_courses = filtered_df[filtered_df["Recommendation"].str.contains("🔴 Critical", na=False)]["Course Code"].tolist()
+        updated_pending = pending_courses.copy()
         for course in critical_courses:
-            if course not in st.session_state.selected_courses_to_offer:
-                st.session_state.selected_courses_to_offer.append(course)
+            if course not in updated_pending:
+                updated_pending.append(course)
+        _set_pending_courses(updated_pending)
         st.session_state["quick_select_critical"] = False
         st.rerun()
-    
+
     if st.session_state.get("quick_select_top10", False):
         top10 = filtered_df.nlargest(10, "Priority Score")["Course Code"].tolist()
+        updated_pending = pending_courses.copy()
         for course in top10:
-            if course not in st.session_state.selected_courses_to_offer:
-                st.session_state.selected_courses_to_offer.append(course)
+            if course not in updated_pending:
+                updated_pending.append(course)
+        _set_pending_courses(updated_pending)
         st.session_state["quick_select_top10"] = False
         st.rerun()
-    
+
     if st.session_state.get("quick_select_5plus", False):
         five_plus = filtered_df[filtered_df["Currently Eligible"] >= 5]["Course Code"].tolist()
+        updated_pending = pending_courses.copy()
         for course in five_plus:
-            if course not in st.session_state.selected_courses_to_offer:
-                st.session_state.selected_courses_to_offer.append(course)
+            if course not in updated_pending:
+                updated_pending.append(course)
+        _set_pending_courses(updated_pending)
         st.session_state["quick_select_5plus"] = False
         st.rerun()
-    
+
+    pending_courses = list(st.session_state.pending_courses_to_offer)
+
     # Prepare display dataframe
     display_df = filtered_df[[
         "Course Code",
@@ -433,7 +513,7 @@ def _render_course_selection_table(analysis_df: pd.DataFrame):
     display_df = display_df.sort_values("Priority Score", ascending=False)
     
     # Prepare display with selection column
-    display_df["Select"] = display_df["Course Code"].isin(st.session_state.selected_courses_to_offer)
+    display_df["Select"] = display_df["Course Code"].isin(pending_courses)
     
     # Add priority emoji column for visual clarity
     def get_priority_emoji(rec):
@@ -493,15 +573,52 @@ def _render_course_selection_table(analysis_df: pd.DataFrame):
         key="course_selection_editor"
     )
     
-    # Update selected courses based on checkbox changes
+    # Update pending courses based on checkbox changes
     # The data editor automatically triggers rerun on changes
-    new_selected_courses = set(edited_df[edited_df["Select"] == True]["Code"].tolist())
-    current_selected = set(st.session_state.selected_courses_to_offer)
-    
-    # Update session state if selection changed
-    if new_selected_courses != current_selected:
-        st.session_state.selected_courses_to_offer = list(new_selected_courses)
-    
+    new_selected_courses = []
+    for code in edited_df[edited_df["Select"] == True]["Code"].tolist():
+        if code not in new_selected_courses:
+            new_selected_courses.append(code)
+
+    if new_selected_courses != list(pending_courses):
+        current_pending = list(pending_courses)
+        if _courses_differ(new_selected_courses, current_pending):
+            preserved = [code for code in current_pending if code in new_selected_courses]
+            additions = [code for code in new_selected_courses if code not in preserved]
+            _set_pending_courses(preserved + additions)
+        else:
+            _set_pending_courses(current_pending)
+
+    pending_courses = list(st.session_state.pending_courses_to_offer)
+    pending_differs = _pending_differs_from_confirmed()
+
+    actions_col = st.container()
+    with actions_col:
+        col_apply, col_discard = st.columns(2)
+        with col_apply:
+            if st.button(
+                "Apply Selection",
+                key="course_selection_apply",
+                use_container_width=True,
+                type="primary",
+                disabled=not pending_differs
+            ):
+                _set_confirmed_courses(list(pending_courses))
+                _set_pending_courses(list(pending_courses))
+                st.rerun()
+        with col_discard:
+            if st.button(
+                "Discard Changes",
+                key="course_selection_discard",
+                use_container_width=True,
+                disabled=not pending_differs
+            ):
+                _set_pending_courses(list(confirmed_courses))
+                st.rerun()
+
+    if pending_differs:
+        st.caption("⚠️ Pending selection changes not yet applied. Apply changes to refresh the simulation metrics.")
+
     # Course details expander
     if len(filtered_df) > 0:
         with st.expander("🔍 View Detailed Student Information"):
@@ -724,12 +841,20 @@ def _render_analysis_insights(analysis_df: pd.DataFrame, prereq_analysis: dict):
                     st.metric("One-Away", int(row["One Course Away"]))
                     st.caption(f"Priority: {row['Priority Score']:.1f}")
                     
-                    if row["Course Code"] not in st.session_state.selected_courses_to_offer:
-                        if st.button("➕ Add", key=f"quick_add_{row['Course Code']}", use_container_width=True):
-                            st.session_state.selected_courses_to_offer.append(row["Course Code"])
+                    course_code = row["Course Code"]
+                    pending_courses = st.session_state.pending_courses_to_offer
+                    confirmed_courses = st.session_state.confirmed_courses_to_offer
+
+                    if course_code not in pending_courses:
+                        if st.button("➕ Add", key=f"quick_add_{course_code}", use_container_width=True):
+                            updated_pending = list(pending_courses) + [course_code]
+                            _set_pending_courses(updated_pending)
                             st.rerun()
                     else:
-                        st.success("✅ Selected")
+                        if course_code in confirmed_courses:
+                            st.success("✅ Confirmed")
+                        else:
+                            st.info("⏳ Pending Apply")
 
 
 def _render_visualizations(analysis_df: pd.DataFrame, prereq_analysis: dict):
