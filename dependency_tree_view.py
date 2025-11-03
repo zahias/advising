@@ -189,12 +189,13 @@ def _render_plotly_graph(G, pos, edge_data):
         
         # Create edge traces
         edge_traces = []
+        annotations = []
         
         # Group edges by type for better visualization
         prereq_edges = [e for e in edge_data if e['type'] == 'prerequisite']
         concurrent_edges = [e for e in edge_data if e['type'] == 'concurrent']
         
-        # Prerequisite edges (black)
+        # Prerequisite edges (black) with arrowheads
         if prereq_edges:
             edge_x = []
             edge_y = []
@@ -203,10 +204,26 @@ def _render_plotly_graph(G, pos, edge_data):
                 x1, y1 = pos[edge['to']]
                 edge_x.extend([x0, x1, None])
                 edge_y.extend([y0, y1, None])
+                
+                # Add arrowhead annotation
+                annotations.append(
+                    dict(
+                        ax=x0, ay=y0,
+                        x=x1, y=y1,
+                        xref='x', yref='y',
+                        axref='x', ayref='y',
+                        showarrow=True,
+                        arrowhead=2,
+                        arrowsize=1,
+                        arrowwidth=1.5,
+                        arrowcolor='black',
+                        opacity=0.7
+                    )
+                )
             
             edge_trace_prereq = go.Scatter(
                 x=edge_x, y=edge_y,
-                line=dict(width=1.5, color='black'),
+                line=dict(width=0),  # Make line invisible, arrows will show
                 hoverinfo='none',
                 mode='lines',
                 name='Prerequisite',
@@ -214,7 +231,7 @@ def _render_plotly_graph(G, pos, edge_data):
             )
             edge_traces.append(edge_trace_prereq)
         
-        # Concurrent edges (red)
+        # Concurrent edges (red) with arrowheads
         if concurrent_edges:
             edge_x = []
             edge_y = []
@@ -223,10 +240,26 @@ def _render_plotly_graph(G, pos, edge_data):
                 x1, y1 = pos[edge['to']]
                 edge_x.extend([x0, x1, None])
                 edge_y.extend([y0, y1, None])
+                
+                # Add arrowhead annotation
+                annotations.append(
+                    dict(
+                        ax=x0, ay=y0,
+                        x=x1, y=y1,
+                        xref='x', yref='y',
+                        axref='x', ayref='y',
+                        showarrow=True,
+                        arrowhead=2,
+                        arrowsize=1,
+                        arrowwidth=2,
+                        arrowcolor='red',
+                        opacity=0.7
+                    )
+                )
             
             edge_trace_concurrent = go.Scatter(
                 x=edge_x, y=edge_y,
-                line=dict(width=2, color='red'),
+                line=dict(width=0),  # Make line invisible, arrows will show
                 hoverinfo='none',
                 mode='lines',
                 name='Concurrent',
@@ -234,52 +267,82 @@ def _render_plotly_graph(G, pos, edge_data):
             )
             edge_traces.append(edge_trace_concurrent)
         
-        # Create node trace
+        # Create course boxes using shapes instead of markers
+        shapes = []
+        box_annotations = []
         node_x = []
         node_y = []
-        node_colors = []
-        node_text = []
-        node_hover = []
+        
+        box_width = 0.6
+        box_height = 0.35
         
         for node in G.nodes():
             x, y = pos[node]
             node_x.append(x)
             node_y.append(y)
-            node_colors.append(G.nodes[node]['color'])
-            node_text.append(node)
-            
-            # Create hover text
+            color = G.nodes[node]['color']
             title = G.nodes[node].get('title', '')
-            hover_text = f"<b>{node}</b><br>{title}"
-            node_hover.append(hover_text)
+            
+            # Truncate title if too long
+            if len(title) > 20:
+                title = title[:20] + "..."
+            
+            # Add rectangular box shape
+            shapes.append(
+                dict(
+                    type='rect',
+                    x0=x - box_width/2,
+                    y0=y - box_height/2,
+                    x1=x + box_width/2,
+                    y1=y + box_height/2,
+                    line=dict(color='black', width=2),
+                    fillcolor=color,
+                    opacity=1
+                )
+            )
+            
+            # Add course code and title as text annotation
+            box_text = f"<b>{node}</b>"
+            if title:
+                box_text += f"<br><span style='font-size:7px'>{title}</span>"
+            
+            box_annotations.append(
+                dict(
+                    x=x,
+                    y=y,
+                    text=box_text,
+                    showarrow=False,
+                    font=dict(size=9, color='black'),
+                    xref='x',
+                    yref='y'
+                )
+            )
         
+        # Create invisible node trace to anchor isolated nodes in viewport
         node_trace = go.Scatter(
-            x=node_x, y=node_y,
-            mode='markers+text',
-            text=node_text,
-            textposition="middle center",
-            textfont=dict(size=8, color='black'),
-            hovertext=node_hover,
-            hoverinfo='text',
-            marker=dict(
-                size=30,
-                color=node_colors,
-                line=dict(width=2, color='black')
-            ),
-            name='Courses',
+            x=node_x,
+            y=node_y,
+            mode='markers',
+            marker=dict(size=0.1, opacity=0),
+            hoverinfo='none',
             showlegend=False
         )
         
-        # Create figure
+        # Combine arrow annotations with box annotations
+        all_annotations = annotations + box_annotations
+        
+        # Create figure with boxes and invisible node trace for viewport anchoring
         fig = go.Figure(data=edge_traces + [node_trace],
                        layout=go.Layout(
                            showlegend=True,
                            hovermode='closest',
-                           margin=dict(b=0, l=0, r=0, t=0),
+                           margin=dict(b=20, l=20, r=20, t=20),
                            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
                            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
                            plot_bgcolor='white',
-                           height=800
+                           height=900,
+                           shapes=shapes,
+                           annotations=all_annotations
                        ))
         
         st.plotly_chart(fig, use_container_width=True)
