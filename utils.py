@@ -120,13 +120,20 @@ def check_eligibility(
     course_code: str,
     advised_courses: List[str],
     courses_df: pd.DataFrame,
+    registered_courses: List[str] = None,
 ) -> Tuple[str, str]:
     """
     Returns (status, justification).
     status in {'Eligible','Not Eligible','Completed','Registered'}
 
     As agreed: *currently registered* satisfies requisites and is **noted**.
+    
+    registered_courses: List of courses the student is registered for (including simulated).
+                        Used for concurrent/corequisite checks only, NOT prerequisites.
     """
+    if registered_courses is None:
+        registered_courses = []
+    
     # Completed / Registered short-circuit
     if check_course_completed(student_row, course_code):
         return "Completed", "Already completed."
@@ -148,28 +155,41 @@ def check_eligibility(
     if not is_course_offered(courses_df, course_code):
         reasons.append("Course not offered.")
 
-    def _satisfies(token: str) -> bool:
+    def _satisfies_prerequisite(token: str) -> bool:
         tok = token.strip()
-        # Standing clauses
         if "standing" in tok.lower():
             return _standing_satisfies(tok, standing)
-        # Course tokens: completed OR registered OR advised
+        comp = check_course_completed(student_row, tok)
+        adv = tok in (advised_courses or [])
+        return comp or adv
+    
+    def _satisfies_concurrent_or_coreq(token: str) -> bool:
+        tok = token.strip()
+        if "standing" in tok.lower():
+            return _standing_satisfies(tok, standing)
         comp = check_course_completed(student_row, tok)
         reg = check_course_registered(student_row, tok)
         adv = tok in (advised_courses or [])
-        if reg:
+        sim = tok in (registered_courses or [])
+        if reg or sim:
             notes.append(f"Requirement '{tok}' satisfied by current registration.")
-        return comp or reg or adv
+        return comp or reg or adv or sim
 
-    # Apply to all requirement columns
+    # Prerequisites: Only completed or advised courses satisfy
+    prereq_str = course_row["Prerequisite"].iloc[0] if "Prerequisite" in course_row.columns else ""
+    prereqs = parse_requirements(prereq_str)
+    for r in prereqs:
+        if not _satisfies_prerequisite(r):
+            reasons.append(f"Prerequisite '{r}' not satisfied.")
+    
+    # Concurrent/Corequisites: Completed, registered, advised, OR simulated courses satisfy
     for col, label in [
-        ("Prerequisite", "Prerequisite"),
         ("Concurrent", "Concurrent requirement"),
         ("Corequisite", "Corequisite"),
     ]:
         reqs = parse_requirements(course_row[col].iloc[0] if col in course_row.columns else "")
         for r in reqs:
-            if not _satisfies(r):
+            if not _satisfies_concurrent_or_coreq(r):
                 reasons.append(f"{label} '{r}' not satisfied.")
 
     if reasons:
