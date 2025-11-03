@@ -246,7 +246,25 @@ def _render_all_students():
                 statuses.append(status_code(row_original, sid, course, student_simulated))
             table_df[course] = statuses
 
-        export_df = table_df.copy()
+        requisites_row = {
+            "NAME": "📋 REQUISITES",
+            "ID": "",
+            "Total Credits Completed": "",
+            "Remaining Credits": "",
+            "Standing": "",
+            "Advising Status": "",
+        }
+        for course in selected:
+            course_info = courses_df.loc[courses_df["Course Code"] == course]
+            if not course_info.empty:
+                requisites_row[course] = build_requisites_str(course_info.iloc[0])
+            else:
+                requisites_row[course] = ""
+        
+        requisites_df = pd.DataFrame([requisites_row])
+        table_df_with_req = pd.concat([requisites_df, table_df], ignore_index=True)
+
+        export_df = table_df_with_req.copy()
         display_df = export_df.set_index("NAME")
         display_df.index.name = "Student"
 
