@@ -185,7 +185,7 @@ def _render_all_students():
                     if sim_course in simulated_completions[sid]:
                         continue
                     
-                    stt, _ = check_eligibility(row_original, sim_course, advised_list + simulated_completions[sid], st.session_state.courses_df)
+                    stt, _ = check_eligibility(row_original, sim_course, advised_list, st.session_state.courses_df, registered_courses=simulated_completions[sid])
                     if stt == "Eligible":
                         simulated_completions[sid].append(sim_course)
                         added_this_iteration = True
@@ -212,7 +212,7 @@ def _render_all_students():
         if course in advised_list:
             return "a"
 
-        stt, _ = check_eligibility(row_original, course, advised_list + simulated_for_student, st.session_state.courses_df)
+        stt, _ = check_eligibility(row_original, course, advised_list, st.session_state.courses_df, registered_courses=simulated_for_student)
         return "na" if stt == "Eligible" else "ne"
 
     def render_course_table(label: str, course_codes: list[str], key_suffix: str):
@@ -351,7 +351,7 @@ def _render_individual_student():
         elif c in advised_list:
             data[c] = ["a"]
         else:
-            stt, _ = check_eligibility(row_original, c, advised_list, st.session_state.courses_df)
+            stt, _ = check_eligibility(row_original, c, advised_list, st.session_state.courses_df, registered_courses=[])
             data[c] = ["na" if stt == "Eligible" else "ne"]
 
     indiv_df = pd.DataFrame(data)
@@ -431,7 +431,7 @@ def _render_individual_student():
                 srow = st.session_state.progress_df.loc[st.session_state.progress_df["ID"] == sid_].iloc[0]
                 data_rows = {"Course Code": [], "Action": [], "Eligibility Status": [], "Justification": []}
                 for cc in st.session_state.courses_df["Course Code"]:
-                    status, just = check_eligibility(srow, cc, sel_.get("advised", []), st.session_state.courses_df)
+                    status, just = check_eligibility(srow, cc, sel_.get("advised", []), st.session_state.courses_df, registered_courses=[])
                     if check_course_completed(srow, cc):
                         action = "Completed"; status = "Completed"
                     elif check_course_registered(srow, cc):

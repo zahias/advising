@@ -53,7 +53,7 @@ def get_student_eligibility_status(
     if advised_courses is None:
         advised_courses = []
     
-    status, justification = check_eligibility(student_row, course_code, advised_courses or [], courses_df)
+    status, justification = check_eligibility(student_row, course_code, advised_courses or [], courses_df, registered_courses=[])
     
     missing_prereqs = []
     

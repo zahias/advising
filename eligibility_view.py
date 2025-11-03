@@ -147,7 +147,7 @@ def student_eligibility_view():
         if code in hidden_for_student:
             continue
         status, justification = check_eligibility(
-            student_row, code, current_advised_for_checks, st.session_state.courses_df
+            student_row, code, current_advised_for_checks, st.session_state.courses_df, registered_courses=[]
         )
         status_dict[code] = status
         justification_dict[code] = justification

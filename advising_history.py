@@ -273,7 +273,7 @@ def _snapshot_student_courses(student_row: pd.Series, advised: List[str], option
     for _, info in cdf.iterrows():
         code = str(info["Course Code"])
         offered = "Yes" if is_course_offered(cdf, code) else "No"
-        status, justification = check_eligibility(student_row, code, advised, cdf)
+        status, justification = check_eligibility(student_row, code, advised, cdf, registered_courses=[])
 
         # Action column should ONLY show advisor selections
         if code in repeat:
