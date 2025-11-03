@@ -70,30 +70,33 @@ def _render_all_students():
     st.markdown("### 🎯 Course Offering Simulation")
     st.caption("Select courses you plan to offer. The table below will update to show eligibility assuming all eligible students register for selected courses.")
     
-    col_select, col_actions = st.columns([3, 1])
-    
-    with col_select:
-        available_courses = st.session_state.courses_df["Course Code"].tolist()
-        selected_sim_courses = st.multiselect(
-            "Select courses to simulate",
-            options=available_courses,
-            default=st.session_state.simulated_courses,
-            key="course_sim_multiselect",
-            help="Choose courses that will be offered. Eligible students will be assumed to register for these courses."
-        )
-    
-    with col_actions:
-        st.write("")
-        st.write("")
-        col_apply, col_clear = st.columns(2)
-        with col_apply:
-            if st.button("✅ Apply", key="apply_simulation", width="stretch", type="primary"):
-                st.session_state.simulated_courses = selected_sim_courses
-                st.rerun()
-        with col_clear:
-            if st.button("🔄 Clear", key="clear_simulation", width="stretch"):
-                st.session_state.simulated_courses = []
-                st.rerun()
+    with st.form("simulation_form"):
+        col_select, col_actions = st.columns([3, 1])
+        
+        with col_select:
+            available_courses = st.session_state.courses_df["Course Code"].tolist()
+            selected_sim_courses = st.multiselect(
+                "Select courses to simulate",
+                options=available_courses,
+                default=st.session_state.simulated_courses,
+                help="Choose courses that will be offered. Eligible students will be assumed to register for these courses."
+            )
+        
+        with col_actions:
+            st.write("")
+            st.write("")
+            col_apply, col_clear = st.columns(2)
+            with col_apply:
+                apply_clicked = st.form_submit_button("✅ Apply", type="primary", use_container_width=True)
+            with col_clear:
+                clear_clicked = st.form_submit_button("🔄 Clear", use_container_width=True)
+        
+        if apply_clicked:
+            st.session_state.simulated_courses = selected_sim_courses
+            st.rerun()
+        if clear_clicked:
+            st.session_state.simulated_courses = []
+            st.rerun()
     
     if st.session_state.simulated_courses:
         st.info(f"🎬 **Simulation Active:** {len(st.session_state.simulated_courses)} course(s) selected - {', '.join(st.session_state.simulated_courses[:5])}{' ...' if len(st.session_state.simulated_courses) > 5 else ''}")

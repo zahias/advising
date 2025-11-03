@@ -15,6 +15,7 @@ from openpyxl.workbook import Workbook
 STATUS_COLORS = {
     "c": "C6E0B4",    # Completed -> light green
     "r": "BDD7EE",    # Registered -> light blue
+    "s": "D9E1F2",    # Simulated (will register) -> purple/blue
     "a": "FFF2CC",    # Advised -> light yellow
     "ar": "FFD966",   # Advised-Repeat -> darker yellow/orange
     "o": "FFE699",    # Optional -> light orange
@@ -98,6 +99,7 @@ def add_summary_sheet(writer: pd.ExcelWriter, df: pd.DataFrame, course_cols: lis
                 "Course": course,
                 "Completed (c)": values.get("c", 0),
                 "Registered (r)": values.get("r", 0),
+                "Simulated (s)": values.get("s", 0),
                 "Advised (a)": values.get("a", 0),
                 "Advised-Repeat (ar)": values.get("ar", 0),
                 "Optional (o)": values.get("o", 0),
