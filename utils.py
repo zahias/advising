@@ -160,8 +160,11 @@ def check_eligibility(
         if "standing" in tok.lower():
             return _standing_satisfies(tok, standing)
         comp = check_course_completed(student_row, tok)
+        reg = check_course_registered(student_row, tok)
         adv = tok in (advised_courses or [])
-        return comp or adv
+        if reg:
+            notes.append(f"Prerequisite '{tok}' satisfied by current registration.")
+        return comp or reg or adv
     
     def _satisfies_concurrent_or_coreq(token: str) -> bool:
         tok = token.strip()
