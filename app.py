@@ -446,14 +446,46 @@ def _render_advising_panel_safely():
         st.exception(e)
         log_error("Advising Sessions panel error", e)
 
+# ---------- Navigation (always available) ----------
+# Initialize active view in session state if not set
+if "active_view" not in st.session_state:
+    st.session_state.active_view = "Student Eligibility View"
+
+# View selector in sidebar (always shown, but disabled when no data)
+has_data = not st.session_state.progress_df.empty and not st.session_state.courses_df.empty
+
+with st.sidebar:
+    st.markdown("---")
+    st.markdown("### 📑 Navigation")
+    view_options = ["Student Eligibility View", "Full Student View", "Course Planning"]
+    
+    if has_data:
+        st.session_state.active_view = st.radio(
+            "Select View",
+            options=view_options,
+            index=view_options.index(st.session_state.active_view),
+            key="view_selector",
+            label_visibility="collapsed"
+        )
+    else:
+        st.radio(
+            "Select View",
+            options=view_options,
+            index=0,
+            key="view_selector_disabled",
+            label_visibility="collapsed",
+            disabled=True
+        )
+        st.caption("Upload data to enable navigation")
+
 # ---------- Main ----------
-if not st.session_state.progress_df.empty and not st.session_state.courses_df.empty:
-    tab1, tab2, tab3 = st.tabs(["Student Eligibility View", "Full Student View", "Course Planning"])
-    with tab1:
+if has_data:
+    # Render selected view
+    if st.session_state.active_view == "Student Eligibility View":
         student_eligibility_view()
-    with tab2:
+    elif st.session_state.active_view == "Full Student View":
         full_student_view()
-    with tab3:
+    elif st.session_state.active_view == "Course Planning":
         course_planning_view()
 
     # Advising Sessions (per major)

@@ -10,7 +10,7 @@ from course_planning import (
     analyze_course_eligibility_across_students,
     analyze_prerequisite_chains
 )
-from utils import log_info, log_error
+from utils import log_info, log_error, parse_requirements
 from reporting import apply_excel_formatting
 
 
@@ -952,6 +952,138 @@ def _render_visualizations(analysis_df: pd.DataFrame, prereq_analysis: dict):
         bottleneck_df = pd.DataFrame(bottlenecks[:15], columns=["Course", "Unlocks"])
         bottleneck_df = bottleneck_df.set_index("Course")
         st.bar_chart(bottleneck_df, width="stretch")
+    
+    # Course Dependency Tree
+    st.markdown("---")
+    st.markdown("#### 🌳 Course Dependency Tree")
+    st.markdown("Select a course to view its prerequisite relationships:")
+    
+    courses_df = st.session_state.courses_df
+    all_courses = sorted(courses_df["Course Code"].tolist())
+    
+    selected_course = st.selectbox(
+        "Select course to visualize dependencies",
+        options=all_courses,
+        key="dep_tree_course_selector"
+    )
+    
+    if selected_course:
+        _render_dependency_tree(selected_course, courses_df)
+
+
+def _render_dependency_tree(course_code: str, courses_df: pd.DataFrame):
+    """Render an interactive dependency tree for a selected course."""
+    course_row = courses_df.loc[courses_df["Course Code"] == course_code]
+    
+    if course_row.empty:
+        st.warning(f"Course {course_code} not found in courses table.")
+        return
+    
+    course_info = course_row.iloc[0]
+    
+    # Get prerequisites, concurrent, and corequisites - ensure they're clean strings
+    def clean_requirements(reqs_list):
+        """Filter and clean requirement list to only include valid course codes and standing requirements."""
+        cleaned = []
+        for req in reqs_list:
+            # Convert to string and strip whitespace
+            req_str = str(req).strip()
+            # Skip empty, None, or complex objects
+            if not req_str or req_str == 'nan' or req_str == 'None':
+                continue
+            # Only include alphanumeric codes or standing requirements
+            if req_str and (req_str[0].isalpha() or 'standing' in req_str.lower()):
+                cleaned.append(req_str)
+        return cleaned
+    
+    prereqs = clean_requirements(parse_requirements(course_info.get("Prerequisite", "")))
+    concurrents = clean_requirements(parse_requirements(course_info.get("Concurrent", "")))
+    coreqs = clean_requirements(parse_requirements(course_info.get("Corequisite", "")))
+    
+    # Display main course
+    st.markdown(f"### 🎯 {course_code}")
+    st.caption(course_info.get("Course Title", ""))
+    
+    # Show incoming dependencies
+    if prereqs or concurrents or coreqs:
+        st.markdown("**Requirements for this course:**")
+        
+        if prereqs:
+            st.markdown("**Prerequisites** (must complete first):")
+            for prereq in prereqs:
+                if not prereq.lower().startswith("standing"):
+                    st.markdown(f"  └─ 🔴 **{prereq}** *(must complete before)*")
+                else:
+                    st.markdown(f"  └─ 🔴 {prereq}")
+        
+        if concurrents:
+            st.markdown("**Concurrent Requirements** (take at same time):")
+            for conc in concurrents:
+                if not conc.lower().startswith("standing"):
+                    st.markdown(f"  └─ 🟡 **{conc}** *(register concurrently)*")
+                else:
+                    st.markdown(f"  └─ 🟡 {conc}")
+        
+        if coreqs:
+            st.markdown("**Corequisites** (closely related):")
+            for coreq in coreqs:
+                if not coreq.lower().startswith("standing"):
+                    st.markdown(f"  └─ 🟢 **{coreq}** *(corequisite)*")
+                else:
+                    st.markdown(f"  └─ 🟢 {coreq}")
+    else:
+        st.info("This course has no prerequisites, concurrent requirements, or corequisites.")
+    
+    # Show outgoing dependencies (courses that depend on this course)
+    st.markdown("---")
+    st.markdown("**Courses that require this course:**")
+    
+    def clean_requirements(reqs_list):
+        """Filter and clean requirement list."""
+        cleaned = []
+        for req in reqs_list:
+            req_str = str(req).strip()
+            if not req_str or req_str == 'nan' or req_str == 'None':
+                continue
+            if req_str and (req_str[0].isalpha() or 'standing' in req_str.lower()):
+                cleaned.append(req_str)
+        return cleaned
+    
+    dependent_courses = []
+    for _, other_course_row in courses_df.iterrows():
+        other_code = other_course_row["Course Code"]
+        if other_code == course_code:
+            continue
+        
+        other_prereqs = clean_requirements(parse_requirements(other_course_row.get("Prerequisite", "")))
+        other_concs = clean_requirements(parse_requirements(other_course_row.get("Concurrent", "")))
+        other_coreqs = clean_requirements(parse_requirements(other_course_row.get("Corequisite", "")))
+        
+        if course_code in other_prereqs:
+            dependent_courses.append((other_code, "prerequisite", "🔴"))
+        if course_code in other_concs:
+            dependent_courses.append((other_code, "concurrent", "🟡"))
+        if course_code in other_coreqs:
+            dependent_courses.append((other_code, "corequisite", "🟢"))
+    
+    if dependent_courses:
+        for dep_code, dep_type, icon in sorted(dependent_courses):
+            dep_row = courses_df.loc[courses_df["Course Code"] == dep_code]
+            dep_title = dep_row.iloc[0].get("Course Title", "") if not dep_row.empty else ""
+            st.markdown(f"  ├─ {icon} **{dep_code}** *({dep_type})* - {dep_title}")
+    else:
+        st.info("No other courses list this as a requirement.")
+    
+    # Legend
+    st.markdown("---")
+    st.markdown("**Legend:**")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown("🔴 **Prerequisite** (complete first)")
+    with col2:
+        st.markdown("🟡 **Concurrent** (take together)")
+    with col3:
+        st.markdown("🟢 **Corequisite** (closely related)")
 
 
 def _render_export_options(analysis_df: pd.DataFrame, prereq_analysis: dict):
