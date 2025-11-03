@@ -160,17 +160,27 @@ def _get_semester_structure(courses_df):
     semesters = {sem: [] for sem in semester_order}
     
     # Check if courses table has suggested semester column
+    # Explicitly prefer "Suggested Semester" to avoid grabbing "Semester Offered"
     semester_col = None
     for col in courses_df.columns:
-        if 'semester' in col.lower() or 'suggested' in col.lower():
+        if 'suggested' in col.lower() and 'semester' in col.lower():
             semester_col = col
             break
+    
+    # Fallback: look for any semester-like column if no "suggested semester" found
+    if not semester_col:
+        for col in courses_df.columns:
+            col_lower = col.lower()
+            if 'semester' in col_lower and 'offered' not in col_lower:
+                semester_col = col
+                break
     
     if semester_col:
         # Use semester column from data
         for _, course_row in courses_df.iterrows():
-            semester = course_row.get(semester_col, "")
-            if pd.notna(semester) and semester in semesters:
+            semester = str(course_row.get(semester_col, "")).strip()
+            # Normalize semester value and check if it matches expected format
+            if pd.notna(semester) and semester and semester in semesters:
                 semesters[semester].append({
                     'code': course_row["Course Code"],
                     'title': course_row.get("Course Title", course_row.get("Title", "")),
