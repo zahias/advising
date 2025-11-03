@@ -24,26 +24,30 @@ def degree_plan_view():
     
     # Student selector
     st.markdown("### Select Student")
-    students = progress_df["Student Name"].unique().tolist()
     
-    if not students:
+    # Build student display list (NAME — ID)
+    students_df = progress_df.copy()
+    students_df["DISPLAY"] = students_df["NAME"].astype(str) + " — " + students_df["ID"].astype(str)
+    student_displays = students_df["DISPLAY"].unique().tolist()
+    
+    if not student_displays:
         st.warning("No students found in progress data.")
         _render_empty_degree_plan(courses_df)
         return
     
-    selected_student = st.selectbox(
+    selected_display = st.selectbox(
         "Student",
-        options=students,
+        options=student_displays,
         key="degree_plan_student_selector"
     )
     
     # Get student progress
-    student_data = progress_df[progress_df["Student Name"] == selected_student].iloc[0]
+    student_data = students_df[students_df["DISPLAY"] == selected_display].iloc[0]
     
     # Display student info
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Student ID", student_data.get("Student ID", "N/A"))
+        st.metric("Student ID", student_data.get("ID", "N/A"))
     with col2:
         st.metric("Standing", student_data.get("Standing", "N/A"))
     with col3:
