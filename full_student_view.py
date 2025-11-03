@@ -8,6 +8,7 @@ from utils import (
     check_course_registered,
     check_eligibility,
     get_student_standing,
+    build_requisites_str,
     style_df,          # kept (used elsewhere in app)
     log_info,
     log_error
