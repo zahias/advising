@@ -186,7 +186,7 @@ def _render_all_students():
                     if sim_course in simulated_completions[sid]:
                         continue
                     
-                    stt, _ = check_eligibility(row_original, sim_course, advised_list, st.session_state.courses_df, registered_courses=simulated_completions[sid])
+                    stt, _ = check_eligibility(row_original, sim_course, advised_list, st.session_state.courses_df, registered_courses=simulated_completions[sid], ignore_offered=True)
                     if stt == "Eligible":
                         simulated_completions[sid].append(sim_course)
                         added_this_iteration = True
@@ -213,7 +213,7 @@ def _render_all_students():
         if course in advised_list:
             return "a"
 
-        stt, _ = check_eligibility(row_original, course, advised_list, st.session_state.courses_df, registered_courses=simulated_for_student)
+        stt, _ = check_eligibility(row_original, course, advised_list, st.session_state.courses_df, registered_courses=simulated_for_student, ignore_offered=True)
         return "na" if stt == "Eligible" else "ne"
 
     def render_course_table(label: str, course_codes: list[str], key_suffix: str):

@@ -121,6 +121,7 @@ def check_eligibility(
     advised_courses: List[str],
     courses_df: pd.DataFrame,
     registered_courses: List[str] = None,
+    ignore_offered: bool = False,
 ) -> Tuple[str, str]:
     """
     Returns (status, justification).
@@ -130,6 +131,8 @@ def check_eligibility(
     
     registered_courses: List of courses the student is registered for (including simulated).
                         Used for concurrent/corequisite checks only, NOT prerequisites.
+    ignore_offered: If True, skip the "Course not offered" check. Used by Full Student View
+                    for planning purposes where offered status doesn't matter.
     """
     if registered_courses is None:
         registered_courses = []
@@ -151,8 +154,8 @@ def check_eligibility(
     reasons: List[str] = []
     notes: List[str] = []
 
-    # Offered?
-    if not is_course_offered(courses_df, course_code):
+    # Offered? (skip check if ignore_offered=True for planning views)
+    if not ignore_offered and not is_course_offered(courses_df, course_code):
         reasons.append("Course not offered.")
 
     def _satisfies_prerequisite(token: str) -> bool:
