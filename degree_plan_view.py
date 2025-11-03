@@ -173,36 +173,58 @@ def _get_semester_structure(courses_df):
             if pd.notna(semester) and semester in semesters:
                 semesters[semester].append({
                     'code': course_row["Course Code"],
-                    'title': course_row.get("Course Title", ""),
+                    'title': course_row.get("Course Title", course_row.get("Title", "")),
                     'credits': course_row.get("Credits", 3)
                 })
     else:
-        # Default: organize by course level (100s = Year 1, 200s = Year 2, etc.)
+        # PBHL Curriculum from official degree plan (PDF pages 9-10)
+        pbhl_curriculum = {
+            "Fall 1": ["BIOL201", "ENGL201", "CHEM201", "CHEM209", "PBHL201", "CHEM210"],
+            "Spring 1": ["ENGL202", "CIVL201", "CHEM202", "COMM201", "PBHL202"],
+            "Summer 1": [],  # Free Elective
+            "Fall 2": ["CIVL202", "CMPS202", "PBHL203", "PBHL204", "PBHL212"],
+            "Spring 2": ["ARAB201", "STAT201", "ACCT201", "PBHL220", "COMM214", "PBHL270"],
+            "Summer 2": ["PBHL282"],  # Professional Internship
+            "Fall 3": ["MNGT201", "PBHL211", "PBHL206", "PBHL207", "PBHL208"],
+            "Spring 3": ["SOCL210", "PBHL205", "PBHL213", "PBHL280", "PBHL281"]
+        }
+        
+        # Map courses to semesters based on PBHL curriculum
+        for semester, course_codes in pbhl_curriculum.items():
+            for course_code in course_codes:
+                course_row = courses_df[courses_df["Course Code"] == course_code]
+                if not course_row.empty:
+                    row = course_row.iloc[0]
+                    semesters[semester].append({
+                        'code': course_code,
+                        'title': row.get("Course Title", row.get("Title", "")),
+                        'credits': row.get("Credits", 3)
+                    })
+        
+        # Add remaining courses not in PBHL curriculum (for other majors or electives)
+        assigned_courses = set()
+        for sem_courses in pbhl_curriculum.values():
+            assigned_courses.update(sem_courses)
+        
         for _, course_row in courses_df.iterrows():
             course_code = course_row["Course Code"]
-            
-            # Extract course number
-            course_num = ''.join(filter(str.isdigit, course_code))
-            if course_num:
-                level = int(course_num[0]) if len(course_num) >= 1 else 2
-                
-                # Assign to semester based on level
-                if level == 1:
-                    semester = "Fall 1"
-                elif level == 2:
-                    semester = "Spring 1"
-                elif level == 3:
-                    semester = "Fall 2"
-                elif level == 4:
-                    semester = "Spring 2"
-                else:
-                    semester = "Fall 3"
-                
-                semesters[semester].append({
-                    'code': course_code,
-                    'title': course_row.get("Course Title", ""),
-                    'credits': course_row.get("Credits", 3)
-                })
+            if course_code not in assigned_courses:
+                # Assign by course level as fallback
+                course_num = ''.join(filter(str.isdigit, course_code))
+                if course_num:
+                    level = int(course_num[0]) if len(course_num) >= 1 else 2
+                    if level == 1:
+                        semester = "Fall 1"
+                    elif level == 2:
+                        semester = "Spring 2"
+                    else:
+                        semester = "Fall 3"
+                    
+                    semesters[semester].append({
+                        'code': course_code,
+                        'title': course_row.get("Course Title", course_row.get("Title", "")),
+                        'credits': course_row.get("Credits", 3)
+                    })
     
     return semesters
 
