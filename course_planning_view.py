@@ -939,7 +939,7 @@ def _render_visualizations(analysis_df: pd.DataFrame, prereq_analysis: dict):
     
     # Render each group
     for prefix in sorted(course_groups.keys()):
-        with st.expander(f"**{prefix} Courses** ({len(course_groups[prefix])} courses)", expanded=True):
+        with st.expander(f"**{prefix} Courses** ({len(course_groups[prefix])} courses)", expanded=False):
             # Sort courses within group
             sorted_courses = sorted(course_groups[prefix], key=lambda x: x["Course Code"])
             
