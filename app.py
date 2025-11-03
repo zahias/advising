@@ -10,7 +10,7 @@ import streamlit as st
 from data_upload import upload_data
 from eligibility_view import student_eligibility_view
 from full_student_view import full_student_view
-from course_planning_view import course_planning_view
+from dependency_tree_view import dependency_tree_view
 from visual_theme import apply_visual_theme
 from google_drive import (
     download_file_from_drive,
@@ -457,13 +457,13 @@ has_data = not st.session_state.progress_df.empty and not st.session_state.cours
 with st.sidebar:
     st.markdown("---")
     st.markdown("### 📑 Navigation")
-    view_options = ["Student Eligibility View", "Full Student View", "Course Planning"]
+    view_options = ["Student Eligibility View", "Full Student View", "Dependency Tree"]
     
     if has_data:
         st.session_state.active_view = st.radio(
             "Select View",
             options=view_options,
-            index=view_options.index(st.session_state.active_view),
+            index=view_options.index(st.session_state.active_view) if st.session_state.active_view in view_options else 0,
             key="view_selector",
             label_visibility="collapsed"
         )
@@ -485,8 +485,8 @@ if has_data:
         student_eligibility_view()
     elif st.session_state.active_view == "Full Student View":
         full_student_view()
-    elif st.session_state.active_view == "Course Planning":
-        course_planning_view()
+    elif st.session_state.active_view == "Dependency Tree":
+        dependency_tree_view()
 
     # Advising Sessions (per major)
     _render_advising_panel_safely()
