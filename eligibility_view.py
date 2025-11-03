@@ -303,32 +303,14 @@ def student_eligibility_view():
             "Advisor Note (optional)", value=slot.get("note", ""), key=f"note_{norm_sid}"
         )
 
-        # Three buttons side by side
-        btn_col1, btn_col2, btn_col3 = st.columns(3)
+        # Two buttons side by side
+        btn_col1, btn_col2 = st.columns(2)
 
         with btn_col1:
-            submitted = st.form_submit_button("💾 Save Selections", width='stretch', type="primary")
+            submitted = st.form_submit_button("💾 Save Selections", use_container_width=True, type="primary")
 
         with btn_col2:
-            email_clicked = st.form_submit_button("✉️ Email Student", width='stretch')
-
-        with btn_col3:
-            st.download_button(
-                "📥 Download Report",
-                data=_build_student_download_bytes(
-                    advised_selection,
-                    repeat_selection,
-                    optional_selection,
-                    note_input,
-                ),
-                file_name=f"Advising_{norm_sid}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                type="primary",
-                width="stretch",
-                key=f"download_advising_{norm_sid}",
-                on_click=_persist_student_selections,
-                args=(advised_selection, repeat_selection, optional_selection, note_input),
-            )
+            email_clicked = st.form_submit_button("✉️ Email Student", use_container_width=True)
 
         if submitted or email_clicked:
             _persist_student_selections(advised_selection, repeat_selection, optional_selection, note_input)
@@ -381,6 +363,27 @@ def student_eligibility_view():
                         show_action_feedback("email", False, message)
                     st.rerun()
 
+    # ---------- Download Report ----------
+    current_advised = slot.get("advised", []) or []
+    current_repeat = slot.get("repeat", []) or []
+    current_optional = slot.get("optional", []) or []
+    current_note = slot.get("note", "")
+    
+    st.download_button(
+        "📥 Download Current Advising Report",
+        data=_build_student_download_bytes(
+            current_advised,
+            current_repeat,
+            current_optional,
+            current_note,
+        ),
+        file_name=f"Advising_{norm_sid}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        type="secondary",
+        use_container_width=True,
+        key=f"download_advising_{norm_sid}",
+    )
+
     # ---------- Hidden courses manager ----------
     with st.expander("🚫 Manage Hidden Courses"):
         all_codes = sorted(map(str, st.session_state.courses_df["Course Code"].tolist()))
@@ -396,6 +399,3 @@ def student_eligibility_view():
             set_for_student(norm_sid, new_hidden)
             show_action_feedback("save", True, "Hidden courses updated")
             st.rerun()
-
-    # ---------- Download Report (triggered by form button) ----------
-    # Single-click download handled directly in the form above.
