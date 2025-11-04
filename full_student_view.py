@@ -75,11 +75,17 @@ def _render_all_students():
         col_select, col_actions = st.columns([3, 1])
         
         with col_select:
-            available_courses = st.session_state.courses_df["Course Code"].tolist()
+            # Get course codes safely
+            if "Course Code" not in st.session_state.courses_df.columns:
+                st.error("⚠️ Courses table is missing 'Course Code' column. Please re-upload the courses table.")
+                available_courses = []
+            else:
+                available_courses = st.session_state.courses_df["Course Code"].tolist()
+            
             selected_sim_courses = st.multiselect(
                 "Select courses to simulate",
                 options=available_courses,
-                default=st.session_state.simulated_courses,
+                default=st.session_state.simulated_courses if available_courses else [],
                 help="Choose courses that will be offered. Eligible students will be assumed to register for these courses."
             )
         
