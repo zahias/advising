@@ -356,7 +356,9 @@ def _render_all_students():
             display_df.index.name = "Student"
 
             styled = _style_codes(display_df, courses_in_semester)
-            st.dataframe(styled, width="stretch", height=400)
+            # Use st.table() instead of st.dataframe() to prevent sorting
+            # This keeps REQUISITES and SUMMARY rows pinned at the top
+            st.table(styled)
             
             # Store for export
             all_export_dfs.append(table_df_with_info)
