@@ -59,6 +59,23 @@ The application is built using Streamlit in Python 3.11. It utilizes Pandas for 
 - **Configuration**: Streamlit configuration (`.streamlit/config.toml`) sets server port, disables CORS for iframe compatibility, and minimizes the sidebar.
 - **Security**: Sensitive credentials are managed via Replit Secrets, and `.gitignore` excludes them from version control.
 
+## Data Upload Templates
+
+The `/templates` folder contains ready-to-use template files for data upload:
+
+- **courses_table_template.xlsx**: Course information with required columns (Course Code, Title, Credits, Suggested Semester, Offered, Type, Prerequisites, etc.)
+- **progress_report_template.xlsx**: Student progress tracking with two sheets (Required Courses, Intensive Courses)
+- **email_roster_template.csv**: Email addresses for students (optional)
+- **README.md**: Detailed instructions for using the templates
+
+### Key Template Features:
+- Pre-formatted with proper column names and example data
+- Demonstrates the "Suggested Semester" format (Fall-1, Spring-2, Summer-3, etc.)
+- Shows how to structure prerequisite relationships
+- Includes status codes (c=completed, r=registered, f=failed)
+
+Users can download these templates from the file explorer, fill them with their data, and upload via the sidebar interface.
+
 ## External Dependencies
 
 - **Google Drive API**: Used for optional cloud backup, data synchronization, and major-specific file organization. Requires `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, and `GOOGLE_FOLDER_ID` configured as secrets.

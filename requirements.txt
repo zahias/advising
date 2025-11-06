@@ -10,3 +10,4 @@ networkx
 numpy
 networkx
 plotly
+openpyxl
