@@ -289,6 +289,9 @@ def _render_all_students():
             table_df = df[base_display_cols].copy()
             student_ids = table_df["ID"].astype(int).tolist()
 
+            # Track course status data for summary row
+            course_status_data = {}
+            
             for course in courses_in_semester:
                 statuses = []
                 for sid in student_ids:
@@ -299,7 +302,9 @@ def _render_all_students():
                     student_simulated = simulated_completions.get(sid, [])
                     statuses.append(status_code(row_original, sid, course, student_simulated))
                 table_df[course] = statuses
+                course_status_data[course] = statuses
 
+            # Build requisites row
             requisites_row = {
                 "NAME": "📋 REQUISITES",
                 "ID": "",
@@ -315,17 +320,46 @@ def _render_all_students():
                 else:
                     requisites_row[course] = ""
             
+            # Build summary row with aggregate statistics
+            summary_row = {
+                "NAME": "📊 SUMMARY",
+                "ID": "",
+                "Total Credits Completed": "",
+                "Remaining Credits": "",
+                "Standing": "",
+                "Advising Status": "",
+            }
+            
+            for course in courses_in_semester:
+                statuses = course_status_data[course]
+                total_students = len([s for s in statuses if s])  # Non-empty statuses
+                
+                # Count each status type
+                c_count = statuses.count("c")
+                r_count = statuses.count("r")
+                s_count = statuses.count("s")
+                na_count = statuses.count("na")
+                ne_count = statuses.count("ne")
+                
+                # Calculate completion rate
+                completion_rate = f"{(c_count / total_students * 100):.0f}%" if total_students > 0 else "0%"
+                
+                # Format summary as: "c:X | r:Y | s:Z | na:W | ne:V | rate:R%"
+                summary_str = f"c:{c_count} | r:{r_count} | s:{s_count} | na:{na_count} | ne:{ne_count} | {completion_rate}"
+                summary_row[course] = summary_str
+            
             requisites_df = pd.DataFrame([requisites_row])
-            table_df_with_req = pd.concat([requisites_df, table_df], ignore_index=True)
+            summary_df = pd.DataFrame([summary_row])
+            table_df_with_info = pd.concat([requisites_df, summary_df, table_df], ignore_index=True)
 
-            display_df = table_df_with_req.set_index("NAME")
+            display_df = table_df_with_info.set_index("NAME")
             display_df.index.name = "Student"
 
             styled = _style_codes(display_df, courses_in_semester)
             st.dataframe(styled, width="stretch", height=400)
             
             # Store for export
-            all_export_dfs.append(table_df_with_req)
+            all_export_dfs.append(table_df_with_info)
         
         # Combine all semester tables for export
         if all_export_dfs:
