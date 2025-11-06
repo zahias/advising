@@ -332,33 +332,22 @@ def _render_all_students():
         if semester_filter != "All Courses":
             # Show semester header
             st.markdown(f"### 📅 {semester_filter}")
-            st.markdown("")
+            st.write("")
             
-            st.markdown("""
-            <div style='background-color: #f0f0f0; padding: 10px; border-radius: 5px; margin-bottom: 10px;'>
-            <h4 style='color: #666; margin: 0;'>📋 REQUISITES</h4>
-            </div>
-            """, unsafe_allow_html=True)
+            # REQUISITES Section - Greyed out
+            st.caption("📋 REQUISITES")
+            for course in selected:
+                req_str = requisites_data[course] if requisites_data[course] else "None"
+                st.caption(f"  • **{course}**: {req_str}")
+            st.write("")
             
-            req_cols = st.columns(min(len(selected), 4))
-            for idx, course in enumerate(selected):
-                with req_cols[idx % len(req_cols)]:
-                    st.markdown(f"**{course}**")
-                    st.caption(requisites_data[course] if requisites_data[course] else "None")
-            
-            st.markdown("""
-            <div style='background-color: #f0f0f0; padding: 10px; border-radius: 5px; margin-top: 15px; margin-bottom: 10px;'>
-            <h4 style='color: #666; margin: 0;'>📊 SUMMARY</h4>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            sum_cols = st.columns(min(len(selected), 4))
-            for idx, course in enumerate(selected):
-                with sum_cols[idx % len(sum_cols)]:
-                    st.markdown(f"**{course}**")
-                    st.caption(summary_data[course])
+            # SUMMARY Section - Greyed out
+            st.caption("📊 SUMMARY")
+            for course in selected:
+                st.caption(f"  • **{course}**: {summary_data[course]}")
             
             st.markdown("---")
+            # Only use table_df (without requisites row) when filtering
             export_df = table_df.copy()
         else:
             # When not filtering, add requisites row to table as before
