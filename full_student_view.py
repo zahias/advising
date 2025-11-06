@@ -278,14 +278,37 @@ def _render_all_students():
             st.info(f"No {label.lower()} courses available.")
             return None, []
 
+        # Use session state to store confirmed selections
+        confirmed_key = f"confirmed_{key_suffix}_courses"
+        if confirmed_key not in st.session_state:
+            st.session_state[confirmed_key] = course_codes
+        
+        # Ensure confirmed selections are valid for current course_codes (filter may have changed)
+        valid_confirmed = [c for c in st.session_state[confirmed_key] if c in course_codes]
+        if not valid_confirmed:
+            valid_confirmed = course_codes
+        
         with st.expander(f"Select {label.lower()} course columns", expanded=False):
-            selected = st.multiselect(
-                f"{label} course columns",
-                options=course_codes,
-                default=course_codes,
-                key=f"all_students_{key_suffix}_course_columns",
-            )
-
+            with st.form(key=f"course_selection_form_{key_suffix}"):
+                temp_selected = st.multiselect(
+                    f"{label} course columns",
+                    options=course_codes,
+                    default=valid_confirmed,
+                    key=f"temp_{key_suffix}_course_columns",
+                )
+                
+                col1, col2 = st.columns([1, 5])
+                with col1:
+                    confirm = st.form_submit_button("✓ Confirm", use_container_width=True)
+                with col2:
+                    st.caption("Select courses then click Confirm to update the table")
+                
+                if confirm:
+                    st.session_state[confirmed_key] = temp_selected
+                    st.rerun()
+        
+        selected = valid_confirmed
+        
         if not selected:
             st.info("Select at least one course column to display student eligibility statuses.")
             return None, []
