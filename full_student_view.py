@@ -330,6 +330,10 @@ def _render_all_students():
 
         # Display REQUISITES and SUMMARY as greyed-out subheadings when filtering
         if semester_filter != "All Courses":
+            # Show semester header
+            st.markdown(f"### 📅 {semester_filter}")
+            st.markdown("")
+            
             st.markdown("""
             <div style='background-color: #f0f0f0; padding: 10px; border-radius: 5px; margin-bottom: 10px;'>
             <h4 style='color: #666; margin: 0;'>📋 REQUISITES</h4>
