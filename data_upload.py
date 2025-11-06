@@ -105,6 +105,19 @@ def upload_data():
         else:
             st.info("Upload Excel file with course information")
         
+        # Template download button
+        try:
+            with open("templates/courses_table_template.xlsx", "rb") as f:
+                st.download_button(
+                    label="📥 Download Template",
+                    data=f.read(),
+                    file_name="courses_table_template.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    help="Download blank template with example data and proper formatting"
+                )
+        except:
+            pass  # Template file not found, skip download button
+        
         courses_file = st.file_uploader(
             "Select Courses Table (Excel)",
             type=["xlsx"],
@@ -154,6 +167,19 @@ def upload_data():
             st.info("Upload Excel file with student progress data")
             if not courses_loaded:
                 st.warning("⚠️ Upload courses table first")
+        
+        # Template download button
+        try:
+            with open("templates/progress_report_template.xlsx", "rb") as f:
+                st.download_button(
+                    label="📥 Download Template",
+                    data=f.read(),
+                    file_name="progress_report_template.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    help="Download blank template with example student data and proper formatting"
+                )
+        except:
+            pass  # Template file not found, skip download button
         
         progress_file = st.file_uploader(
             "Select Progress Report (Excel)",
@@ -251,6 +277,19 @@ def upload_data():
             st.success(f"✅ {len(roster)} student emails on file")
         else:
             st.info("Optional: Upload student email addresses for emailing advising sheets")
+        
+        # Template download button
+        try:
+            with open("templates/email_roster_template.csv", "rb") as f:
+                st.download_button(
+                    label="📥 Download Template",
+                    data=f.read(),
+                    file_name="email_roster_template.csv",
+                    mime="text/csv",
+                    help="Download blank template for student email addresses"
+                )
+        except:
+            pass  # Template file not found, skip download button
         
         email_file = st.file_uploader(
             "Select Email Roster (Excel/CSV)",
