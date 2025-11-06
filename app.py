@@ -10,6 +10,7 @@ import streamlit as st
 from data_upload import upload_data
 from eligibility_view import student_eligibility_view
 from full_student_view import full_student_view
+from degree_progression_view import degree_progression_view
 from degree_plan_view import degree_plan_view
 from visual_theme import apply_visual_theme
 from google_drive import (
@@ -457,7 +458,7 @@ has_data = not st.session_state.progress_df.empty and not st.session_state.cours
 with st.sidebar:
     st.markdown("---")
     st.markdown("### 📑 Navigation")
-    view_options = ["Student Eligibility View", "Full Student View", "Degree Plan"]
+    view_options = ["Student Eligibility View", "Full Student View", "Degree Progression", "Degree Plan"]
     
     if has_data:
         st.session_state.active_view = st.radio(
@@ -485,6 +486,8 @@ if has_data:
         student_eligibility_view()
     elif st.session_state.active_view == "Full Student View":
         full_student_view()
+    elif st.session_state.active_view == "Degree Progression":
+        degree_progression_view()
     elif st.session_state.active_view == "Degree Plan":
         degree_plan_view()
 
