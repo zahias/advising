@@ -119,15 +119,15 @@ def _render_all_students():
     original_rows = {int(idx): row for idx, row in progress_df_original.iterrows()}
 
     # Compute derived columns
-    df["Total Credits Completed"] = df.get("# of Credits Completed", 0).fillna(0).astype(float) + \
-                                    df.get("# Registered", 0).fillna(0).astype(float)
+    df["Total Credits Completed"] = (df.get("# of Credits Completed", 0).fillna(0).astype(float) + \
+                                     df.get("# Registered", 0).fillna(0).astype(float)).astype(int)
     df["Standing"] = df["Total Credits Completed"].apply(get_student_standing)
     df["Advising Status"] = df["ID"].apply(
         lambda sid: "Advised" if st.session_state.advising_selections.get(int(sid), {}).get("advised") else "Not Advised"
     )
 
     # Normalize remaining credits for filtering and display
-    remaining_credits_series = pd.to_numeric(df.get("# Remaining", 0), errors="coerce").fillna(0)
+    remaining_credits_series = pd.to_numeric(df.get("# Remaining", 0), errors="coerce").fillna(0).astype(int)
     df["Remaining Credits"] = remaining_credits_series
     min_remaining = int(remaining_credits_series.min()) if not remaining_credits_series.empty else 0
     max_remaining = int(remaining_credits_series.max()) if not remaining_credits_series.empty else 0
@@ -154,6 +154,32 @@ def _render_all_students():
 
     courses_df = st.session_state.courses_df
     type_series = courses_df.get("Type", pd.Series(dtype=str))
+    
+    # Build semester filter options
+    if "Suggested Semester" in courses_df.columns:
+        all_semesters = courses_df["Suggested Semester"].dropna().unique().tolist()
+        all_semesters = [str(s).strip() for s in all_semesters if str(s).strip() and str(s).lower() not in ["nan", "none"]]
+        
+        # Extract unique semester types (Fall, Spring, Summer)
+        semester_types = set()
+        for sem in all_semesters:
+            parts = sem.split("-")
+            if len(parts) == 2:
+                semester_types.add(parts[0])
+        
+        # Build filter options
+        filter_options = ["All Courses"]
+        filter_options.extend(sorted(semester_types))  # All Fall, All Spring, etc.
+        filter_options.extend(sorted(all_semesters))   # Fall-1, Spring-2, etc.
+        
+        semester_filter = st.selectbox(
+            "📅 Filter by Semester",
+            options=filter_options,
+            help="Show all courses or filter by specific semester (Fall-1, Spring-2) or semester type (Fall, Spring, Summer)"
+        )
+    else:
+        semester_filter = "All Courses"
+    
     required_courses = courses_df.loc[
         type_series.astype(str).str.lower() == "required",
         "Course Code",
@@ -162,6 +188,31 @@ def _render_all_students():
         type_series.astype(str).str.lower() == "intensive",
         "Course Code",
     ].dropna().tolist()
+    
+    # Filter courses by semester if a filter is active
+    def filter_courses_by_semester(course_list, semester_filter_val):
+        if semester_filter_val == "All Courses" or "Suggested Semester" not in courses_df.columns:
+            return course_list
+        
+        filtered = []
+        for course in course_list:
+            course_info = courses_df.loc[courses_df["Course Code"] == course]
+            if not course_info.empty:
+                suggested_sem = str(course_info.iloc[0].get("Suggested Semester", "")).strip()
+                if not suggested_sem or suggested_sem.lower() in ["nan", "none"]:
+                    continue
+                
+                # Check if matches: exact match for specific semesters or semester type prefix
+                if suggested_sem == semester_filter_val:  # Exact match (e.g., "Fall-1" == "Fall-1")
+                    filtered.append(course)
+                elif "-" not in semester_filter_val and suggested_sem.startswith(semester_filter_val + "-"):
+                    # Semester type filter (e.g., "Fall" matches "Fall-1", "Fall-2", etc.)
+                    filtered.append(course)
+        return filtered
+    
+    if semester_filter != "All Courses":
+        required_courses = filter_courses_by_semester(required_courses, semester_filter)
+        intensive_courses = filter_courses_by_semester(intensive_courses, semester_filter)
 
     base_display_cols = [
         "NAME",
@@ -242,6 +293,8 @@ def _render_all_students():
         table_df = df[base_display_cols].copy()
         student_ids = table_df["ID"].astype(int).tolist()
 
+        # Track statuses for summary calculation
+        course_status_data = {}
         for course in selected:
             statuses = []
             for sid in student_ids:
@@ -252,26 +305,74 @@ def _render_all_students():
                 student_simulated = simulated_completions.get(sid, [])
                 statuses.append(status_code(row_original, sid, course, student_simulated))
             table_df[course] = statuses
+            course_status_data[course] = statuses
 
-        requisites_row = {
-            "NAME": "📋 REQUISITES",
-            "ID": "",
-            "Total Credits Completed": "",
-            "Remaining Credits": "",
-            "Standing": "",
-            "Advising Status": "",
-        }
+        # Build requisites and summary data
+        requisites_data = {}
+        summary_data = {}
         for course in selected:
             course_info = courses_df.loc[courses_df["Course Code"] == course]
             if not course_info.empty:
-                requisites_row[course] = build_requisites_str(course_info.iloc[0])
+                requisites_data[course] = build_requisites_str(course_info.iloc[0])
             else:
-                requisites_row[course] = ""
-        
-        requisites_df = pd.DataFrame([requisites_row])
-        table_df_with_req = pd.concat([requisites_df, table_df], ignore_index=True)
+                requisites_data[course] = ""
+            
+            # Calculate summary statistics
+            statuses = course_status_data[course]
+            total_students = len([s for s in statuses if s])
+            c_count = statuses.count("c")
+            r_count = statuses.count("r")
+            s_count = statuses.count("s")
+            na_count = statuses.count("na")
+            ne_count = statuses.count("ne")
+            completion_rate = f"{(c_count / total_students * 100):.0f}%" if total_students > 0 else "0%"
+            summary_data[course] = f"c:{c_count} | r:{r_count} | s:{s_count} | na:{na_count} | ne:{ne_count} | {completion_rate}"
 
-        export_df = table_df_with_req.copy()
+        # Display REQUISITES and SUMMARY as greyed-out subheadings when filtering
+        if semester_filter != "All Courses":
+            st.markdown("""
+            <div style='background-color: #f0f0f0; padding: 10px; border-radius: 5px; margin-bottom: 10px;'>
+            <h4 style='color: #666; margin: 0;'>📋 REQUISITES</h4>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            req_cols = st.columns(min(len(selected), 4))
+            for idx, course in enumerate(selected):
+                with req_cols[idx % len(req_cols)]:
+                    st.markdown(f"**{course}**")
+                    st.caption(requisites_data[course] if requisites_data[course] else "None")
+            
+            st.markdown("""
+            <div style='background-color: #f0f0f0; padding: 10px; border-radius: 5px; margin-top: 15px; margin-bottom: 10px;'>
+            <h4 style='color: #666; margin: 0;'>📊 SUMMARY</h4>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            sum_cols = st.columns(min(len(selected), 4))
+            for idx, course in enumerate(selected):
+                with sum_cols[idx % len(sum_cols)]:
+                    st.markdown(f"**{course}**")
+                    st.caption(summary_data[course])
+            
+            st.markdown("---")
+            export_df = table_df.copy()
+        else:
+            # When not filtering, add requisites row to table as before
+            requisites_row = {
+                "NAME": "📋 REQUISITES",
+                "ID": "",
+                "Total Credits Completed": "",
+                "Remaining Credits": "",
+                "Standing": "",
+                "Advising Status": "",
+            }
+            for course in selected:
+                requisites_row[course] = requisites_data[course]
+            
+            requisites_df = pd.DataFrame([requisites_row])
+            table_df_with_req = pd.concat([requisites_df, table_df], ignore_index=True)
+            export_df = table_df_with_req.copy()
+
         display_df = export_df.set_index("NAME")
         display_df.index.name = "Student"
 
