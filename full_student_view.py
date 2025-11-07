@@ -553,7 +553,7 @@ def _render_all_students():
         intensive_display_df, intensive_selected = render_course_table("Intensive", intensive_courses, "intensive")
     
     with degree_plan_tab:
-        degree_plan_display_df = render_degree_plan_table(courses_df, progress_df)
+        degree_plan_display_df = render_degree_plan_table(courses_df, df)
 
     has_required = required_display_df is not None and len(required_selected) > 0
     has_intensive = intensive_display_df is not None and len(intensive_selected) > 0
