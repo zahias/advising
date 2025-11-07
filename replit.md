@@ -4,7 +4,12 @@
 The Advising Dashboard is a Streamlit-based application designed for Phoenix University academic advisors. Its core purpose is to streamline the academic advising process by providing tools for tracking student progress, checking course eligibility, managing advising sessions, and syncing data with Google Drive. The dashboard supports multiple majors (PBHL, SPTH-New, SPTH-Old) and aims to offer a comprehensive, user-friendly platform for academic guidance, including advanced features like a Course Offering Planner for optimized course recommendations.
 
 ## Recent Changes
-- **2025-11-07**: Replaced static REQUISITES and SUMMARY sections with clean tooltips on course column headers. Hovering over any course column now shows the course prerequisites and summary statistics (completion rates, registration counts).
+- **2025-11-07**: 
+  - Replaced static REQUISITES and SUMMARY sections with clean tooltips on course column headers. Hovering over any course column now shows the course prerequisites and summary statistics (completion rates, registration counts).
+  - Removed REQUISITES and SUMMARY rows from Excel exports for cleaner, student-data-only downloads.
+  - Added **Degree Plan** tab to Full Student View showing all students' progress on the degree plan grid organized by suggested semester structure.
+  - Implemented **Curriculum Year Categorization** - a dynamic system that analyzes prerequisite chains to assign curriculum years (Year 1, 2, 3, etc.) to both courses and students. The algorithm accounts for prerequisite dependencies and standing requirements (Junior/Senior standing) to accurately track student progression through the curriculum.
+  - Added Curriculum Year column and multiselect filter to Full Student View, enabling advisors to filter students by their curriculum year for targeted course planning.
 
 ## User Preferences
 I prefer:
