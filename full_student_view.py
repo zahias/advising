@@ -355,29 +355,24 @@ def _render_all_students():
             completion_rate = f"{(c_count / total_students * 100):.0f}%" if total_students > 0 else "0%"
             summary_data[course] = f"c:{c_count} | r:{r_count} | s:{s_count} | na:{na_count} | ne:{ne_count} | {completion_rate}"
 
-        # ALWAYS display REQUISITES and SUMMARY as static sections above the table (never as rows)
         # Show semester header if filtering
         if semester_filter != "All Courses":
             st.markdown(f"### 📅 {semester_filter}")
             st.write("")
         
-        # REQUISITES Section - Static, greyed out
-        st.caption("📋 REQUISITES")
-        for course in selected:
-            req_str = requisites_data[course] if requisites_data[course] else "None"
-            st.caption(f"  • **{course}**: {req_str}")
-        st.write("")
-        
-        # SUMMARY Section - Static, greyed out
-        st.caption("📊 SUMMARY")
-        for course in selected:
-            st.caption(f"  • **{course}**: {summary_data[course]}")
-        
-        st.markdown("---")
-        
         # Use only the student data table (no requisites/summary rows)
         display_df = table_df.set_index("NAME")
         display_df.index.name = "Student"
+        
+        # Build column config with tooltips for course columns
+        column_config = {}
+        for course in selected:
+            req_str = requisites_data[course] if requisites_data[course] else "None"
+            help_text = f"📋 {req_str}\n\n📊 {summary_data[course]}"
+            column_config[course] = st.column_config.TextColumn(
+                course,
+                help=help_text,
+            )
         
         # For export, add requisites and summary rows
         requisites_row = {
@@ -408,7 +403,7 @@ def _render_all_students():
 
         st.write(legend_md)
         styled = _style_codes(display_df, selected)
-        st.dataframe(styled, width="stretch", height=600)
+        st.dataframe(styled, width="stretch", height=600, column_config=column_config)
         return export_df, selected
 
     required_tab, intensive_tab = st.tabs(["Required Courses", "Intensive Courses"])
