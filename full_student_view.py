@@ -9,6 +9,7 @@ from utils import (
     check_eligibility,
     get_student_standing,
     build_requisites_str,
+    get_corequisite_and_concurrent_courses,
     style_df,          # kept (used elsewhere in app)
     log_info,
     log_error
@@ -68,25 +69,28 @@ def _render_all_students():
     if "simulated_courses" not in st.session_state:
         st.session_state.simulated_courses = []
     
+    # Cache co-requisite and concurrent courses in session state
+    if "coreq_concurrent_courses" not in st.session_state:
+        st.session_state.coreq_concurrent_courses = get_corequisite_and_concurrent_courses(st.session_state.courses_df)
+    
     st.markdown("### 🎯 Course Offering Simulation")
-    st.caption("Select courses you plan to offer. The table below will update to show eligibility assuming all eligible students register for selected courses.")
+    st.caption("Select co-requisite or concurrent courses you plan to offer. The table will show eligibility assuming eligible students register for these courses.")
     
     with st.form("simulation_form"):
         col_select, col_actions = st.columns([3, 1])
         
         with col_select:
-            # Get course codes safely
-            if "Course Code" not in st.session_state.courses_df.columns:
-                st.error("⚠️ Courses table is missing 'Course Code' column. Please re-upload the courses table.")
-                available_courses = []
-            else:
-                available_courses = st.session_state.courses_df["Course Code"].tolist()
+            # Only show co-requisite and concurrent courses for simulation
+            available_courses = st.session_state.coreq_concurrent_courses
+            
+            if not available_courses:
+                st.info("ℹ️ No co-requisite or concurrent courses found in the courses table. Simulation only supports courses that are required alongside other courses.")
             
             selected_sim_courses = st.multiselect(
-                "Select courses to simulate",
+                "Select co-requisite/concurrent courses to simulate",
                 options=available_courses,
-                default=st.session_state.simulated_courses if available_courses else [],
-                help="Choose courses that will be offered. Eligible students will be assumed to register for these courses."
+                default=[c for c in st.session_state.simulated_courses if c in available_courses],
+                help="Only co-requisite and concurrent courses are shown since prerequisite courses would already be completed."
             )
         
         with col_actions:
