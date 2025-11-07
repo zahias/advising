@@ -331,3 +331,146 @@ def load_progress_excel(content: bytes | BytesIO | str) -> pd.DataFrame:
             merged.drop(columns=[f"{col}_int"], inplace=True, errors="ignore")
 
     return merged
+
+
+# ------------- Curriculum Year Calculation -------------------
+
+def calculate_course_curriculum_years(courses_df: pd.DataFrame) -> Dict[str, int]:
+    """
+    Analyzes prerequisite chains to assign a curriculum year to each course.
+    
+    Curriculum Year 1: Courses with no prerequisites
+    Curriculum Year 2: Courses whose prerequisites are all in Year 1
+    Curriculum Year 3: Courses whose prerequisites include Year 2 courses
+    And so on...
+    
+    Returns a dict mapping course_code -> curriculum_year (1, 2, 3, etc.)
+    """
+    course_years = {}
+    
+    # Build prerequisite map and standing requirements
+    prereq_map = {}
+    standing_requirements = {}
+    
+    for _, course_row in courses_df.iterrows():
+        course_code = course_row["Course Code"]
+        all_prereqs = parse_requirements(course_row.get("Prerequisite", ""))
+        
+        # Separate course prerequisites from standing requirements
+        course_prereqs = []
+        standing_req = None
+        
+        for p in all_prereqs:
+            if "standing" in p.lower():
+                standing_req = p
+            else:
+                course_prereqs.append(p)
+        
+        prereq_map[course_code] = course_prereqs
+        standing_requirements[course_code] = standing_req
+    
+    # Recursively calculate curriculum year for each course
+    def get_course_year(course_code: str, visited=None) -> int:
+        if visited is None:
+            visited = set()
+        
+        # Already calculated
+        if course_code in course_years:
+            return course_years[course_code]
+        
+        # Circular dependency detection
+        if course_code in visited:
+            return 1  # Default to Year 1 for circular dependencies
+        
+        visited.add(course_code)
+        
+        # Get prerequisites for this course
+        prereqs = prereq_map.get(course_code, [])
+        standing_req = standing_requirements.get(course_code)
+        
+        # Calculate base year from prerequisite courses
+        max_prereq_year = 0
+        for prereq_code in prereqs:
+            if prereq_code in prereq_map:  # Only consider courses in our table
+                prereq_year = get_course_year(prereq_code, visited.copy())
+                max_prereq_year = max(max_prereq_year, prereq_year)
+        
+        # Determine minimum year based on standing requirement
+        # Junior standing (30 credits) typically achievable by Year 2
+        # Senior standing (60 credits) typically achievable by Year 3
+        standing_year = 1
+        if standing_req:
+            if "senior" in standing_req.lower():
+                standing_year = 3
+            elif "junior" in standing_req.lower():
+                standing_year = 2
+        
+        # The course year is the maximum of prerequisite-based year and standing-based year
+        course_year = max(max_prereq_year + 1, standing_year)
+        course_years[course_code] = course_year
+        return course_year
+    
+    # Calculate year for all courses
+    for course_code in prereq_map.keys():
+        get_course_year(course_code)
+    
+    return course_years
+
+
+def calculate_student_curriculum_year(student_row: pd.Series, courses_df: pd.DataFrame, course_curriculum_years: Dict[str, int] = None) -> int:
+    """
+    Determines which curriculum year a student is in based on their completed/registered courses.
+    
+    A student is in Curriculum Year N if they have completed (or are registered for) 
+    all prerequisite chains needed to take Year N courses, but have not yet completed 
+    the prerequisites for Year N+1.
+    
+    Args:
+        student_row: Student's progress data
+        courses_df: Courses table
+        course_curriculum_years: Pre-calculated course years (optional, will calculate if not provided)
+    
+    Returns:
+        Curriculum year (1, 2, 3, etc.)
+    """
+    if course_curriculum_years is None:
+        course_curriculum_years = calculate_course_curriculum_years(courses_df)
+    
+    # Get all courses the student has completed or is registered for
+    completed_or_registered = []
+    for course_code in courses_df["Course Code"]:
+        if check_course_completed(student_row, course_code) or check_course_registered(student_row, course_code):
+            completed_or_registered.append(course_code)
+    
+    if not completed_or_registered:
+        # No courses completed or registered -> Year 1
+        return 1
+    
+    # Find the highest curriculum year of courses they've completed/registered
+    max_year_completed = max(
+        (course_curriculum_years.get(course, 1) for course in completed_or_registered),
+        default=1
+    )
+    
+    # Check if they can progress to the next year
+    # They can progress if they've completed all Year N prerequisites needed for Year N+1
+    next_year = max_year_completed + 1
+    can_take_next_year = False
+    
+    for course_code, year in course_curriculum_years.items():
+        if year == next_year:
+            # Check if student is eligible for any Year N+1 course
+            is_eligible_status, _ = check_eligibility(
+                student_row,
+                course_code,
+                [],
+                courses_df,
+                ignore_offered=True
+            )
+            if is_eligible_status == "Eligible":
+                can_take_next_year = True
+                break
+    
+    # If they can take Year N+1 courses, they're in Year N+1
+    # Otherwise they're in Year N
+    return next_year if can_take_next_year else max_year_completed

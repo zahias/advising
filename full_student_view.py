@@ -10,6 +10,8 @@ from utils import (
     get_student_standing,
     build_requisites_str,
     get_corequisite_and_concurrent_courses,
+    calculate_course_curriculum_years,
+    calculate_student_curriculum_year,
     style_df,          # kept (used elsewhere in app)
     log_info,
     log_error
@@ -43,6 +45,136 @@ def _style_codes(df: pd.DataFrame, code_cols: list[str]) -> "pd.io.formats.style
     if code_cols:
         styler = styler.map(_bg, subset=code_cols)
     return styler
+
+def _get_semester_structure(courses_df):
+    """Parse semester structure from courses table.
+    
+    Expects a 'Suggested Semester' column with format: 'Fall-1', 'Spring-2', 'Summer-3', etc.
+    Returns dict mapping semester keys to list of course info dicts.
+    """
+    semester_col = None
+    for col in courses_df.columns:
+        if 'suggested' in col.lower() and 'semester' in col.lower():
+            semester_col = col
+            break
+    
+    if not semester_col:
+        return {}
+    
+    semesters = {}
+    
+    for _, course_row in courses_df.iterrows():
+        semester_value = str(course_row.get(semester_col, "")).strip()
+        
+        if not semester_value or pd.isna(semester_value) or semester_value == 'nan':
+            continue
+        
+        # Parse format like "Fall-1", "Spring-2", "Summer-3"
+        if '-' in semester_value:
+            parts = semester_value.split('-')
+            if len(parts) == 2:
+                semester_name = parts[0].strip()
+                year_num = parts[1].strip()
+                
+                semester_key = f"{semester_name}-{year_num}"
+                
+                if semester_key not in semesters:
+                    semesters[semester_key] = []
+                
+                semesters[semester_key].append({
+                    'code': course_row["Course Code"],
+                    'title': course_row.get("Course Title", course_row.get("Title", "")),
+                    'credits': course_row.get("Credits", 3),
+                    'semester': semester_name,
+                    'year': year_num
+                })
+    
+    return semesters
+
+def render_degree_plan_table(courses_df, progress_df):
+    """Render degree plan view for all students."""
+    st.markdown("### 🎓 Degree Plan View - All Students")
+    st.caption("Shows student progress organized by the curriculum's suggested semester structure")
+    
+    # Get semester structure
+    semesters = _get_semester_structure(courses_df)
+    
+    if not semesters:
+        st.warning("⚠️ No 'Suggested Semester' column found in courses table. Please add a column with format like 'Fall-1', 'Spring-2', etc.")
+        return None
+    
+    # Build ordered list of courses by semester
+    semester_order = sorted(semesters.keys(), key=lambda x: (int(x.split('-')[1]), {'fall': 0, 'spring': 1, 'summer': 2}.get(x.split('-')[0].lower(), 99)))
+    all_courses = []
+    for sem_key in semester_order:
+        all_courses.extend([c['code'] for c in semesters[sem_key]])
+    
+    # Calculate curriculum years
+    course_curriculum_years = calculate_course_curriculum_years(courses_df)
+    
+    # Build table
+    table_data = []
+    for _, student in progress_df.iterrows():
+        row = {
+            "NAME": student.get("NAME", ""),
+            "ID": student.get("ID", ""),
+            "Total Credits Completed": student.get("Total Credits Completed", 0),
+            "Remaining Credits": student.get("Remaining Credits", 0),
+            "Standing": student.get("Standing", ""),
+            "Curriculum Year": student.get("Curriculum Year", calculate_student_curriculum_year(student, courses_df, course_curriculum_years)),
+        }
+        
+        # Add course statuses
+        for course_code in all_courses:
+            status_val = student.get(course_code, "")
+            
+            if pd.isna(status_val) or status_val == "":
+                # Check eligibility
+                is_eligible_status, _ = check_eligibility(
+                    student,
+                    course_code,
+                    [],
+                    courses_df,
+                    ignore_offered=True
+                )
+                # Map check_eligibility status to display codes
+                status_map = {
+                    "Completed": "c",
+                    "Registered": "r",
+                    "Eligible": "na",
+                    "Not Eligible": "ne"
+                }
+                row[course_code] = status_map.get(is_eligible_status, "ne")
+            else:
+                row[course_code] = str(status_val).strip().lower()
+        
+        table_data.append(row)
+    
+    table_df = pd.DataFrame(table_data)
+    
+    # Display legend
+    legend_md = """
+    **Legend**: `c` = Completed | `r` = Registered | `s` = Simulated | `a` = Advised | `ar` = Advised Repeat | 
+    `o` = Optional | `na` = Eligible | `ne` = Not Eligible | `f` = Failed
+    """
+    
+    st.write(legend_md)
+    
+    # Display table with styling
+    display_df = table_df.set_index("NAME")
+    display_df.index.name = "Student"
+    
+    styled = _style_codes(display_df, all_courses)
+    st.dataframe(styled, width="stretch", height=600)
+    
+    # Show semester headers as info
+    with st.expander("📅 Semester Structure"):
+        for sem_key in semester_order:
+            courses_in_sem = [c['code'] for c in semesters[sem_key]]
+            total_credits = sum(c['credits'] for c in semesters[sem_key])
+            st.markdown(f"**{sem_key}** ({total_credits} cr): {', '.join(courses_in_sem)}")
+    
+    return table_df
 
 def full_student_view():
     """
@@ -122,10 +254,19 @@ def _render_all_students():
     progress_df_original = df.copy().set_index("ID")
     original_rows = {int(idx): row for idx, row in progress_df_original.iterrows()}
 
+    # Get courses_df from session state first
+    courses_df = st.session_state.courses_df
+    
+    # Calculate curriculum years for all courses
+    course_curriculum_years = calculate_course_curriculum_years(courses_df)
+    
     # Compute derived columns
     df["Total Credits Completed"] = (df.get("# of Credits Completed", 0).fillna(0).astype(float) + \
                                      df.get("# Registered", 0).fillna(0).astype(float)).astype(int)
     df["Standing"] = df["Total Credits Completed"].apply(get_student_standing)
+    df["Curriculum Year"] = df.apply(
+        lambda row: calculate_student_curriculum_year(row, courses_df, course_curriculum_years), axis=1
+    )
     df["Advising Status"] = df["ID"].apply(
         lambda sid: "Advised" if st.session_state.advising_selections.get(int(sid), {}).get("advised") else "Not Advised"
     )
@@ -156,7 +297,20 @@ def _render_all_students():
             & (df["Remaining Credits"] <= remaining_range[1])
         ]
 
-    courses_df = st.session_state.courses_df
+    # Curriculum year filter
+    all_curriculum_years = sorted(df["Curriculum Year"].unique().tolist())
+    if len(all_curriculum_years) > 1:
+        curriculum_year_filter = st.multiselect(
+            "📚 Filter by Curriculum Year",
+            options=all_curriculum_years,
+            default=all_curriculum_years,
+            help="Show students in specific curriculum years. Years are calculated based on prerequisite chain completion."
+        )
+        if curriculum_year_filter:
+            df = df[df["Curriculum Year"].isin(curriculum_year_filter)]
+    else:
+        st.caption(f"All students are currently in Curriculum Year {all_curriculum_years[0] if all_curriculum_years else 'N/A'}.")
+
     type_series = courses_df.get("Type", pd.Series(dtype=str))
     
     # Build semester filter options
@@ -224,6 +378,7 @@ def _render_all_students():
         "Total Credits Completed",
         "Remaining Credits",
         "Standing",
+        "Curriculum Year",
         "Advising Status",
     ]
     legend_md = "*Legend:* c=Completed, r=Registered, s=Simulated (will register), a=Advised, ar=Advised-Repeat, o=Optional, na=Eligible not chosen, ne=Not Eligible"
@@ -372,52 +527,33 @@ def _render_all_students():
             column_config[course] = st.column_config.TextColumn(
                 course,
                 help=help_text,
+                width="small"
             )
         
-        # For export, add requisites and summary rows
-        requisites_row = {
-            "NAME": "📋 REQUISITES",
-            "ID": "",
-            "Total Credits Completed": "",
-            "Remaining Credits": "",
-            "Standing": "",
-            "Advising Status": "",
-        }
-        for course in selected:
-            requisites_row[course] = requisites_data[course]
-        
-        summary_row = {
-            "NAME": "📊 SUMMARY",
-            "ID": "",
-            "Total Credits Completed": "",
-            "Remaining Credits": "",
-            "Standing": "",
-            "Advising Status": "",
-        }
-        for course in selected:
-            summary_row[course] = summary_data[course]
-        
-        requisites_df = pd.DataFrame([requisites_row])
-        summary_df = pd.DataFrame([summary_row])
-        export_df = pd.concat([requisites_df, summary_df, table_df], ignore_index=True)
+        # For export, use only student data (no requisites/summary rows)
+        export_df = table_df.copy()
 
         st.write(legend_md)
         styled = _style_codes(display_df, selected)
         st.dataframe(styled, width="stretch", height=600, column_config=column_config)
         return export_df, selected
 
-    required_tab, intensive_tab = st.tabs(["Required Courses", "Intensive Courses"])
+    required_tab, intensive_tab, degree_plan_tab = st.tabs(["Required Courses", "Intensive Courses", "Degree Plan"])
 
     required_display_df = None
     required_selected = []
     intensive_display_df = None
     intensive_selected = []
+    degree_plan_display_df = None
 
     with required_tab:
         required_display_df, required_selected = render_course_table("Required", required_courses, "required")
 
     with intensive_tab:
         intensive_display_df, intensive_selected = render_course_table("Intensive", intensive_courses, "intensive")
+    
+    with degree_plan_tab:
+        degree_plan_display_df = render_degree_plan_table(courses_df, progress_df)
 
     has_required = required_display_df is not None and len(required_selected) > 0
     has_intensive = intensive_display_df is not None and len(intensive_selected) > 0
