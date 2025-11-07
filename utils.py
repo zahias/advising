@@ -102,6 +102,27 @@ def build_requisites_str(course_info: pd.Series | Dict[str, Any]) -> str:
         pieces.append(f"{prefix}: {str(value).strip()}")
     return "; ".join(pieces) if pieces else "None"
 
+def get_corequisite_and_concurrent_courses(courses_df: pd.DataFrame) -> List[str]:
+    """
+    Returns a list of courses that appear as co-requisites or concurrent requirements
+    for other courses. These are the only courses that make sense for simulation since
+    prerequisites would already be completed before students take dependent courses.
+    """
+    coreq_concurrent_courses = set()
+    
+    for _, row in courses_df.iterrows():
+        # Check Co-Requisites column
+        if "Corequisite" in row and not pd.isna(row["Corequisite"]):
+            coreqs = parse_requirements(row["Corequisite"])
+            coreq_concurrent_courses.update(coreqs)
+        
+        # Check Concurrent column
+        if "Concurrent" in row and not pd.isna(row["Concurrent"]):
+            concurrents = parse_requirements(row["Concurrent"])
+            coreq_concurrent_courses.update(concurrents)
+    
+    return sorted(list(coreq_concurrent_courses))
+
 
 # ------------- Eligibility -----------------------------
 
