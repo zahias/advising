@@ -8,8 +8,14 @@ The Advising Dashboard is a Streamlit-based application designed for Phoenix Uni
   - Replaced static REQUISITES and SUMMARY sections with clean tooltips on course column headers. Hovering over any course column now shows the course prerequisites and summary statistics (completion rates, registration counts).
   - Removed REQUISITES and SUMMARY rows from Excel exports for cleaner, student-data-only downloads.
   - Added **Degree Plan** tab to Full Student View showing all students' progress on the degree plan grid organized by suggested semester structure.
-  - Implemented **Curriculum Year Categorization** - a dynamic system that analyzes prerequisite chains to assign curriculum years (Year 1, 2, 3, etc.) to both courses and students. The algorithm accounts for prerequisite dependencies and standing requirements (Junior/Senior standing) to accurately track student progression through the curriculum.
-  - Added Curriculum Year column and multiselect filter to Full Student View, enabling advisors to filter students by their curriculum year for targeted course planning.
+  - Implemented **Course Projection View** - a comprehensive semester-by-semester planning tool that projects when each student should take their remaining courses. The system:
+    - Calculates earliest possible semester for each course based on prerequisite completion
+    - Enforces credit limits (15-17 typical, 18 max per semester)
+    - Prioritizes critical path courses (those that block other courses)
+    - Identifies flexible courses (non-critical, can be taken in multiple semesters)
+    - Displays semester credit summaries with warnings for overloaded semesters
+    - Includes cycle detection and memoization for performance and safety
+    - Provides Excel export for projection plans
 
 ## User Preferences
 I prefer:
