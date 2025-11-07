@@ -355,46 +355,56 @@ def _render_all_students():
             completion_rate = f"{(c_count / total_students * 100):.0f}%" if total_students > 0 else "0%"
             summary_data[course] = f"c:{c_count} | r:{r_count} | s:{s_count} | na:{na_count} | ne:{ne_count} | {completion_rate}"
 
-        # Display REQUISITES and SUMMARY as greyed-out subheadings when filtering
+        # ALWAYS display REQUISITES and SUMMARY as static sections above the table (never as rows)
+        # Show semester header if filtering
         if semester_filter != "All Courses":
-            # Show semester header
             st.markdown(f"### 📅 {semester_filter}")
             st.write("")
-            
-            # REQUISITES Section - Greyed out
-            st.caption("📋 REQUISITES")
-            for course in selected:
-                req_str = requisites_data[course] if requisites_data[course] else "None"
-                st.caption(f"  • **{course}**: {req_str}")
-            st.write("")
-            
-            # SUMMARY Section - Greyed out
-            st.caption("📊 SUMMARY")
-            for course in selected:
-                st.caption(f"  • **{course}**: {summary_data[course]}")
-            
-            st.markdown("---")
-            # Only use table_df (without requisites row) when filtering
-            export_df = table_df.copy()
-        else:
-            # When not filtering, add requisites row to table as before
-            requisites_row = {
-                "NAME": "📋 REQUISITES",
-                "ID": "",
-                "Total Credits Completed": "",
-                "Remaining Credits": "",
-                "Standing": "",
-                "Advising Status": "",
-            }
-            for course in selected:
-                requisites_row[course] = requisites_data[course]
-            
-            requisites_df = pd.DataFrame([requisites_row])
-            table_df_with_req = pd.concat([requisites_df, table_df], ignore_index=True)
-            export_df = table_df_with_req.copy()
-
-        display_df = export_df.set_index("NAME")
+        
+        # REQUISITES Section - Static, greyed out
+        st.caption("📋 REQUISITES")
+        for course in selected:
+            req_str = requisites_data[course] if requisites_data[course] else "None"
+            st.caption(f"  • **{course}**: {req_str}")
+        st.write("")
+        
+        # SUMMARY Section - Static, greyed out
+        st.caption("📊 SUMMARY")
+        for course in selected:
+            st.caption(f"  • **{course}**: {summary_data[course]}")
+        
+        st.markdown("---")
+        
+        # Use only the student data table (no requisites/summary rows)
+        display_df = table_df.set_index("NAME")
         display_df.index.name = "Student"
+        
+        # For export, add requisites and summary rows
+        requisites_row = {
+            "NAME": "📋 REQUISITES",
+            "ID": "",
+            "Total Credits Completed": "",
+            "Remaining Credits": "",
+            "Standing": "",
+            "Advising Status": "",
+        }
+        for course in selected:
+            requisites_row[course] = requisites_data[course]
+        
+        summary_row = {
+            "NAME": "📊 SUMMARY",
+            "ID": "",
+            "Total Credits Completed": "",
+            "Remaining Credits": "",
+            "Standing": "",
+            "Advising Status": "",
+        }
+        for course in selected:
+            summary_row[course] = summary_data[course]
+        
+        requisites_df = pd.DataFrame([requisites_row])
+        summary_df = pd.DataFrame([summary_row])
+        export_df = pd.concat([requisites_df, summary_df, table_df], ignore_index=True)
 
         st.write(legend_md)
         styled = _style_codes(display_df, selected)

@@ -138,6 +138,9 @@ def upload_data():
                 else:
                     st.session_state.courses_df = df
                     st.session_state.majors[current_major]["courses_df"] = df
+                    # Clear cached co-requisite/concurrent courses list when new courses table is uploaded
+                    if "coreq_concurrent_courses" in st.session_state:
+                        del st.session_state.coreq_concurrent_courses
                     st.success(f"✅ Loaded {len(df)} courses")
                     log_info(f"Courses table uploaded via sidebar ({current_major}).")
 
