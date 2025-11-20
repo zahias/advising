@@ -54,7 +54,7 @@ if os.path.exists("pu_logo.png"):
 st.title("Advising Dashboard")
 
 # ---------- Majors ----------
-MAJORS = ["PBHL", "SPTH-New", "SPTH-Old"]
+MAJORS = ["PBHL", "SPTH-New", "SPTH-Old", "NURS"]
 
 # Per-major buckets persisted in session_state
 if "majors" not in st.session_state:
