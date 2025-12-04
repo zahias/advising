@@ -523,6 +523,94 @@ def _load_session_and_apply(student_id: Union[int, str]) -> bool:
     return True
 
 
+def load_all_sessions_for_period(period_id: Optional[str] = None) -> int:
+    """
+    Load all saved advising sessions for the current (or specified) period
+    and apply them to advising_selections.
+    
+    Returns the number of sessions loaded.
+    """
+    if "advising_index" not in st.session_state:
+        st.session_state.advising_index = _load_index()
+    
+    index = st.session_state.advising_index or []
+    
+    if period_id is None:
+        current_period = get_current_period()
+        period_id = current_period.get("period_id", "")
+    
+    period_sessions = [
+        r for r in index 
+        if r.get("period_id", "") == period_id
+    ]
+    
+    if not period_sessions:
+        return 0
+    
+    students_with_sessions = {}
+    for session in period_sessions:
+        student_id = session.get("student_id")
+        if not student_id:
+            continue
+        created_at = session.get("created_at", "")
+        if student_id not in students_with_sessions or created_at > students_with_sessions[student_id].get("created_at", ""):
+            students_with_sessions[student_id] = session
+    
+    if "advising_selections" not in st.session_state:
+        st.session_state.advising_selections = {}
+    
+    major = st.session_state.get("current_major", "")
+    bypasses_key = f"bypasses_{major}"
+    if bypasses_key not in st.session_state:
+        st.session_state[bypasses_key] = {}
+    
+    loaded_count = 0
+    for student_id, session_meta in students_with_sessions.items():
+        try:
+            norm_id = int(student_id)
+        except (ValueError, TypeError):
+            norm_id = str(student_id)
+        
+        if norm_id in st.session_state.advising_selections:
+            continue
+        if str(norm_id) in st.session_state.advising_selections:
+            continue
+        
+        session_id = session_meta.get("id")
+        if not session_id:
+            continue
+        
+        payload = _load_session_payload_by_id(session_id)
+        if not payload:
+            continue
+        
+        snapshot = payload.get("snapshot", {})
+        students = snapshot.get("students", [])
+        
+        if not students:
+            continue
+        
+        student_data = students[0]
+        
+        st.session_state.advising_selections[norm_id] = {
+            "advised": student_data.get("advised", []),
+            "optional": student_data.get("optional", []),
+            "repeat": student_data.get("repeat", []),
+            "note": student_data.get("note", ""),
+        }
+        
+        student_bypasses = student_data.get("bypasses", {})
+        if student_bypasses:
+            st.session_state[bypasses_key][norm_id] = student_bypasses
+        
+        loaded_count += 1
+    
+    if loaded_count > 0:
+        log_info(f"Loaded {loaded_count} advising sessions for period {period_id}")
+    
+    return loaded_count
+
+
 # ---------- panel UI ----------
 
 def advising_history_panel():

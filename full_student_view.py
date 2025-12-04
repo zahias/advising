@@ -18,6 +18,7 @@ from utils import (
     log_error
 )
 from reporting import add_summary_sheet, apply_full_report_formatting, apply_individual_compact_formatting
+from advising_history import load_all_sessions_for_period
 
 def _get_drive_module():
     """Lazy loader for google_drive module to avoid import-time side effects."""
@@ -216,6 +217,15 @@ def full_student_view():
         return
     if "advising_selections" not in st.session_state:
         st.session_state.advising_selections = {}
+    
+    major = st.session_state.get("current_major", "")
+    from advising_period import get_current_period
+    current_period = get_current_period()
+    period_id = current_period.get("period_id", "")
+    sessions_loaded_key = f"_fsv_sessions_loaded_{major}_{period_id}"
+    if sessions_loaded_key not in st.session_state:
+        load_all_sessions_for_period()
+        st.session_state[sessions_loaded_key] = True
 
     tab = st.tabs(["All Students", "Individual Student"])
     with tab[0]:
@@ -293,9 +303,12 @@ def _render_all_students():
     df["Curriculum Year"] = df.apply(
         lambda row: calculate_student_curriculum_year(row, courses_df, course_curriculum_years), axis=1
     )
-    df["Advising Status"] = df["ID"].apply(
-        lambda sid: "Advised" if st.session_state.advising_selections.get(int(sid), {}).get("advised") else "Not Advised"
-    )
+    def _get_advising_status(sid):
+        sels = st.session_state.advising_selections
+        slot = sels.get(int(sid)) or sels.get(str(int(sid))) or {}
+        return "Advised" if slot.get("advised") else "Not Advised"
+    
+    df["Advising Status"] = df["ID"].apply(_get_advising_status)
 
     # Normalize remaining credits for filtering and display
     remaining_credits_series = pd.to_numeric(df.get("# Remaining", 0), errors="coerce").fillna(0).astype(int)
