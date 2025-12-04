@@ -207,10 +207,10 @@ def student_eligibility_view():
     st.markdown("### Course Eligibility")
     if not req_df.empty:
         st.markdown("**Required Courses**")
-        st.dataframe(style_df(req_df), width='stretch')
+        st.dataframe(style_df(req_df), use_container_width=True)
     if not int_df.empty:
         st.markdown("**Intensive Courses**")
-        st.dataframe(style_df(int_df), width='stretch')
+        st.dataframe(style_df(int_df), use_container_width=True)
 
     # ---------- Selection options (eligible + offered, not hidden/completed/registered) ----------
     offered_yes = {

@@ -193,7 +193,7 @@ with st.expander("⚙️ Advising Utilities"):
     st.markdown("### Advising Period Management")
     
     # Add button to change period
-    if st.button("🔄 Change Advising Period", help="Switch to a different advising period", width="stretch"):
+    if st.button("🔄 Change Advising Period", help="Switch to a different advising period", use_container_width=True):
         st.session_state[period_selected_key] = False
         st.rerun()
     
@@ -259,7 +259,7 @@ with st.expander("⚙️ Advising Utilities"):
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("🗑️ Clear All Selections", help="Clear current advising selections for all students (does not affect saved sessions)", width="stretch"):
+        if st.button("🗑️ Clear All Selections", help="Clear current advising selections for all students (does not affect saved sessions)", use_container_width=True):
             # Clear advising selections for all students in current major
             st.session_state.advising_selections = {}
             # Clear the per-major bucket so it persists across reruns
@@ -279,7 +279,7 @@ with st.expander("⚙️ Advising Utilities"):
             st.rerun()
     
     with col2:
-        if st.button("📥 Restore Latest Sessions", help="Load most recent advising session for all students from current period", width="stretch"):
+        if st.button("📥 Restore Latest Sessions", help="Load most recent advising session for all students from current period", use_container_width=True):
             # Get all unique student IDs from progress report
             if not st.session_state.progress_df.empty and "ID" in st.session_state.progress_df.columns:
                 student_ids = st.session_state.progress_df["ID"].unique()
