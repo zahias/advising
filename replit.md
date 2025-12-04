@@ -7,9 +7,11 @@ The Advising Dashboard is a Streamlit-based application designed for Phoenix Uni
 - **2025-12-04**:
   - Fixed **circular import / segmentation fault** on Streamlit Cloud (Python 3.13):
     - Created `eligibility_utils.py` module containing all eligibility logic (check_eligibility, get_mutual_concurrent_pairs) with no Streamlit dependencies
-    - Refactored `advising_history.py` to use lazy loading for Google Drive functions via `_get_drive_module()`, preventing import-time side effects
+    - Refactored ALL modules to use lazy loading for Google Drive functions via `_get_drive_module()`, preventing import-time side effects:
+      - `advising_history.py`, `app.py`, `full_student_view.py`, `course_exclusions.py`, `data_upload.py`, `email_manager.py`, `advising_period.py`
     - Updated `utils.py` to import from eligibility_utils for backward compatibility
     - Added `runtime.txt` with `python-3.11` to pin Python version on Streamlit Cloud
+  - Fixed pandas `combine_first` FutureWarning by handling empty entries before concatenation
   - Fixed **mutual concurrent/corequisite pairs** eligibility issue. Previously, if Course A required Course B as concurrent AND Course B required Course A, both would show as "Not Eligible" (chicken-and-egg problem). Now the system:
     - Detects mutual concurrent/corequisite pairs automatically via `get_mutual_concurrent_pairs()`
     - Shows both courses as "Eligible" with note "Must be taken with: [paired course]"
