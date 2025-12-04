@@ -84,6 +84,9 @@ def student_eligibility_view():
     row = pdf.loc[pdf["ID"] == norm_sid]
     if row.empty:
         row = pdf.loc[pdf["ID"].astype(str) == str(norm_sid)]
+    if row.empty:
+        st.error(f"Student ID {norm_sid} not found in progress report. Please verify the ID or re-upload the progress report.")
+        return
     student_row = row.iloc[0]
 
     hidden_for_student = set(map(str, get_for_student(norm_sid)))
