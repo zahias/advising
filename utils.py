@@ -98,6 +98,13 @@ def _coalesce(a: pd.Series | None, b: pd.Series | None):
         return b
     if b is None:
         return a
+    # Filter out empty/null entries before combine_first to avoid FutureWarning
+    a_filtered = a.dropna() if hasattr(a, 'dropna') else a
+    b_filtered = b.dropna() if hasattr(b, 'dropna') else b
+    if len(a_filtered) == 0:
+        return b
+    if len(b_filtered) == 0:
+        return a
     return a.combine_first(b)
 
 def load_progress_excel(content: bytes | BytesIO | str) -> pd.DataFrame:

@@ -14,14 +14,12 @@ from degree_plan_view import degree_plan_view
 from course_offering_planner import course_offering_planner
 from course_projection_view import course_projection_view
 from visual_theme import apply_visual_theme
-from google_drive import (
-    download_file_from_drive,
-    initialize_drive_service,
-    find_file_in_drive,
-    get_major_folder_id,
-    GoogleAuthError,
-)
 from utils import log_info, log_error, load_progress_excel
+
+def _get_drive_module():
+    """Lazy loader for google_drive module to avoid import-time side effects."""
+    import google_drive as gd
+    return gd
 from advising_history import _load_session_and_apply
 from advising_period import get_current_period, start_new_period, get_all_periods
 from datetime import datetime
@@ -346,13 +344,14 @@ _sync_globals_from_bucket()
 # ---------- Google Drive bootstrap (optional) ----------
 service = None
 try:
-    service = initialize_drive_service()
-except GoogleAuthError as e:  # <-- show precise auth cause
-    st.sidebar.warning("Google Drive not configured or unreachable. You can still upload files locally.")
-    st.sidebar.error(str(e))
-    log_error("initialize_drive_service failed", e)
+    gd = _get_drive_module()
+    service = gd.initialize_drive_service()
 except Exception as e:
-    st.sidebar.warning("Google Drive not configured or unreachable. You can still upload files locally.")
+    if "GoogleAuthError" in type(e).__name__ or "invalid" in str(e).lower():
+        st.sidebar.warning("Google Drive not configured or unreachable. You can still upload files locally.")
+        st.sidebar.error(str(e))
+    else:
+        st.sidebar.warning("Google Drive not configured or unreachable. You can still upload files locally.")
     log_error("initialize_drive_service failed", e)
 
 @st.cache_data(ttl=600)
@@ -364,10 +363,11 @@ def _load_file_from_major_folder(filename: str, major: str, root_folder_id: str)
     try:
         if not service or not root_folder_id:
             return None
-        major_folder_id = get_major_folder_id(service, major, root_folder_id)
-        file_id = find_file_in_drive(service, filename, major_folder_id)
+        gd = _get_drive_module()
+        major_folder_id = gd.get_major_folder_id(service, major, root_folder_id)
+        file_id = gd.find_file_in_drive(service, filename, major_folder_id)
         if file_id:
-            return download_file_from_drive(service, file_id)
+            return gd.download_file_from_drive(service, file_id)
         return None
     except Exception as e:
         log_error(f"Drive download failed for {filename} in {major}/", e)

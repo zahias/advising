@@ -8,14 +8,19 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-from google_drive import initialize_drive_service, sync_file_with_drive, GoogleAuthError, get_major_folder_id
 from utils import log_info, log_error, load_progress_excel
+
+def _get_drive_module():
+    """Lazy loader for google_drive module to avoid import-time side effects."""
+    import google_drive as gd
+    return gd
 
 
 def _drive_service_or_none():
     try:
-        return initialize_drive_service()
-    except GoogleAuthError as e:
+        gd = _get_drive_module()
+        return gd.initialize_drive_service()
+    except Exception as e:
         # Clear message once in the sidebar; app still works locally
         st.sidebar.warning(
             "Google Drive sync unavailable: " + str(e) +
@@ -62,11 +67,12 @@ def _sync_to_major_folder(
         return
     
     # Get or create major-specific folder
-    major_folder_id = get_major_folder_id(service, major, root_folder_id)
+    gd = _get_drive_module()
+    major_folder_id = gd.get_major_folder_id(service, major, root_folder_id)
     
     # Sync file (replaces if exists)
     filename = f"{base_name}.xlsx"
-    sync_file_with_drive(
+    gd.sync_file_with_drive(
         service=service,
         file_content=content,
         drive_file_name=filename,

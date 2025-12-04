@@ -17,8 +17,12 @@ from utils import (
     log_info,
     log_error
 )
-from google_drive import sync_file_with_drive, initialize_drive_service
 from reporting import add_summary_sheet, apply_full_report_formatting, apply_individual_compact_formatting
+
+def _get_drive_module():
+    """Lazy loader for google_drive module to avoid import-time side effects."""
+    import google_drive as gd
+    return gd
 
 # -----------------------------
 # Color map (aligned with Advising table)
@@ -762,8 +766,9 @@ def _render_individual_student():
 
     if download_clicked:
         try:
-            service = initialize_drive_service()
-            sync_file_with_drive(
+            gd = _get_drive_module()
+            service = gd.initialize_drive_service()
+            gd.sync_file_with_drive(
                 service=service,
                 file_content=all_reports_bytes,
                 drive_file_name="All_Advised_Students.xlsx",
