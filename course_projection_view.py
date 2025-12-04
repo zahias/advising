@@ -51,119 +51,141 @@ def _style_projection_codes(df: pd.DataFrame, code_cols: list[str]) -> "pd.io.fo
     return styler
 
 
-def calculate_earliest_semester(student_row, course_code, courses_df, advised_courses, memo=None, visiting=None):
+def build_prerequisite_graph(courses_df):
     """
-    Calculate the earliest semester a student can take a course based on prerequisites.
-    
-    Returns integer representing semester number (1 = next semester, 2 = after that, etc.)
-    or special values: "c" (completed), "r" (registered), "a" (advised), "-" (not applicable)
+    Build a prerequisite graph from courses dataframe.
+    Returns dict mapping course_code -> list of prerequisite course codes.
     """
-    if memo is None:
-        memo = {}
-    if visiting is None:
-        visiting = set()
+    prereq_graph = {}
+    standing_reqs = {}
     
-    # Check if already completed or registered
-    if check_course_completed(student_row, course_code):
-        return "c"
-    if check_course_registered(student_row, course_code):
-        return "r"
-    if course_code in advised_courses:
-        return "a"
-    
-    # Check memoization
-    if course_code in memo:
-        return memo[course_code]
-    
-    # Detect circular dependencies
-    if course_code in visiting:
-        # Circular dependency detected - return semester 1 as safe fallback
-        log_info(f"Circular dependency detected for {course_code}, using fallback")
-        return 1
-    
-    # Mark as currently visiting
-    visiting.add(course_code)
-    
-    try:
-        # Get course info
-        course_info = courses_df[courses_df["Course Code"] == course_code]
-        if course_info.empty:
-            return "-"
-        
-        # Parse prerequisites
-        prereqs = parse_requirements(course_info.iloc[0].get("Prerequisite", ""))
-        
-        # Calculate earliest semester based on prerequisites
-        max_prereq_semester = 0
+    for _, row in courses_df.iterrows():
+        course_code = row.get("Course Code", "")
+        if not course_code:
+            continue
+            
+        prereqs = parse_requirements(row.get("Prerequisite", ""))
+        course_prereqs = []
+        standing_req = 0
         
         for prereq in prereqs:
             if "standing" in prereq.lower():
-                # Handle standing requirements
                 if "senior" in prereq.lower():
-                    # Assume senior standing (60 credits) takes ~4 semesters
-                    max_prereq_semester = max(max_prereq_semester, 4)
+                    standing_req = max(standing_req, 4)
                 elif "junior" in prereq.lower():
-                    # Assume junior standing (30 credits) takes ~2 semesters
-                    max_prereq_semester = max(max_prereq_semester, 2)
-                continue
-            
-            # Recursive call for course prerequisites
-            prereq_sem = calculate_earliest_semester(student_row, prereq, courses_df, advised_courses, memo, visiting)
-            
-            if prereq_sem == "c" or prereq_sem == "r" or prereq_sem == "a":
-                # Prerequisite already satisfied
-                continue
-            elif prereq_sem == "-":
-                # Prerequisite doesn't exist - skip
-                continue
-            elif isinstance(prereq_sem, int):
-                max_prereq_semester = max(max_prereq_semester, prereq_sem)
+                    standing_req = max(standing_req, 2)
+            else:
+                course_prereqs.append(prereq)
         
-        # This course can be taken in the semester after all prerequisites
-        earliest = max_prereq_semester + 1 if max_prereq_semester > 0 else 1
-        memo[course_code] = earliest
-        return earliest
-    finally:
-        # Remove from visiting set when done
-        visiting.discard(course_code)
+        prereq_graph[course_code] = course_prereqs
+        standing_reqs[course_code] = standing_req
+    
+    return prereq_graph, standing_reqs
 
 
-def count_dependent_courses(course_code, courses_df, memo=None, visiting=None):
+def calculate_all_earliest_semesters(student_row, courses_df, advised_courses):
     """
-    Count how many other courses depend on this course (directly or indirectly).
-    Uses memoization and cycle detection for efficiency and safety.
+    Calculate earliest semester for all courses using iterative topological approach.
+    Returns dict mapping course_code -> semester number or status string.
     """
-    if memo is None:
-        memo = {}
-    if visiting is None:
-        visiting = set()
+    prereq_graph, standing_reqs = build_prerequisite_graph(courses_df)
+    all_courses = set(prereq_graph.keys())
     
-    # Check memoization
-    if course_code in memo:
-        return memo[course_code]
+    result = {}
     
-    # Detect circular dependencies
-    if course_code in visiting:
-        return 0  # Circular dependency - return 0 to break cycle
+    # First pass: mark completed, registered, advised courses
+    for course_code in all_courses:
+        if check_course_completed(student_row, course_code):
+            result[course_code] = "c"
+        elif check_course_registered(student_row, course_code):
+            result[course_code] = "r"
+        elif course_code in advised_courses:
+            result[course_code] = "a"
     
-    visiting.add(course_code)
+    # Iterative calculation with max iterations to prevent infinite loops
+    max_iterations = len(all_courses) + 10
+    changed = True
+    iteration = 0
     
-    try:
-        dependents = 0
-        for _, row in courses_df.iterrows():
-            prereqs = parse_requirements(row.get("Prerequisite", ""))
-            # Filter out standing requirements
-            prereqs = [p for p in prereqs if "standing" not in p.lower()]
-            
-            if course_code in prereqs:
-                dependents += 1
-                # Add transitive dependencies
-                dependents += count_dependent_courses(row["Course Code"], courses_df, memo, visiting)
+    while changed and iteration < max_iterations:
+        changed = False
+        iteration += 1
         
-        memo[course_code] = dependents
-        return dependents
-    finally:
-        visiting.discard(course_code)
+        for course_code in all_courses:
+            if course_code in result:
+                continue
+            
+            prereqs = prereq_graph.get(course_code, [])
+            standing_req = standing_reqs.get(course_code, 0)
+            
+            # Check if all prerequisites are resolved
+            all_resolved = True
+            max_prereq_semester = standing_req
+            
+            for prereq in prereqs:
+                if prereq not in all_courses:
+                    # Prerequisite not in our course list - skip it
+                    continue
+                
+                if prereq not in result:
+                    all_resolved = False
+                    break
+                
+                prereq_result = result[prereq]
+                if prereq_result in ["c", "r", "a"]:
+                    # Prerequisite satisfied
+                    continue
+                elif prereq_result == "-":
+                    continue
+                elif isinstance(prereq_result, int):
+                    max_prereq_semester = max(max_prereq_semester, prereq_result)
+            
+            if all_resolved:
+                earliest = max_prereq_semester + 1 if max_prereq_semester > 0 else 1
+                result[course_code] = earliest
+                changed = True
+    
+    # Mark any unresolved courses (circular dependencies) with fallback
+    for course_code in all_courses:
+        if course_code not in result:
+            result[course_code] = 1  # Fallback for circular dependencies
+    
+    return result
+
+
+def count_all_dependents(courses_df):
+    """
+    Count dependents for all courses using iterative approach.
+    Returns dict mapping course_code -> number of dependent courses.
+    """
+    prereq_graph, _ = build_prerequisite_graph(courses_df)
+    all_courses = list(prereq_graph.keys())
+    
+    # Build reverse graph (course -> courses that depend on it)
+    reverse_graph = {c: [] for c in all_courses}
+    for course_code, prereqs in prereq_graph.items():
+        for prereq in prereqs:
+            if prereq in reverse_graph:
+                reverse_graph[prereq].append(course_code)
+    
+    # Count dependents using BFS for each course
+    result = {}
+    for course_code in all_courses:
+        visited = set()
+        queue = [course_code]
+        count = 0
+        
+        while queue:
+            current = queue.pop(0)
+            for dependent in reverse_graph.get(current, []):
+                if dependent not in visited:
+                    visited.add(dependent)
+                    count += 1
+                    queue.append(dependent)
+        
+        result[course_code] = count
+    
+    return result
 
 
 def build_projection_schedule(student_row, courses_df, advised_courses, credit_limit_typical=15, credit_limit_max=18):
@@ -177,23 +199,22 @@ def build_projection_schedule(student_row, courses_df, advised_courses, credit_l
     Returns dict mapping course_code -> projected_semester_string
     """
     projection = {}
-    memo = {}
     
-    # Get all courses
-    all_courses = courses_df["Course Code"].tolist()
+    # Step 1: Calculate earliest semester for all courses (iterative approach)
+    earliest_results = calculate_all_earliest_semesters(student_row, courses_df, advised_courses)
     
-    # Step 1: Calculate earliest semester for each course
+    # Step 2: Calculate dependent counts for all courses (iterative approach)
+    dependency_counts = count_all_dependents(courses_df)
+    
+    # Separate completed/registered/advised from courses needing scheduling
     earliest_semesters = {}
-    for course_code in all_courses:
-        result = calculate_earliest_semester(student_row, course_code, courses_df, advised_courses, memo)
+    for course_code, result in earliest_results.items():
         if result in ["c", "r", "a", "-"]:
             projection[course_code] = result
         else:
             earliest_semesters[course_code] = result
     
-    # Step 2: Group remaining courses by earliest semester
-    # Pre-calculate dependent counts with shared memo for efficiency
-    dependency_memo = {}
+    # Step 3: Group remaining courses by earliest semester
     semester_buckets = {}
     for course_code, sem_num in earliest_semesters.items():
         if sem_num not in semester_buckets:
@@ -205,7 +226,7 @@ def build_projection_schedule(student_row, courses_df, advised_courses, credit_l
             continue
         
         credits = int(course_info.iloc[0].get("Credits", 3))
-        critical_score = count_dependent_courses(course_code, courses_df, dependency_memo)
+        critical_score = dependency_counts.get(course_code, 0)
         
         semester_buckets[sem_num].append({
             "code": course_code,
@@ -266,9 +287,7 @@ def build_projection_schedule(student_row, courses_df, advised_courses, credit_l
     # Step 4: Mark truly flexible courses (no/minimal dependencies, non-critical path)
     for course_code, sem_str in list(projection.items()):
         if isinstance(sem_str, str) and sem_str.isdigit():
-            critical_score = dependency_memo.get(course_code)
-            if critical_score is None:
-                critical_score = count_dependent_courses(course_code, courses_df, dependency_memo)
+            critical_score = dependency_counts.get(course_code, 0)
             
             if critical_score == 0:
                 # Non-critical course - mark as flexible
