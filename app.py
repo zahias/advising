@@ -114,7 +114,7 @@ if not st.session_state[period_selected_key]:
             )
             advisor_name = st.text_input("Advisor Name", key="period_select_advisor")
             
-            if st.form_submit_button("Start New Period", width="stretch", type="primary"):
+            if st.form_submit_button("Start New Period", use_container_width=True, type="primary"):
                 if not advisor_name:
                     st.error("Please enter advisor name")
                 else:
@@ -159,7 +159,7 @@ if not st.session_state[period_selected_key]:
             with st.form("period_selection_existing"):
                 selected_period_label = st.selectbox("Select Period", period_options, key="period_select_existing")
                 
-                if st.form_submit_button("Use This Period", width="stretch"):
+                if st.form_submit_button("Use This Period", use_container_width=True):
                     selected_period = period_map[selected_period_label]
                     
                     # If selecting a different period than current, we need to switch to it
@@ -230,7 +230,7 @@ with st.expander("⚙️ Advising Utilities"):
         with col_advisor:
             advisor_name = st.text_input("Advisor Name", key="new_period_advisor")
         
-        if st.form_submit_button("🆕 Start New Period", width="stretch", type="primary"):
+        if st.form_submit_button("🆕 Start New Period", use_container_width=True, type="primary"):
             if not advisor_name:
                 st.error("Please enter advisor name")
             else:

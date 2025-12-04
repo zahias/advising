@@ -1,0 +1,54 @@
+2025-12-04 16:16:31.225 503 GET /script-health-check (127.0.0.1) 1778.69ms
+
+────────────────────── Traceback (most recent call last) ───────────────────────
+
+  /home/adminuser/venv/lib/python3.11/site-packages/streamlit/runtime/scriptru  
+
+  nner/exec_code.py:88 in exec_func_with_error_handling                         
+
+                                                                                
+
+  /home/adminuser/venv/lib/python3.11/site-packages/streamlit/runtime/scriptru  
+
+  nner/script_runner.py:579 in code_to_exec                                     
+
+                                                                                
+
+  /mount/src/advising/app.py:117 in <module>                                    
+
+                                                                                
+
+    114 │   │   │   )                                                           
+
+    115 │   │   │   advisor_name = st.text_input("Advisor Name", key="period_s  
+
+    116 │   │   │                                                               
+
+  ❱ 117 │   │   │   if st.form_submit_button("Start New Period", width="stretc  
+
+    118 │   │   │   │   if not advisor_name:                                    
+
+    119 │   │   │   │   │   st.error("Please enter advisor name")               
+
+    120 │   │   │   │   else:                                                   
+
+                                                                                
+
+  /home/adminuser/venv/lib/python3.11/site-packages/streamlit/runtime/metrics_  
+
+  util.py:409 in wrapped_func                                                   
+
+────────────────────────────────────────────────────────────────────────────────
+
+TypeError: FormMixin.form_submit_button() got an unexpected keyword argument 
+
+'width'
+
+2025-12-04 16:16:36.539 503 GET /script-health-check (127.0.0.1) 2092.58ms
+
+/app/scripts/run-streamlit.sh: line 9:   398 Segmentation fault      sudo -E -u appuser /home/adminuser/venv/bin/streamlit "$@"
+
+main
+zahias/advising/main/app.py
+
+
