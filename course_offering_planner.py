@@ -7,6 +7,7 @@ from utils import (
     check_course_completed,
     check_course_registered,
     check_eligibility,
+    get_mutual_concurrent_pairs,
     parse_requirements,
     build_requisites_str,
 )
@@ -160,6 +161,9 @@ def _analyze_course_recommendations(
     # Build prerequisite dependency map (what courses unlock)
     prereq_map = _build_prerequisite_map(courses_df)
     
+    # Calculate mutual pairs once for efficiency
+    mutual_pairs = get_mutual_concurrent_pairs(courses_df)
+    
     for course in all_courses:
         course_info = courses_df.loc[courses_df["Course Code"] == course]
         if course_info.empty:
@@ -189,7 +193,8 @@ def _analyze_course_recommendations(
                 [],  # No advised courses for this analysis
                 courses_df,
                 registered_courses=[],
-                ignore_offered=True
+                ignore_offered=True,
+                mutual_pairs=mutual_pairs
             )
             
             if status == "Eligible":
@@ -298,6 +303,7 @@ def _calculate_cascading_eligibility(
         return 0
     
     cascading_count = 0
+    mutual_pairs = get_mutual_concurrent_pairs(courses_df)
     
     for downstream_course in downstream_courses:
         for sid in eligible_student_ids:
@@ -315,7 +321,8 @@ def _calculate_cascading_eligibility(
                 [],
                 courses_df,
                 registered_courses=[],
-                ignore_offered=True
+                ignore_offered=True,
+                mutual_pairs=mutual_pairs
             )
             
             status_after, _ = check_eligibility(
@@ -324,7 +331,8 @@ def _calculate_cascading_eligibility(
                 [],
                 courses_df,
                 registered_courses=[course],  # Simulate having taken the prerequisite
-                ignore_offered=True
+                ignore_offered=True,
+                mutual_pairs=mutual_pairs
             )
             
             # If they weren't eligible before but are now, count it

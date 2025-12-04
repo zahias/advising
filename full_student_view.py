@@ -10,6 +10,7 @@ from utils import (
     get_student_standing,
     build_requisites_str,
     get_corequisite_and_concurrent_courses,
+    get_mutual_concurrent_pairs,
     calculate_course_curriculum_years,
     calculate_student_curriculum_year,
     style_df,          # kept (used elsewhere in app)
@@ -112,6 +113,9 @@ def render_degree_plan_table(courses_df, progress_df):
     # Calculate curriculum years
     course_curriculum_years = calculate_course_curriculum_years(courses_df)
     
+    # Calculate mutual pairs once for efficiency
+    mutual_pairs = get_mutual_concurrent_pairs(courses_df)
+    
     # Build table
     table_data = []
     for _, student in progress_df.iterrows():
@@ -135,7 +139,8 @@ def render_degree_plan_table(courses_df, progress_df):
                     course_code,
                     [],
                     courses_df,
-                    ignore_offered=True
+                    ignore_offered=True,
+                    mutual_pairs=mutual_pairs
                 )
                 # Map check_eligibility status to display codes
                 status_map = {
@@ -386,6 +391,9 @@ def _render_all_students():
     simulated_courses = st.session_state.simulated_courses
     simulated_completions = {}
     
+    # Calculate mutual pairs once for efficiency
+    mutual_pairs = get_mutual_concurrent_pairs(st.session_state.courses_df)
+    
     if simulated_courses:
         for sid in df["ID"].astype(int).tolist():
             row_original = original_rows.get(int(sid))
@@ -402,7 +410,7 @@ def _render_all_students():
                     if sim_course in simulated_completions[sid]:
                         continue
                     
-                    stt, _ = check_eligibility(row_original, sim_course, advised_list, st.session_state.courses_df, registered_courses=simulated_completions[sid], ignore_offered=True)
+                    stt, _ = check_eligibility(row_original, sim_course, advised_list, st.session_state.courses_df, registered_courses=simulated_completions[sid], ignore_offered=True, mutual_pairs=mutual_pairs)
                     if stt == "Eligible":
                         simulated_completions[sid].append(sim_course)
                         added_this_iteration = True
@@ -429,7 +437,7 @@ def _render_all_students():
         if course in advised_list:
             return "a"
 
-        stt, _ = check_eligibility(row_original, course, advised_list, st.session_state.courses_df, registered_courses=simulated_for_student, ignore_offered=True)
+        stt, _ = check_eligibility(row_original, course, advised_list, st.session_state.courses_df, registered_courses=simulated_for_student, ignore_offered=True, mutual_pairs=mutual_pairs)
         return "na" if stt == "Eligible" else "ne"
 
     def render_course_table(label: str, course_codes: list[str], key_suffix: str):
@@ -626,6 +634,7 @@ def _render_individual_student():
     optional_list = sel.get("optional", []) or []
     repeat_list = sel.get("repeat", []) or []
 
+    mutual_pairs = get_mutual_concurrent_pairs(st.session_state.courses_df)
     for c in selected_courses:
         if c in repeat_list:
             data[c] = ["ar"]
@@ -638,7 +647,7 @@ def _render_individual_student():
         elif c in advised_list:
             data[c] = ["a"]
         else:
-            stt, _ = check_eligibility(row_original, c, advised_list, st.session_state.courses_df, registered_courses=[])
+            stt, _ = check_eligibility(row_original, c, advised_list, st.session_state.courses_df, registered_courses=[], mutual_pairs=mutual_pairs)
             data[c] = ["na" if stt == "Eligible" else "ne"]
 
     indiv_df = pd.DataFrame(data)
@@ -713,12 +722,13 @@ def _render_individual_student():
 
     def _build_all_advised_bytes() -> bytes:
         output = BytesIO()
+        mutual_pairs = get_mutual_concurrent_pairs(st.session_state.courses_df)
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             for sid_, sel_ in all_sel:
                 srow = st.session_state.progress_df.loc[st.session_state.progress_df["ID"] == sid_].iloc[0]
                 data_rows = {"Course Code": [], "Action": [], "Eligibility Status": [], "Justification": []}
                 for cc in st.session_state.courses_df["Course Code"]:
-                    status, just = check_eligibility(srow, cc, sel_.get("advised", []), st.session_state.courses_df, registered_courses=[])
+                    status, just = check_eligibility(srow, cc, sel_.get("advised", []), st.session_state.courses_df, registered_courses=[], mutual_pairs=mutual_pairs)
                     if check_course_completed(srow, cc):
                         action = "Completed"; status = "Completed"
                     elif check_course_registered(srow, cc):

@@ -124,6 +124,49 @@ def get_corequisite_and_concurrent_courses(courses_df: pd.DataFrame) -> List[str
     return sorted(list(coreq_concurrent_courses))
 
 
+def get_mutual_concurrent_pairs(courses_df: pd.DataFrame) -> Dict[str, List[str]]:
+    """
+    Detect mutual concurrent/corequisite pairs where Course A requires Course B
+    AND Course B requires Course A (either as concurrent or corequisite).
+    
+    Returns dict mapping course_code -> list of mutually required courses.
+    """
+    # Build a map of course -> courses it requires (concurrent/corequisite)
+    requires_map = {}
+    for _, row in courses_df.iterrows():
+        course_code = row.get("Course Code", "")
+        if not course_code:
+            continue
+        
+        requirements = set()
+        
+        # Check Corequisite column
+        if "Corequisite" in row and not pd.isna(row["Corequisite"]):
+            coreqs = parse_requirements(row["Corequisite"])
+            requirements.update(coreqs)
+        
+        # Check Concurrent column
+        if "Concurrent" in row and not pd.isna(row["Concurrent"]):
+            concurrents = parse_requirements(row["Concurrent"])
+            requirements.update(concurrents)
+        
+        requires_map[course_code] = requirements
+    
+    # Find mutual pairs: A requires B AND B requires A
+    mutual_pairs = {}
+    for course_a, reqs_a in requires_map.items():
+        mutual_courses = []
+        for course_b in reqs_a:
+            # Check if course_b also requires course_a
+            if course_b in requires_map and course_a in requires_map[course_b]:
+                mutual_courses.append(course_b)
+        
+        if mutual_courses:
+            mutual_pairs[course_a] = mutual_courses
+    
+    return mutual_pairs
+
+
 # ------------- Eligibility -----------------------------
 
 def _standing_satisfies(req: str, standing: str) -> bool:
@@ -143,6 +186,7 @@ def check_eligibility(
     courses_df: pd.DataFrame,
     registered_courses: List[str] = None,
     ignore_offered: bool = False,
+    mutual_pairs: Dict[str, List[str]] = None,
 ) -> Tuple[str, str]:
     """
     Returns (status, justification).
@@ -154,9 +198,13 @@ def check_eligibility(
                         Used for concurrent/corequisite checks only, NOT prerequisites.
     ignore_offered: If True, skip the "Course not offered" check. Used by Full Student View
                     for planning purposes where offered status doesn't matter.
+    mutual_pairs: Dict mapping course_code -> list of mutually required courses.
+                  If provided, mutual concurrent/corequisite pairs are treated as eligible.
     """
     if registered_courses is None:
         registered_courses = []
+    if mutual_pairs is None:
+        mutual_pairs = {}
     
     # Completed / Registered short-circuit
     if check_course_completed(student_row, course_code):
@@ -174,6 +222,7 @@ def check_eligibility(
     )
     reasons: List[str] = []
     notes: List[str] = []
+    mutual_notes: List[str] = []
 
     # Offered? (skip check if ignore_offered=True for planning views)
     if not ignore_offered and not is_course_offered(courses_df, course_code):
@@ -190,7 +239,7 @@ def check_eligibility(
             notes.append(f"Prerequisite '{tok}' satisfied by current registration.")
         return comp or reg or adv
     
-    def _satisfies_concurrent_or_coreq(token: str) -> bool:
+    def _satisfies_concurrent_or_coreq(token: str, is_mutual: bool = False) -> bool:
         tok = token.strip()
         if "standing" in tok.lower():
             return _standing_satisfies(tok, standing)
@@ -200,6 +249,9 @@ def check_eligibility(
         sim = tok in (registered_courses or [])
         if reg or sim:
             notes.append(f"Requirement '{tok}' satisfied by current registration.")
+        if is_mutual and not (comp or reg or adv or sim):
+            mutual_notes.append(tok)
+            return True
         return comp or reg or adv or sim
 
     # Prerequisites: Only completed or advised courses satisfy
@@ -209,14 +261,18 @@ def check_eligibility(
         if not _satisfies_prerequisite(r):
             reasons.append(f"Prerequisite '{r}' not satisfied.")
     
-    # Concurrent/Corequisites: Completed, registered, advised, OR simulated courses satisfy
+    # Get mutual courses for this course
+    my_mutual_courses = mutual_pairs.get(course_code, [])
+    
+    # Concurrent/Corequisites: Completed, registered, advised, simulated, OR mutual pairs satisfy
     for col, label in [
         ("Concurrent", "Concurrent requirement"),
         ("Corequisite", "Corequisite"),
     ]:
         reqs = parse_requirements(course_row[col].iloc[0] if col in course_row.columns else "")
         for r in reqs:
-            if not _satisfies_concurrent_or_coreq(r):
+            is_mutual = r in my_mutual_courses
+            if not _satisfies_concurrent_or_coreq(r, is_mutual=is_mutual):
                 reasons.append(f"{label} '{r}' not satisfied.")
 
     if reasons:
@@ -226,6 +282,9 @@ def check_eligibility(
         return "Not Eligible", just
 
     justification = "All requirements met."
+    if mutual_notes:
+        paired = ", ".join(mutual_notes)
+        justification = f"Must be taken with: {paired}."
     if notes:
         justification += " " + " ".join(notes)
     return "Eligible", justification

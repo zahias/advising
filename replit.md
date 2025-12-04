@@ -4,6 +4,13 @@
 The Advising Dashboard is a Streamlit-based application designed for Phoenix University academic advisors. Its core purpose is to streamline the academic advising process by providing tools for tracking student progress, checking course eligibility, managing advising sessions, and syncing data with Google Drive. The dashboard supports multiple majors (PBHL, SPTH-New, SPTH-Old) and aims to offer a comprehensive, user-friendly platform for academic guidance, including advanced features like a Course Offering Planner for optimized course recommendations.
 
 ## Recent Changes
+- **2025-12-04**:
+  - Fixed **mutual concurrent/corequisite pairs** eligibility issue. Previously, if Course A required Course B as concurrent AND Course B required Course A, both would show as "Not Eligible" (chicken-and-egg problem). Now the system:
+    - Detects mutual concurrent/corequisite pairs automatically via `get_mutual_concurrent_pairs()`
+    - Shows both courses as "Eligible" with note "Must be taken with: [paired course]"
+    - Allows advisors to select and advise both courses together
+  - Refactored Course Projection View to use iterative graph traversal (BFS/topological sort) instead of recursion to prevent stack overflow on complex prerequisite chains
+
 - **2025-11-07**: 
   - Replaced static REQUISITES and SUMMARY sections with clean tooltips on course column headers. Hovering over any course column now shows the course prerequisites and summary statistics (completion rates, registration counts).
   - Removed REQUISITES and SUMMARY rows from Excel exports for cleaner, student-data-only downloads.

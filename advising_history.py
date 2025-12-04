@@ -27,6 +27,7 @@ from utils import (
     check_eligibility,
     build_requisites_str,
     get_student_standing,
+    get_mutual_concurrent_pairs,
     style_df,
 )
 from advising_period import get_current_period
@@ -270,10 +271,11 @@ def _find_student_row(student_id: Union[int, str]) -> Optional[pd.Series]:
 def _snapshot_student_courses(student_row: pd.Series, advised: List[str], optional: List[str], repeat: List[str]) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     cdf = st.session_state.courses_df
+    mutual_pairs = get_mutual_concurrent_pairs(cdf)
     for _, info in cdf.iterrows():
         code = str(info["Course Code"])
         offered = "Yes" if is_course_offered(cdf, code) else "No"
-        status, justification = check_eligibility(student_row, code, advised, cdf, registered_courses=[])
+        status, justification = check_eligibility(student_row, code, advised, cdf, registered_courses=[], mutual_pairs=mutual_pairs)
 
         # Action column should ONLY show advisor selections
         if code in repeat:

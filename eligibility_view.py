@@ -14,6 +14,7 @@ from utils import (
     build_requisites_str,
     style_df,
     get_student_standing,
+    get_mutual_concurrent_pairs,
     log_info,
     log_error,
 )
@@ -142,12 +143,17 @@ def student_eligibility_view():
     status_dict: Dict[str, str] = {}
     justification_dict: Dict[str, str] = {}
     current_advised_for_checks = list(slot.get("advised", []))
+    
+    # Compute mutual concurrent/corequisite pairs once for the courses table
+    mutual_pairs = get_mutual_concurrent_pairs(st.session_state.courses_df)
+    
     for course_code in st.session_state.courses_df["Course Code"]:
         code = str(course_code)
         if code in hidden_for_student:
             continue
         status, justification = check_eligibility(
-            student_row, code, current_advised_for_checks, st.session_state.courses_df, registered_courses=[]
+            student_row, code, current_advised_for_checks, st.session_state.courses_df, 
+            registered_courses=[], mutual_pairs=mutual_pairs
         )
         status_dict[code] = status
         justification_dict[code] = justification

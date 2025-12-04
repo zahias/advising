@@ -2,7 +2,7 @@
 
 import streamlit as st
 import pandas as pd
-from utils import check_eligibility
+from utils import check_eligibility, get_mutual_concurrent_pairs
 
 
 def degree_plan_view():
@@ -246,6 +246,7 @@ def _get_student_course_statuses(student_data, courses_df):
     """Determine status of each course for the student."""
     
     statuses = {}
+    mutual_pairs = get_mutual_concurrent_pairs(courses_df)
     
     for _, course_row in courses_df.iterrows():
         course_code = course_row["Course Code"]
@@ -255,13 +256,16 @@ def _get_student_course_statuses(student_data, courses_df):
         
         if pd.isna(student_status) or student_status == "":
             # Not taken - check if eligible
-            is_eligible, _ = check_eligibility(
-                course_row,
+            status, _ = check_eligibility(
                 student_data,
+                course_code,
+                [],
                 courses_df,
-                ignore_offered=True
+                registered_courses=[],
+                ignore_offered=True,
+                mutual_pairs=mutual_pairs
             )
-            statuses[course_code] = 'available' if is_eligible else 'not_eligible'
+            statuses[course_code] = 'available' if status == "Eligible" else 'not_eligible'
         elif student_status.lower() in ['c', 'completed', 'pass', 'p']:
             statuses[course_code] = 'completed'
         elif student_status.lower() in ['r', 'registered', 'current']:
