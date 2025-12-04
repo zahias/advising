@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
 from uuid import uuid4
 from datetime import datetime
 import numpy as np
@@ -10,17 +10,8 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from google_drive import (
-    initialize_drive_service,
-    find_file_in_drive,
-    download_file_from_drive,
-    sync_file_with_drive,
-    get_major_folder_id,
-    get_or_create_folder,
-)
-from utils import (
-    log_info,
-    log_error,
+# Import eligibility functions from standalone module (no Streamlit dependencies)
+from eligibility_utils import (
     check_course_completed,
     check_course_registered,
     is_course_offered,
@@ -28,9 +19,23 @@ from utils import (
     build_requisites_str,
     get_student_standing,
     get_mutual_concurrent_pairs,
-    style_df,
 )
+
+# Import logging from utils (lightweight, no circular deps)
+from utils import log_info, log_error, style_df
+
 from advising_period import get_current_period
+
+# Lazy import for Google Drive to prevent import-time initialization
+_drive_module = None
+
+def _get_drive_module():
+    """Lazy load google_drive module to prevent import-time side effects."""
+    global _drive_module
+    if _drive_module is None:
+        import google_drive as gd
+        _drive_module = gd
+    return _drive_module
 
 try:
     from zoneinfo import ZoneInfo
@@ -76,7 +81,8 @@ def _get_major_folder_id() -> str:
     """Get major-specific folder ID. Returns major-specific folder inside root folder."""
     import os
     try:
-        service = initialize_drive_service()
+        gd = _get_drive_module()
+        service = gd.initialize_drive_service()
         major = st.session_state.get("current_major", "DEFAULT")
         
         # Get root folder ID
@@ -94,20 +100,21 @@ def _get_major_folder_id() -> str:
             return ""
         
         # Get or create major-specific folder
-        return get_major_folder_id(service, major, root_folder_id)
+        return gd.get_major_folder_id(service, major, root_folder_id)
     except Exception:
         return ""
 
 def _get_sessions_folder_id() -> str:
     """Get sessions subfolder ID within the major folder. Creates it if it doesn't exist."""
     try:
-        service = initialize_drive_service()
+        gd = _get_drive_module()
+        service = gd.initialize_drive_service()
         major_folder_id = _get_major_folder_id()
         if not major_folder_id:
             return ""
         
         # Get or create 'sessions' subfolder within major folder
-        sessions_folder_id = get_or_create_folder(service, "sessions", major_folder_id)
+        sessions_folder_id = gd.get_or_create_folder(service, "sessions", major_folder_id)
         return sessions_folder_id
     except Exception as e:
         log_error(f"Failed to get/create sessions folder", e)
@@ -115,23 +122,24 @@ def _get_sessions_folder_id() -> str:
 
 def _load_index() -> List[Dict[str, Any]]:
     try:
-        service = initialize_drive_service()
+        gd = _get_drive_module()
+        service = gd.initialize_drive_service()
         
         # Try sessions subfolder first
         folder_id = _get_sessions_folder_id()
         if folder_id:
-            fid = find_file_in_drive(service, _index_name(), folder_id)
+            fid = gd.find_file_in_drive(service, _index_name(), folder_id)
             if fid:
-                payload = download_file_from_drive(service, fid)
+                payload = gd.download_file_from_drive(service, fid)
                 idx = json.loads(payload.decode("utf-8"))
                 return idx if isinstance(idx, list) else []
         
         # Fall back to major folder root (backward compatibility for legacy sessions)
         folder_id = _get_major_folder_id()
         if folder_id:
-            fid = find_file_in_drive(service, _index_name(), folder_id)
+            fid = gd.find_file_in_drive(service, _index_name(), folder_id)
             if fid:
-                payload = download_file_from_drive(service, fid)
+                payload = gd.download_file_from_drive(service, fid)
                 idx = json.loads(payload.decode("utf-8"))
                 log_info("Loaded legacy advising index from major folder root (consider migrating to sessions/)")
                 return idx if isinstance(idx, list) else []
@@ -152,14 +160,15 @@ def _save_index(index_items: List[Dict[str, Any]]) -> None:
     
     # Background save to Drive (best effort)
     try:
-        service = initialize_drive_service()
+        gd = _get_drive_module()
+        service = gd.initialize_drive_service()
         folder_id = _get_sessions_folder_id()
         if not folder_id:
             return
         # Convert numpy types to native Python types before JSON serialization
         serializable_items = _convert_to_json_serializable(index_items)
         data = json.dumps(serializable_items, ensure_ascii=False, indent=2).encode("utf-8")
-        sync_file_with_drive(service, data, _index_name(), "application/json", folder_id)
+        gd.sync_file_with_drive(service, data, _index_name(), "application/json", folder_id)
         log_info(f"Index saved to Drive/sessions: {_index_name()}")
     except Exception as e:
         log_error("Failed to save advising index to Drive (local copy preserved)", e)
@@ -180,7 +189,8 @@ def _save_session_payload(session_id: str, snapshot: Dict[str, Any], meta: Dict[
     
     # Background save to Drive (best effort, non-blocking)
     try:
-        service = initialize_drive_service()
+        gd = _get_drive_module()
+        service = gd.initialize_drive_service()
         folder_id = _get_sessions_folder_id()
         if not folder_id:
             log_info(f"Session saved locally only (no Drive folder configured): {session_id}")
@@ -188,7 +198,7 @@ def _save_session_payload(session_id: str, snapshot: Dict[str, Any], meta: Dict[
         # Convert numpy types to native Python types before JSON serialization
         payload = _convert_to_json_serializable({"meta": meta, "snapshot": snapshot})
         data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
-        sync_file_with_drive(service, data, _session_filename(session_id), "application/json", folder_id)
+        gd.sync_file_with_drive(service, data, _session_filename(session_id), "application/json", folder_id)
         log_info(f"Session payload synced to Drive/sessions: {_session_filename(session_id)}")
     except Exception as e:
         log_error(f"Failed to sync session to Drive (local copy preserved): {session_id}", e)
@@ -202,14 +212,15 @@ def _load_session_payload_by_id(session_id: str) -> Optional[Dict[str, Any]]:
     
     # Fall back to Drive
     try:
-        service = initialize_drive_service()
+        gd = _get_drive_module()
+        service = gd.initialize_drive_service()
         
         # Try sessions subfolder first
         folder_id = _get_sessions_folder_id()
         if folder_id:
-            fid = find_file_in_drive(service, _session_filename(session_id), folder_id)
+            fid = gd.find_file_in_drive(service, _session_filename(session_id), folder_id)
             if fid:
-                data = download_file_from_drive(service, fid)
+                data = gd.download_file_from_drive(service, fid)
                 payload = json.loads(data.decode("utf-8"))
                 # Cache it locally for next time
                 _save_session_payload_local(session_id, payload.get("snapshot", {}), payload.get("meta", {}))
@@ -218,9 +229,9 @@ def _load_session_payload_by_id(session_id: str) -> Optional[Dict[str, Any]]:
         # Fall back to major folder root (backward compatibility for legacy sessions)
         folder_id = _get_major_folder_id()
         if folder_id:
-            fid = find_file_in_drive(service, _session_filename(session_id), folder_id)
+            fid = gd.find_file_in_drive(service, _session_filename(session_id), folder_id)
             if fid:
-                data = download_file_from_drive(service, fid)
+                data = gd.download_file_from_drive(service, fid)
                 payload = json.loads(data.decode("utf-8"))
                 log_info(f"Loaded legacy session {session_id} from major folder root")
                 # Cache it locally for next time
