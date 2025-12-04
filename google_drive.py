@@ -9,14 +9,33 @@ import io
 from typing import Optional, List, Dict
 
 import streamlit as st
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
-from googleapiclient.errors import HttpError
-from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
+
+GOOGLE_DRIVE_AVAILABLE = False
+_google_import_error = None
+
+try:
+    from googleapiclient.discovery import build
+    from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
+    from googleapiclient.errors import HttpError
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+    GOOGLE_DRIVE_AVAILABLE = True
+except ImportError as e:
+    _google_import_error = e
+    build = None
+    MediaIoBaseUpload = None
+    MediaIoBaseDownload = None
+    HttpError = Exception
+    Credentials = None
+    Request = None
 
 
 GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token"
+
+
+def is_drive_available() -> bool:
+    """Check if Google Drive libraries are available."""
+    return GOOGLE_DRIVE_AVAILABLE
 
 class GoogleAuthError(Exception):
     """Raised when Google auth/refresh fails (e.g. invalid_grant, invalid_scope)."""
@@ -43,8 +62,13 @@ def _get_credentials_hash() -> str:
     return hashlib.md5(cred_string.encode()).hexdigest()
 
 
-def _build_credentials() -> Credentials:
+def _build_credentials():
     import os
+    
+    if not GOOGLE_DRIVE_AVAILABLE:
+        raise GoogleAuthError(
+            f"Google Drive libraries not available: {_google_import_error}"
+        )
     
     s = _secrets()
     client_id = s.get("client_id") or os.getenv("GOOGLE_CLIENT_ID")
@@ -100,6 +124,10 @@ def _get_cached_drive_service(_cred_hash: str):
 
 def initialize_drive_service():
     """Return a cached authenticated Drive service or raise GoogleAuthError."""
+    if not GOOGLE_DRIVE_AVAILABLE:
+        raise GoogleAuthError(
+            f"Google Drive libraries not available: {_google_import_error}"
+        )
     cred_hash = _get_credentials_hash()
     return _get_cached_drive_service(cred_hash)
 
