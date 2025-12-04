@@ -154,10 +154,11 @@ def check_eligibility(
     registered_courses: List[str] = None,
     ignore_offered: bool = False,
     mutual_pairs: Dict[str, List[str]] = None,
+    bypass_map: Dict[str, Dict[str, Any]] = None,
 ) -> Tuple[str, str]:
     """
     Returns (status, justification).
-    status in {'Eligible','Not Eligible','Completed','Registered'}
+    status in {'Eligible','Not Eligible','Completed','Registered','Eligible (Bypass)'}
 
     As agreed: *currently registered* satisfies requisites and is **noted**.
     
@@ -167,16 +168,43 @@ def check_eligibility(
                     for planning purposes where offered status doesn't matter.
     mutual_pairs: Dict mapping course_code -> list of mutually required courses.
                   If provided, mutual concurrent/corequisite pairs are treated as eligible.
+    bypass_map: Dict mapping course_code -> bypass info dict with keys:
+                {note: str, advisor: str, timestamp: str}. If a course has a bypass,
+                requisite checks are skipped and course is marked as "Eligible (Bypass)".
     """
     if registered_courses is None:
         registered_courses = []
     if mutual_pairs is None:
         mutual_pairs = {}
+    if bypass_map is None:
+        bypass_map = {}
     
     if check_course_completed(student_row, course_code):
         return "Completed", "Already completed."
     if check_course_registered(student_row, course_code):
         return "Registered", "Already registered for this course."
+    
+    # Check for bypass - allows student to skip requisite checks
+    if course_code in bypass_map:
+        bypass_info = bypass_map[course_code]
+        bypass_note = bypass_info.get("note", "")
+        bypass_advisor = bypass_info.get("advisor", "")
+        justification = "Bypass granted"
+        if bypass_advisor:
+            justification += f" by {bypass_advisor}"
+        if bypass_note:
+            justification += f": {bypass_note}"
+        else:
+            justification += "."
+        
+        # Still check if course exists and is offered (unless ignore_offered)
+        course_row = courses_df.loc[courses_df["Course Code"] == course_code]
+        if course_row.empty:
+            return "Not Eligible", "Course not found in courses table."
+        if not ignore_offered and not is_course_offered(courses_df, course_code):
+            return "Not Eligible", f"Bypass granted but course not offered. {justification}"
+        
+        return "Eligible (Bypass)", justification
 
     course_row = courses_df.loc[courses_df["Course Code"] == course_code]
     if course_row.empty:

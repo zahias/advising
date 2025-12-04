@@ -93,6 +93,21 @@ def student_eligibility_view():
         _load_session_and_apply(norm_sid)
         st.session_state[f"_autoloaded_{norm_sid}"] = True
 
+    # Initialize bypasses for this major if needed
+    major = st.session_state.get("current_major", "")
+    bypasses_key = f"bypasses_{major}"
+    if bypasses_key not in st.session_state:
+        st.session_state[bypasses_key] = {}
+    
+    # Get bypasses for this student
+    all_bypasses = st.session_state[bypasses_key]
+    student_bypasses = (
+        all_bypasses.get(norm_sid)
+        or all_bypasses.get(str(norm_sid))
+        or (all_bypasses.get(int(norm_sid)) if str(norm_sid).isdigit() else None)
+        or {}
+    )
+
     # per-student advising slot
     sels = st.session_state.advising_selections
     slot = sels.get(norm_sid)
@@ -153,7 +168,7 @@ def student_eligibility_view():
             continue
         status, justification = check_eligibility(
             student_row, code, current_advised_for_checks, st.session_state.courses_df, 
-            registered_courses=[], mutual_pairs=mutual_pairs
+            registered_courses=[], mutual_pairs=mutual_pairs, bypass_map=student_bypasses
         )
         status_dict[code] = status
         justification_dict[code] = justification
@@ -214,7 +229,8 @@ def student_eligibility_view():
                 continue
             if check_course_completed(student_row, c) or check_course_registered(student_row, c):
                 continue
-            if status_dict.get(c) == "Eligible":
+            status = status_dict.get(c, "")
+            if status in ("Eligible", "Eligible (Bypass)"):
                 opts.append(c)
         return sorted(opts)
 
@@ -389,6 +405,79 @@ def student_eligibility_view():
         use_container_width=True,
         key=f"download_advising_{norm_sid}",
     )
+
+    # ---------- Requisite Bypass Manager ----------
+    with st.expander("🔓 Requisite Bypasses", expanded=len(student_bypasses) > 0):
+        st.markdown("Grant a bypass to allow a student to register for a course without meeting prerequisites.")
+        
+        # Get courses that are "Not Eligible" (excluding hidden/completed/registered)
+        not_eligible_courses = [
+            code for code, status in status_dict.items()
+            if status == "Not Eligible" and code not in hidden_for_student
+        ]
+        
+        # Show existing bypasses
+        if student_bypasses:
+            st.markdown("**Active Bypasses:**")
+            for course_code, bypass_info in list(student_bypasses.items()):
+                col1, col2, col3 = st.columns([3, 5, 2])
+                with col1:
+                    st.markdown(f"**{course_code}**")
+                with col2:
+                    bypass_note = bypass_info.get("note", "")
+                    bypass_advisor = bypass_info.get("advisor", "")
+                    display_text = f"By {bypass_advisor}" if bypass_advisor else ""
+                    if bypass_note:
+                        display_text += f": {bypass_note}" if display_text else bypass_note
+                    st.caption(display_text or "No note")
+                with col3:
+                    if st.button("Remove", key=f"remove_bypass_{norm_sid}_{course_code}", type="secondary"):
+                        del student_bypasses[course_code]
+                        st.session_state[bypasses_key][norm_sid] = student_bypasses
+                        save_session_for_student(norm_sid)
+                        show_action_feedback("save", True, f"Bypass removed for {course_code}")
+                        st.rerun()
+            st.markdown("---")
+        
+        # Add new bypass
+        if not_eligible_courses:
+            st.markdown("**Grant New Bypass:**")
+            bypass_course = st.selectbox(
+                "Course to bypass",
+                options=not_eligible_courses,
+                key=f"bypass_course_{norm_sid}",
+                help="Select a course that is currently 'Not Eligible'"
+            )
+            
+            # Show why it's not eligible
+            if bypass_course:
+                reason = justification_dict.get(bypass_course, "")
+                if reason:
+                    st.caption(f"Currently not eligible: {reason}")
+            
+            bypass_note = st.text_input(
+                "Bypass reason (optional)",
+                key=f"bypass_note_{norm_sid}",
+                placeholder="e.g., Department chair approved, Transfer credit pending"
+            )
+            
+            current_period = get_current_period()
+            advisor_name = current_period.get("advisor_name", "")
+            
+            if st.button("Grant Bypass", key=f"grant_bypass_{norm_sid}", type="primary"):
+                from datetime import datetime
+                student_bypasses[bypass_course] = {
+                    "note": bypass_note,
+                    "advisor": advisor_name,
+                    "timestamp": datetime.now().isoformat()
+                }
+                st.session_state[bypasses_key][norm_sid] = student_bypasses
+                save_session_for_student(norm_sid)
+                show_action_feedback("save", True, f"Bypass granted for {bypass_course}")
+                st.rerun()
+        else:
+            if not student_bypasses:
+                st.info("No courses currently need a bypass. All courses are either eligible, completed, or registered.")
 
     # ---------- Hidden courses manager ----------
     with st.expander("🚫 Manage Hidden Courses"):

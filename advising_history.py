@@ -333,6 +333,17 @@ def _build_single_student_snapshot(student_id: Union[int, str]) -> Dict[str, Any
     optional = [str(x) for x in sel.get("optional", [])]
     repeat = [str(x) for x in sel.get("repeat", [])]
     note = str(sel.get("note", "") or "")
+    
+    # Get bypasses for this student
+    major = st.session_state.get("current_major", "")
+    bypasses_key = f"bypasses_{major}"
+    all_bypasses = st.session_state.get(bypasses_key, {})
+    student_bypasses = (
+        all_bypasses.get(student_id)
+        or all_bypasses.get(str(student_id))
+        or (all_bypasses.get(int(student_id)) if str(student_id).isdigit() else None)
+        or {}
+    )
 
     credits_completed = float(srow.get("# of Credits Completed", 0) or 0)
     credits_registered = float(srow.get("# Registered", 0) or 0)
@@ -350,6 +361,7 @@ def _build_single_student_snapshot(student_id: Union[int, str]) -> Dict[str, Any
             "optional": optional,
             "repeat": repeat,
             "note": note,
+            "bypasses": student_bypasses,
             "courses": _snapshot_student_courses(srow, advised, optional, repeat),
         }],
     }
@@ -494,9 +506,18 @@ def _load_session_and_apply(student_id: Union[int, str]) -> bool:
     st.session_state.advising_selections[student_id] = {
         "advised": student_data.get("advised", []),
         "optional": student_data.get("optional", []),
-        "repeat": student_data.get("repeat", []),  # Support new repeat field
+        "repeat": student_data.get("repeat", []),
         "note": student_data.get("note", ""),
     }
+    
+    # Apply bypasses (backward compatible - old sessions won't have this field)
+    student_bypasses = student_data.get("bypasses", {})
+    if student_bypasses:
+        major = st.session_state.get("current_major", "")
+        bypasses_key = f"bypasses_{major}"
+        if bypasses_key not in st.session_state:
+            st.session_state[bypasses_key] = {}
+        st.session_state[bypasses_key][student_id] = student_bypasses
     
     log_info(f"Auto-loaded most recent session for student {student_id}")
     return True

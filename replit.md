@@ -5,6 +5,13 @@ The Advising Dashboard is a Streamlit-based application designed for Phoenix Uni
 
 ## Recent Changes
 - **2025-12-04**:
+  - Added **Requisite Bypass Feature** - Advisors can now grant bypasses to allow students to register for courses without meeting prerequisites:
+    - Bypass UI in Student Eligibility View: Grant bypass with optional reason/note, see active bypasses, remove bypasses
+    - Bypassed courses show as "Eligible (Bypass)" with purple highlighting
+    - Bypasses persist with advising sessions (per-student, per-advising-period)
+    - Full Student View shows `b` status code for bypassed courses
+    - Excel exports include bypass information with advisor name and notes
+    - Backward compatible: existing sessions without bypass data load correctly
   - Fixed **circular import / segmentation fault** on Streamlit Cloud (Python 3.13):
     - Created `eligibility_utils.py` module containing all eligibility logic (check_eligibility, get_mutual_concurrent_pairs) with no Streamlit dependencies
     - Refactored ALL modules to use lazy loading for Google Drive functions via `_get_drive_module()`, preventing import-time side effects:
@@ -50,7 +57,7 @@ Built with Streamlit in Python 3.11, the application leverages Pandas for data m
 
 ### Feature Specifications
 - **Multi-Major Support**: Manages data and configurations for PBHL, SPTH-New, SPTH-Old.
-- **Course Eligibility**: Automated checks against prerequisites, corequisites, concurrent requirements, and student standing.
+- **Course Eligibility**: Automated checks against prerequisites, corequisites, concurrent requirements, and student standing. Includes **Requisite Bypass** feature allowing advisors to grant exceptions for individual students.
 - **Student Views**: Offers "Student Eligibility View" (courses a student can take) and "Full Student View" (complete progress tracking with semester filtering and course requisites display).
 - **Course Offering Planner**: A smart recommendation engine that prioritizes courses based on graduating students (remaining credits), bottleneck analysis, currently eligible students, and cascading eligibility effects. It uses a weighted priority scoring system and provides Top 10 recommendations with visual indicators, interactive selection, and impact summaries.
 - **Advising Sessions**: Records and persists advisor recommendations and notes, synchronized with Google Drive.

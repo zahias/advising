@@ -36,6 +36,7 @@ _CODE_COLORS = {
     "o":  "#FFE699",   # Optional -> light orange
     "na": "#E1F0FF",   # Eligible not chosen -> light blue-tint
     "ne": "#F8CECC",   # Not Eligible -> light red
+    "b":  "#D5A6E6",   # Bypass -> light purple
 }
 
 def _style_codes(df: pd.DataFrame, code_cols: list[str]) -> "pd.io.formats.style.Styler":
@@ -120,12 +121,26 @@ def render_degree_plan_table(courses_df, progress_df):
     # Calculate mutual pairs once for efficiency
     mutual_pairs = get_mutual_concurrent_pairs(courses_df)
     
+    # Get bypasses for this major
+    major = st.session_state.get("current_major", "")
+    bypasses_key = f"bypasses_{major}"
+    all_bypasses = st.session_state.get(bypasses_key, {})
+    
     # Build table
     table_data = []
     for _, student in progress_df.iterrows():
+        student_id = student.get("ID", "")
+        
+        # Get bypasses for this student
+        student_bypasses = (
+            all_bypasses.get(student_id)
+            or all_bypasses.get(str(student_id))
+            or {}
+        )
+        
         row = {
             "NAME": student.get("NAME", ""),
-            "ID": student.get("ID", ""),
+            "ID": student_id,
             "Total Credits Completed": student.get("Total Credits Completed", 0),
             "Remaining Credits": student.get("Remaining Credits", 0),
             "Standing": student.get("Standing", ""),
@@ -144,13 +159,15 @@ def render_degree_plan_table(courses_df, progress_df):
                     [],
                     courses_df,
                     ignore_offered=True,
-                    mutual_pairs=mutual_pairs
+                    mutual_pairs=mutual_pairs,
+                    bypass_map=student_bypasses
                 )
                 # Map check_eligibility status to display codes
                 status_map = {
                     "Completed": "c",
                     "Registered": "r",
                     "Eligible": "na",
+                    "Eligible (Bypass)": "b",
                     "Not Eligible": "ne"
                 }
                 row[course_code] = status_map.get(is_eligible_status, "ne")
@@ -164,7 +181,7 @@ def render_degree_plan_table(courses_df, progress_df):
     # Display legend
     legend_md = """
     **Legend**: `c` = Completed | `r` = Registered | `s` = Simulated | `a` = Advised | `ar` = Advised Repeat | 
-    `o` = Optional | `na` = Eligible | `ne` = Not Eligible | `f` = Failed
+    `o` = Optional | `na` = Eligible | `b` = Bypass | `ne` = Not Eligible | `f` = Failed
     """
     
     st.write(legend_md)
@@ -398,11 +415,19 @@ def _render_all_students():
     # Calculate mutual pairs once for efficiency
     mutual_pairs = get_mutual_concurrent_pairs(st.session_state.courses_df)
     
+    # Get bypasses for this major
+    major = st.session_state.get("current_major", "")
+    bypasses_key = f"bypasses_{major}"
+    all_bypasses = st.session_state.get(bypasses_key, {})
+    
     if simulated_courses:
         for sid in df["ID"].astype(int).tolist():
             row_original = original_rows.get(int(sid))
             if row_original is None:
                 continue
+            
+            # Get bypasses for this student
+            student_bypasses = all_bypasses.get(sid) or all_bypasses.get(str(sid)) or {}
             
             simulated_completions[sid] = []
             advised_list = st.session_state.advising_selections.get(int(sid), {}).get("advised", []) or []
@@ -414,8 +439,8 @@ def _render_all_students():
                     if sim_course in simulated_completions[sid]:
                         continue
                     
-                    stt, _ = check_eligibility(row_original, sim_course, advised_list, st.session_state.courses_df, registered_courses=simulated_completions[sid], ignore_offered=True, mutual_pairs=mutual_pairs)
-                    if stt == "Eligible":
+                    stt, _ = check_eligibility(row_original, sim_course, advised_list, st.session_state.courses_df, registered_courses=simulated_completions[sid], ignore_offered=True, mutual_pairs=mutual_pairs, bypass_map=student_bypasses)
+                    if stt in ("Eligible", "Eligible (Bypass)"):
                         simulated_completions[sid].append(sim_course)
                         added_this_iteration = True
                 
@@ -427,6 +452,9 @@ def _render_all_students():
         advised_list = sel.get("advised", []) or []
         optional_list = sel.get("optional", []) or []
         repeat_list = sel.get("repeat", []) or []
+        
+        # Get bypasses for this student
+        student_bypasses = all_bypasses.get(student_id) or all_bypasses.get(str(student_id)) or {}
 
         if course in repeat_list:
             return "ar"
@@ -441,7 +469,9 @@ def _render_all_students():
         if course in advised_list:
             return "a"
 
-        stt, _ = check_eligibility(row_original, course, advised_list, st.session_state.courses_df, registered_courses=simulated_for_student, ignore_offered=True, mutual_pairs=mutual_pairs)
+        stt, _ = check_eligibility(row_original, course, advised_list, st.session_state.courses_df, registered_courses=simulated_for_student, ignore_offered=True, mutual_pairs=mutual_pairs, bypass_map=student_bypasses)
+        if stt == "Eligible (Bypass)":
+            return "b"
         return "na" if stt == "Eligible" else "ne"
 
     def render_course_table(label: str, course_codes: list[str], key_suffix: str):
@@ -637,6 +667,12 @@ def _render_individual_student():
     advised_list = sel.get("advised", []) or []
     optional_list = sel.get("optional", []) or []
     repeat_list = sel.get("repeat", []) or []
+    
+    # Get bypasses for this student
+    major = st.session_state.get("current_major", "")
+    bypasses_key = f"bypasses_{major}"
+    all_bypasses = st.session_state.get(bypasses_key, {})
+    student_bypasses = all_bypasses.get(sid) or all_bypasses.get(str(sid)) or {}
 
     mutual_pairs = get_mutual_concurrent_pairs(st.session_state.courses_df)
     for c in selected_courses:
@@ -651,11 +687,14 @@ def _render_individual_student():
         elif c in advised_list:
             data[c] = ["a"]
         else:
-            stt, _ = check_eligibility(row_original, c, advised_list, st.session_state.courses_df, registered_courses=[], mutual_pairs=mutual_pairs)
-            data[c] = ["na" if stt == "Eligible" else "ne"]
+            stt, _ = check_eligibility(row_original, c, advised_list, st.session_state.courses_df, registered_courses=[], mutual_pairs=mutual_pairs, bypass_map=student_bypasses)
+            if stt == "Eligible (Bypass)":
+                data[c] = ["b"]
+            else:
+                data[c] = ["na" if stt == "Eligible" else "ne"]
 
     indiv_df = pd.DataFrame(data)
-    st.write("*Legend:* c=Completed, r=Registered, a=Advised, ar=Advised-Repeat, o=Optional, na=Eligible not chosen, ne=Not Eligible")
+    st.write("*Legend:* c=Completed, r=Registered, a=Advised, ar=Advised-Repeat, o=Optional, b=Bypass, na=Eligible not chosen, ne=Not Eligible")
     styled = _style_codes(indiv_df, selected_courses)
     st.dataframe(styled, width='stretch')
 
@@ -727,24 +766,42 @@ def _render_individual_student():
     def _build_all_advised_bytes() -> bytes:
         output = BytesIO()
         mutual_pairs = get_mutual_concurrent_pairs(st.session_state.courses_df)
+        
+        # Get bypasses for this major
+        major = st.session_state.get("current_major", "")
+        bypasses_key = f"bypasses_{major}"
+        all_bypasses = st.session_state.get(bypasses_key, {})
+        
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             for sid_, sel_ in all_sel:
                 srow = st.session_state.progress_df.loc[st.session_state.progress_df["ID"] == sid_].iloc[0]
-                data_rows = {"Course Code": [], "Action": [], "Eligibility Status": [], "Justification": []}
+                
+                # Get bypasses for this student
+                student_bypasses = all_bypasses.get(sid_) or all_bypasses.get(str(sid_)) or {}
+                
+                data_rows = {"Course Code": [], "Action": [], "Eligibility Status": [], "Justification": [], "Bypass": []}
                 for cc in st.session_state.courses_df["Course Code"]:
-                    status, just = check_eligibility(srow, cc, sel_.get("advised", []), st.session_state.courses_df, registered_courses=[], mutual_pairs=mutual_pairs)
+                    status, just = check_eligibility(srow, cc, sel_.get("advised", []), st.session_state.courses_df, registered_courses=[], mutual_pairs=mutual_pairs, bypass_map=student_bypasses)
+                    bypass_note = ""
                     if check_course_completed(srow, cc):
                         action = "Completed"; status = "Completed"
                     elif check_course_registered(srow, cc):
                         action = "Registered"
                     elif cc in sel_.get("advised", []):
                         action = "Advised"
+                    elif status == "Eligible (Bypass)":
+                        action = "Eligible (Bypass)"
+                        bypass_info = student_bypasses.get(cc, {})
+                        bypass_note = bypass_info.get("note", "")
+                        if bypass_info.get("advisor"):
+                            bypass_note = f"By {bypass_info['advisor']}: {bypass_note}" if bypass_note else f"By {bypass_info['advisor']}"
                     else:
                         action = "Eligible not chosen" if status == "Eligible" else "Not Eligible"
                     data_rows["Course Code"].append(cc)
                     data_rows["Action"].append(action)
                     data_rows["Eligibility Status"].append(status)
                     data_rows["Justification"].append(just)
+                    data_rows["Bypass"].append(bypass_note)
                 pd.DataFrame(data_rows).to_excel(writer, index=False, sheet_name=str(sid_))
             index_df = st.session_state.progress_df.loc[
                 st.session_state.progress_df["ID"].isin([sid for sid, _ in all_sel]),
