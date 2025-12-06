@@ -66,18 +66,29 @@ export default function AdvisorPlannerPage() {
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'success' | 'error' | null>(null);
 
+  const [coursesLoaded, setCoursesLoaded] = useState(false);
+  const [pendingPlanData, setPendingPlanData] = useState<PlanFromDB[] | null>(null);
+
   useEffect(() => {
     fetchData();
   }, [currentMajor]);
 
   useEffect(() => {
-    if (selectedStudent) {
+    if (selectedStudent && coursesLoaded) {
       loadStudentPlan();
     }
-  }, [selectedStudent]);
+  }, [selectedStudent, coursesLoaded]);
+
+  useEffect(() => {
+    if (pendingPlanData && courses.length > 0) {
+      hydratePlansWithCourses(pendingPlanData);
+      setPendingPlanData(null);
+    }
+  }, [pendingPlanData, courses]);
 
   const fetchData = async () => {
     setLoading(true);
+    setCoursesLoaded(false);
     try {
       const [studentsRes, coursesRes] = await Promise.all([
         fetch(`/api/students${currentMajor ? `?major=${currentMajor}` : ''}`),
@@ -85,12 +96,28 @@ export default function AdvisorPlannerPage() {
       ]);
       
       if (studentsRes.ok) setStudents(await studentsRes.json());
-      if (coursesRes.ok) setCourses(await coursesRes.json());
+      if (coursesRes.ok) {
+        const coursesData = await coursesRes.json();
+        setCourses(coursesData);
+        setCoursesLoaded(true);
+      }
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const hydratePlansWithCourses = (plans: PlanFromDB[]) => {
+    const semesters: PlannedSemester[] = plans.map(plan => ({
+      id: plan.id,
+      name: plan.termName,
+      sequence: plan.termSequence,
+      courses: plan.plannedCourses
+        .map(code => courses.find(c => c.code === code))
+        .filter(Boolean) as Course[],
+    }));
+    setPlannedSemesters(semesters.sort((a, b) => a.sequence - b.sequence));
   };
 
   const loadStudentPlan = async () => {
@@ -99,15 +126,11 @@ export default function AdvisorPlannerPage() {
       if (res.ok) {
         const plans: PlanFromDB[] = await res.json();
         if (plans.length > 0) {
-          const semesters: PlannedSemester[] = plans.map(plan => ({
-            id: plan.id,
-            name: plan.termName,
-            sequence: plan.termSequence,
-            courses: plan.plannedCourses.map(code => 
-              courses.find(c => c.code === code)
-            ).filter(Boolean) as Course[],
-          }));
-          setPlannedSemesters(semesters.sort((a, b) => a.sequence - b.sequence));
+          if (courses.length > 0) {
+            hydratePlansWithCourses(plans);
+          } else {
+            setPendingPlanData(plans);
+          }
         } else {
           setPlannedSemesters([
             { name: 'Spring 2026', sequence: 1, courses: [] },
@@ -178,8 +201,12 @@ export default function AdvisorPlannerPage() {
     setSaving(true);
     setSaveStatus(null);
     
+    let hasErrors = false;
+    const updatedSemesters = [...plannedSemesters];
+    
     try {
-      for (const semester of plannedSemesters) {
+      for (let i = 0; i < updatedSemesters.length; i++) {
+        const semester = updatedSemesters[i];
         const planData = {
           studentId: selectedStudent,
           termName: semester.name,
@@ -187,27 +214,37 @@ export default function AdvisorPlannerPage() {
           plannedCourses: semester.courses.map(c => c.code),
         };
         
+        let res: Response;
         if (semester.id) {
-          await fetch('/api/plans', {
+          res = await fetch('/api/plans', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id: semester.id, ...planData }),
           });
         } else {
-          const res = await fetch('/api/plans', {
+          res = await fetch('/api/plans', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(planData),
           });
-          if (res.ok) {
-            const newPlan = await res.json();
-            semester.id = newPlan.id;
-          }
+        }
+        
+        if (!res.ok) {
+          hasErrors = true;
+          console.error(`Failed to save semester ${semester.name}:`, await res.text());
+        } else if (!semester.id) {
+          const newPlan = await res.json();
+          updatedSemesters[i] = { ...semester, id: newPlan.id };
         }
       }
       
-      setSaveStatus('success');
-      setTimeout(() => setSaveStatus(null), 3000);
+      if (hasErrors) {
+        setSaveStatus('error');
+      } else {
+        setPlannedSemesters(updatedSemesters);
+        setSaveStatus('success');
+        setTimeout(() => setSaveStatus(null), 3000);
+      }
     } catch (error) {
       console.error('Error saving plan:', error);
       setSaveStatus('error');
