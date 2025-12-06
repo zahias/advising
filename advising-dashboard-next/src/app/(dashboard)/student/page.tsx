@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,25 +12,150 @@ import {
   TrendingUp,
   Calendar,
   GraduationCap,
-  ArrowRight
+  ArrowRight,
+  Loader2
 } from 'lucide-react';
 import Link from 'next/link';
 
+interface Student {
+  id: string;
+  studentId: string;
+  name: string;
+  email?: string;
+  standing?: string;
+  creditsCompleted: number;
+  creditsRegistered: number;
+  creditsRemaining: number;
+  courseStatuses: Record<string, string>;
+}
+
+interface Session {
+  advisedCourses: string[];
+  optionalCourses: string[];
+  repeatCourses: string[];
+  note?: string;
+}
+
+interface Course {
+  code: string;
+  name: string;
+  credits: number;
+  type: string;
+}
+
 export default function StudentDashboard() {
-  const { user } = useAuth();
+  const { user, currentMajor, currentStudentId, setCurrentStudentId } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [student, setStudent] = useState<Student | null>(null);
+  const [advisedCourses, setAdvisedCourses] = useState<Course[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
+
+  useEffect(() => {
+    async function fetchData() {
+      setLoading(true);
+      try {
+        const majorsRes = await fetch('/api/majors');
+        const majorsData = await majorsRes.json();
+        const major = majorsData.find((m: { code: string }) => m.code === currentMajor);
+        
+        if (!major) {
+          setLoading(false);
+          return;
+        }
+
+        const [studentsRes, coursesRes] = await Promise.all([
+          fetch(`/api/students?majorId=${major.id}`),
+          fetch(`/api/courses?majorId=${major.id}`)
+        ]);
+
+        const studentsData = await studentsRes.json();
+        const coursesData = await coursesRes.json();
+
+        setCourses(coursesData);
+
+        if (studentsData.length > 0) {
+          let matchedStudent = null;
+          
+          if (currentStudentId) {
+            matchedStudent = studentsData.find((s: Student) => s.id === currentStudentId);
+          }
+          
+          if (!matchedStudent && user?.email) {
+            matchedStudent = studentsData.find((s: Student) => 
+              s.email?.toLowerCase() === user.email.toLowerCase()
+            );
+          }
+          
+          if (matchedStudent && matchedStudent.id !== currentStudentId) {
+            setCurrentStudentId(matchedStudent.id);
+          }
+          
+          setStudent(matchedStudent);
+
+          const periodsRes = await fetch(`/api/periods?majorId=${major.id}&activeOnly=true`);
+          const periodsData = await periodsRes.json();
+          
+          if (periodsData.length > 0) {
+            const sessionRes = await fetch(`/api/sessions?studentId=${matchedStudent.id}&periodId=${periodsData[0].id}`);
+            const sessionData = await sessionRes.json();
+            
+            if (sessionData.length > 0) {
+              const session = sessionData[0];
+              const allAdvised = [
+                ...(session.advisedCourses || []),
+                ...(session.optionalCourses || []),
+                ...(session.repeatCourses || [])
+              ];
+              
+              const advisedCourseDetails = allAdvised.map(code => {
+                const course = coursesData.find((c: Course) => c.code === code);
+                return course || { code, name: 'Unknown', credits: 0, type: 'unknown' };
+              });
+              
+              setAdvisedCourses(advisedCourseDetails);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch data:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchData();
+  }, [currentMajor]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!student) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold">Student Record Not Found</h2>
+          <p className="text-muted-foreground mt-2">
+            We couldn&apos;t find your student record. Please contact your advisor for assistance.
+          </p>
+          <p className="text-sm text-muted-foreground mt-1">
+            Email: {user?.email}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const progressStats = {
-    completed: 78,
-    registered: 12,
-    remaining: 30,
-    total: 120,
+    completed: student.creditsCompleted,
+    registered: student.creditsRegistered,
+    remaining: student.creditsRemaining,
+    total: student.creditsCompleted + student.creditsRegistered + student.creditsRemaining,
   };
-
-  const advisedCourses = [
-    { code: 'PBHL 301', name: 'Epidemiology', credits: 3, type: 'Required' },
-    { code: 'PBHL 305', name: 'Biostatistics', credits: 3, type: 'Required' },
-    { code: 'PBHL 320', name: 'Health Policy', credits: 3, type: 'Required' },
-  ];
 
   const upcomingDeadlines = [
     { title: 'Spring 2026 Registration Opens', date: 'Dec 15, 2025' },
@@ -37,13 +163,22 @@ export default function StudentDashboard() {
     { title: 'Final Exams Begin', date: 'Dec 18, 2025' },
   ];
 
-  const completionPercent = ((progressStats.completed + progressStats.registered) / progressStats.total) * 100;
+  const completionPercent = progressStats.total > 0 
+    ? ((progressStats.completed + progressStats.registered) / progressStats.total) * 100 
+    : 0;
+
+  const completedCourses = student 
+    ? Object.entries(student.courseStatuses).filter(([_, status]) => status === 'c').length
+    : 0;
+  const totalCourses = courses.length;
+  const remainingCourses = totalCourses - completedCourses;
+  const semestersLeft = Math.ceil(remainingCourses / 5);
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold">My Dashboard</h1>
-        <p className="text-muted-foreground">Welcome back, {user?.name}</p>
+        <p className="text-muted-foreground">Welcome back, {student?.name || user?.name}</p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -149,23 +284,29 @@ export default function StudentDashboard() {
             </Button>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
-              {advisedCourses.map((course) => (
-                <div 
-                  key={course.code}
-                  className="flex items-center justify-between p-3 rounded-lg border"
-                >
-                  <div>
-                    <p className="font-medium">{course.code}</p>
-                    <p className="text-sm text-muted-foreground">{course.name}</p>
+            {advisedCourses.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                No advised courses yet. Contact your advisor for recommendations.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {advisedCourses.slice(0, 5).map((course) => (
+                  <div 
+                    key={course.code}
+                    className="flex items-center justify-between p-3 rounded-lg border"
+                  >
+                    <div>
+                      <p className="font-medium">{course.code}</p>
+                      <p className="text-sm text-muted-foreground">{course.name}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline">{course.credits} cr</Badge>
+                      <Badge>{course.type}</Badge>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline">{course.credits} cr</Badge>
-                    <Badge>{course.type}</Badge>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -179,16 +320,18 @@ export default function StudentDashboard() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="text-center py-6">
-              <div className="text-5xl font-bold text-primary">Spring 2027</div>
+              <div className="text-5xl font-bold text-primary">
+                {semestersLeft <= 2 ? 'Spring' : semestersLeft <= 4 ? 'Fall' : 'Spring'} {2025 + Math.ceil(semestersLeft / 2)}
+              </div>
               <div className="text-muted-foreground mt-2">Estimated Graduation</div>
             </div>
             <div className="grid grid-cols-2 gap-4 pt-4 border-t">
               <div className="text-center">
-                <div className="text-2xl font-bold">3</div>
+                <div className="text-2xl font-bold">{semestersLeft}</div>
                 <div className="text-sm text-muted-foreground">Semesters Left</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold">10</div>
+                <div className="text-2xl font-bold">{remainingCourses}</div>
                 <div className="text-sm text-muted-foreground">Courses Left</div>
               </div>
             </div>
