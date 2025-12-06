@@ -10,13 +10,6 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useAuth } from '@/lib/auth/context';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
   Tabs,
   TabsContent,
   TabsList,
@@ -26,10 +19,11 @@ import {
   GraduationCap,
   Mail,
   Send,
-  Users,
   Clock,
   CheckCircle,
   FileText,
+  AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 
 interface Student {
@@ -39,16 +33,28 @@ interface Student {
   email: string;
 }
 
+interface EmailLog {
+  id: string;
+  recipientEmail: string;
+  subject: string;
+  status: string;
+  sentAt: string;
+  studentId?: string;
+}
+
 export default function AdvisorEmailPage() {
   const { currentMajor, user } = useAuth();
   const [students, setStudents] = useState<Student[]>([]);
+  const [emailLogs, setEmailLogs] = useState<EmailLog[]>([]);
   const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
+  const [sendResult, setSendResult] = useState<{ success: boolean; message: string } | null>(null);
 
   useEffect(() => {
     fetchStudents();
+    fetchEmailHistory();
   }, [currentMajor]);
 
   const fetchStudents = async () => {
@@ -60,6 +66,18 @@ export default function AdvisorEmailPage() {
       }
     } catch (error) {
       console.error('Error fetching students:', error);
+    }
+  };
+
+  const fetchEmailHistory = async () => {
+    try {
+      const res = await fetch('/api/email/send?limit=20');
+      if (res.ok) {
+        const data = await res.json();
+        setEmailLogs(data);
+      }
+    } catch (error) {
+      console.error('Error fetching email history:', error);
     }
   };
 
@@ -83,12 +101,61 @@ export default function AdvisorEmailPage() {
     if (!subject || !message || selectedStudents.length === 0) return;
     
     setSending(true);
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    setSending(false);
+    setSendResult(null);
     
-    setSubject('');
-    setMessage('');
-    setSelectedStudents([]);
+    const selectedStudentData = students.filter(s => selectedStudents.includes(s.id));
+    let successCount = 0;
+    let failCount = 0;
+    
+    for (const student of selectedStudentData) {
+      if (!student.email) {
+        failCount++;
+        continue;
+      }
+      
+      const personalizedMessage = message
+        .replace(/{student_name}/g, student.name)
+        .replace(/{student_id}/g, student.studentId)
+        .replace(/{advisor_name}/g, user?.name || 'Advisor');
+      
+      try {
+        const res = await fetch('/api/email/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            studentId: student.id,
+            recipientEmail: student.email,
+            subject: subject,
+            body: `<div style="font-family: sans-serif;">${personalizedMessage.replace(/\n/g, '<br>')}</div>`,
+          }),
+        });
+        
+        const result = await res.json();
+        if (result.success || result.status === 'queued') {
+          successCount++;
+        } else {
+          failCount++;
+        }
+      } catch {
+        failCount++;
+      }
+    }
+    
+    setSending(false);
+    fetchEmailHistory();
+    
+    if (successCount > 0 && failCount === 0) {
+      setSendResult({ success: true, message: `Successfully sent to ${successCount} student(s)` });
+      setSubject('');
+      setMessage('');
+      setSelectedStudents([]);
+    } else if (successCount > 0) {
+      setSendResult({ success: true, message: `Sent to ${successCount}, failed for ${failCount} student(s)` });
+    } else {
+      setSendResult({ success: false, message: 'Failed to send emails. Please check SMTP settings.' });
+    }
+    
+    setTimeout(() => setSendResult(null), 5000);
   };
 
   const templates = [
@@ -105,13 +172,26 @@ export default function AdvisorEmailPage() {
     {
       name: 'Session Follow-up',
       subject: 'Advising Session Follow-up',
-      body: 'Dear {student_name},\n\nThank you for meeting with me for advising. As discussed, please find your recommended courses attached.\n\nRemember to register before the deadline.\n\nBest regards,\n{advisor_name}',
+      body: 'Dear {student_name},\n\nThank you for meeting with me for advising. As discussed, please find your recommended courses in the student portal.\n\nRemember to register before the deadline.\n\nBest regards,\n{advisor_name}',
     },
   ];
 
   const useTemplate = (template: typeof templates[0]) => {
     setSubject(template.subject);
-    setMessage(template.body.replace('{advisor_name}', user?.name || 'Advisor'));
+    setMessage(template.body);
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'sent':
+        return <Badge variant="default" className="bg-green-500"><CheckCircle className="h-3 w-3 mr-1" />Sent</Badge>;
+      case 'queued':
+        return <Badge variant="secondary"><Clock className="h-3 w-3 mr-1" />Queued</Badge>;
+      case 'failed':
+        return <Badge variant="destructive"><AlertCircle className="h-3 w-3 mr-1" />Failed</Badge>;
+      default:
+        return <Badge variant="outline">{status}</Badge>;
+    }
   };
 
   if (!currentMajor) {
@@ -132,6 +212,21 @@ export default function AdvisorEmailPage() {
         <h1 className="text-3xl font-bold">Email Students</h1>
         <p className="text-muted-foreground">Send emails to students in {currentMajor}</p>
       </div>
+
+      {sendResult && (
+        <div className={`p-4 rounded-lg ${sendResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+          <div className="flex items-center gap-2">
+            {sendResult.success ? (
+              <CheckCircle className="h-5 w-5 text-green-500" />
+            ) : (
+              <AlertCircle className="h-5 w-5 text-red-500" />
+            )}
+            <span className={sendResult.success ? 'text-green-700' : 'text-red-700'}>
+              {sendResult.message}
+            </span>
+          </div>
+        </div>
+      )}
 
       <Tabs defaultValue="compose" className="space-y-6">
         <TabsList>
@@ -168,11 +263,14 @@ export default function AdvisorEmailPage() {
                 <div className="space-y-2">
                   <Label>Message</Label>
                   <Textarea 
-                    placeholder="Write your message here..."
+                    placeholder="Write your message here... Use {student_name} for personalization"
                     className="min-h-[200px]"
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Available tokens: {'{student_name}'}, {'{student_id}'}, {'{advisor_name}'}
+                  </p>
                 </div>
                 <div className="flex items-center justify-between pt-4">
                   <p className="text-sm text-muted-foreground">
@@ -183,7 +281,7 @@ export default function AdvisorEmailPage() {
                     disabled={!subject || !message || selectedStudents.length === 0 || sending}
                   >
                     {sending ? (
-                      <>Sending...</>
+                      <><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Sending...</>
                     ) : (
                       <><Send className="h-4 w-4 mr-2" /> Send Email</>
                     )}
@@ -220,7 +318,9 @@ export default function AdvisorEmailPage() {
                       />
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-sm truncate">{student.name}</p>
-                        <p className="text-xs text-muted-foreground truncate">{student.email}</p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {student.email || 'No email'}
+                        </p>
                       </div>
                     </div>
                   ))}
@@ -262,38 +362,23 @@ export default function AdvisorEmailPage() {
               <CardDescription>Previously sent emails</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                <div className="p-4 border rounded-lg">
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="font-medium">Registration Open</h4>
-                    <Badge variant="secondary">
-                      <CheckCircle className="h-3 w-3 mr-1" />
-                      Sent
-                    </Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">Sent to 45 students • Dec 1, 2025</p>
+              {emailLogs.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">No emails sent yet</p>
+              ) : (
+                <div className="space-y-3">
+                  {emailLogs.map(log => (
+                    <div key={log.id} className="p-4 border rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-medium">{log.subject}</h4>
+                        {getStatusBadge(log.status)}
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        To: {log.recipientEmail} • {new Date(log.sentAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                  ))}
                 </div>
-                <div className="p-4 border rounded-lg">
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="font-medium">Advising Reminder</h4>
-                    <Badge variant="secondary">
-                      <CheckCircle className="h-3 w-3 mr-1" />
-                      Sent
-                    </Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">Sent to 12 students • Nov 28, 2025</p>
-                </div>
-                <div className="p-4 border rounded-lg">
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="font-medium">Session Follow-up</h4>
-                    <Badge variant="secondary">
-                      <CheckCircle className="h-3 w-3 mr-1" />
-                      Sent
-                    </Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">Sent to 8 students • Nov 25, 2025</p>
-                </div>
-              </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

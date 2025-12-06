@@ -17,8 +17,9 @@ import {
   Plus,
   X,
   Save,
-  AlertCircle,
+  RefreshCw,
   CheckCircle,
+  AlertCircle,
 } from 'lucide-react';
 
 interface Course {
@@ -27,19 +28,31 @@ interface Course {
   name: string;
   credits: number;
   type: string;
-  prerequisites?: string;
+  prerequisites?: string[];
 }
 
 interface Student {
   id: string;
   studentId: string;
   name: string;
-  credits: number;
+  creditsCompleted: number;
   courseStatuses?: Record<string, string>;
 }
 
+interface PlanFromDB {
+  id: string;
+  studentId: string;
+  periodId: string | null;
+  termName: string;
+  termSequence: number;
+  plannedCourses: string[];
+  notes: string | null;
+}
+
 interface PlannedSemester {
+  id?: string;
   name: string;
+  sequence: number;
   courses: Course[];
 }
 
@@ -48,17 +61,23 @@ export default function AdvisorPlannerPage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<string>('');
-  const [plannedSemesters, setPlannedSemesters] = useState<PlannedSemester[]>([
-    { name: 'Spring 2026', courses: [] },
-    { name: 'Summer 2026', courses: [] },
-    { name: 'Fall 2026', courses: [] },
-  ]);
+  const [plannedSemesters, setPlannedSemesters] = useState<PlannedSemester[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'success' | 'error' | null>(null);
 
   useEffect(() => {
     fetchData();
   }, [currentMajor]);
 
+  useEffect(() => {
+    if (selectedStudent) {
+      loadStudentPlan();
+    }
+  }, [selectedStudent]);
+
   const fetchData = async () => {
+    setLoading(true);
     try {
       const [studentsRes, coursesRes] = await Promise.all([
         fetch(`/api/students${currentMajor ? `?major=${currentMajor}` : ''}`),
@@ -69,6 +88,41 @@ export default function AdvisorPlannerPage() {
       if (coursesRes.ok) setCourses(await coursesRes.json());
     } catch (error) {
       console.error('Error fetching data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadStudentPlan = async () => {
+    try {
+      const res = await fetch(`/api/plans?studentId=${selectedStudent}`);
+      if (res.ok) {
+        const plans: PlanFromDB[] = await res.json();
+        if (plans.length > 0) {
+          const semesters: PlannedSemester[] = plans.map(plan => ({
+            id: plan.id,
+            name: plan.termName,
+            sequence: plan.termSequence,
+            courses: plan.plannedCourses.map(code => 
+              courses.find(c => c.code === code)
+            ).filter(Boolean) as Course[],
+          }));
+          setPlannedSemesters(semesters.sort((a, b) => a.sequence - b.sequence));
+        } else {
+          setPlannedSemesters([
+            { name: 'Spring 2026', sequence: 1, courses: [] },
+            { name: 'Summer 2026', sequence: 2, courses: [] },
+            { name: 'Fall 2026', sequence: 3, courses: [] },
+          ]);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading student plan:', error);
+      setPlannedSemesters([
+        { name: 'Spring 2026', sequence: 1, courses: [] },
+        { name: 'Summer 2026', sequence: 2, courses: [] },
+        { name: 'Fall 2026', sequence: 3, courses: [] },
+      ]);
     }
   };
 
@@ -104,12 +158,62 @@ export default function AdvisorPlannerPage() {
   };
 
   const addSemester = () => {
-    const lastSemester = plannedSemesters[plannedSemesters.length - 1]?.name || 'Fall 2025';
-    const [season, year] = lastSemester.split(' ');
+    const lastSemester = plannedSemesters[plannedSemesters.length - 1];
+    const lastSequence = lastSemester?.sequence || 0;
+    const lastName = lastSemester?.name || 'Fall 2025';
+    const [season, year] = lastName.split(' ');
     let nextSeason = season === 'Spring' ? 'Summer' : season === 'Summer' ? 'Fall' : 'Spring';
     let nextYear = season === 'Fall' ? parseInt(year) + 1 : parseInt(year);
     
-    setPlannedSemesters(prev => [...prev, { name: `${nextSeason} ${nextYear}`, courses: [] }]);
+    setPlannedSemesters(prev => [...prev, { 
+      name: `${nextSeason} ${nextYear}`, 
+      sequence: lastSequence + 1,
+      courses: [] 
+    }]);
+  };
+
+  const handleSave = async () => {
+    if (!selectedStudent) return;
+    
+    setSaving(true);
+    setSaveStatus(null);
+    
+    try {
+      for (const semester of plannedSemesters) {
+        const planData = {
+          studentId: selectedStudent,
+          termName: semester.name,
+          termSequence: semester.sequence,
+          plannedCourses: semester.courses.map(c => c.code),
+        };
+        
+        if (semester.id) {
+          await fetch('/api/plans', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: semester.id, ...planData }),
+          });
+        } else {
+          const res = await fetch('/api/plans', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(planData),
+          });
+          if (res.ok) {
+            const newPlan = await res.json();
+            semester.id = newPlan.id;
+          }
+        }
+      }
+      
+      setSaveStatus('success');
+      setTimeout(() => setSaveStatus(null), 3000);
+    } catch (error) {
+      console.error('Error saving plan:', error);
+      setSaveStatus('error');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const getTotalCredits = (semester: PlannedSemester) => 
@@ -136,9 +240,16 @@ export default function AdvisorPlannerPage() {
           <h1 className="text-3xl font-bold">Course Planner</h1>
           <p className="text-muted-foreground">Plan future semesters for students</p>
         </div>
-        <Button>
-          <Save className="h-4 w-4 mr-2" />
-          Save Plan
+        <Button onClick={handleSave} disabled={!selectedStudent || saving}>
+          {saving ? (
+            <><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Saving...</>
+          ) : saveStatus === 'success' ? (
+            <><CheckCircle className="h-4 w-4 mr-2" /> Saved!</>
+          ) : saveStatus === 'error' ? (
+            <><AlertCircle className="h-4 w-4 mr-2" /> Error</>
+          ) : (
+            <><Save className="h-4 w-4 mr-2" /> Save Plan</>
+          )}
         </Button>
       </div>
 
@@ -154,7 +265,7 @@ export default function AdvisorPlannerPage() {
             <SelectContent>
               {students.map(s => (
                 <SelectItem key={s.id} value={s.id}>
-                  {s.name} ({s.studentId}) - {s.credits} credits
+                  {s.name} ({s.studentId}) - {s.creditsCompleted} credits
                 </SelectItem>
               ))}
             </SelectContent>
@@ -237,6 +348,10 @@ export default function AdvisorPlannerPage() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex justify-between">
+                  <span className="text-muted-foreground">Current Credits</span>
+                  <span className="font-medium">{student.creditsCompleted}</span>
+                </div>
+                <div className="flex justify-between">
                   <span className="text-muted-foreground">Planned Courses</span>
                   <span className="font-medium">
                     {plannedSemesters.reduce((sum, s) => sum + s.courses.length, 0)}
@@ -246,6 +361,12 @@ export default function AdvisorPlannerPage() {
                   <span className="text-muted-foreground">Planned Credits</span>
                   <span className="font-medium">
                     {plannedSemesters.reduce((sum, s) => sum + getTotalCredits(s), 0)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Projected Total</span>
+                  <span className="font-medium">
+                    {student.creditsCompleted + plannedSemesters.reduce((sum, s) => sum + getTotalCredits(s), 0)}
                   </span>
                 </div>
                 <div className="flex justify-between">

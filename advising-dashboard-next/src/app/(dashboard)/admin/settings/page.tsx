@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -17,29 +16,31 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  Settings,
   Mail,
   Calendar,
   Database,
   Shield,
-  Bell,
   Save,
   RefreshCw,
   CheckCircle,
   Upload,
+  AlertCircle,
 } from 'lucide-react';
 
 export default function AdminSettingsPage() {
   const [periods, setPeriods] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'success' | 'error' | null>(null);
   const [seedStatus, setSeedStatus] = useState<string | null>(null);
 
   const [emailSettings, setEmailSettings] = useState({
     smtpHost: 'smtp.office365.com',
     smtpPort: '587',
-    senderEmail: '',
-    senderName: 'Academic Advising',
+    smtpUser: '',
+    smtpPassword: '',
+    fromEmail: '',
+    fromName: 'Academic Advising',
     enabled: true,
   });
 
@@ -51,23 +52,45 @@ export default function AdminSettingsPage() {
     maxCoursesPerSession: '6',
   });
 
+  const [securitySettings, setSecuritySettings] = useState({
+    sessionTimeout: '30',
+    requireRoleSelection: true,
+  });
+
   useEffect(() => {
-    fetchPeriods();
+    fetchData();
   }, []);
 
-  const fetchPeriods = async () => {
+  const fetchData = async () => {
     try {
-      const res = await fetch('/api/periods');
-      if (res.ok) {
-        const data = await res.json();
-        setPeriods(data);
-        if (data.length > 0) {
-          const activePeriod = data.find((p: any) => p.isActive) || data[0];
+      const [periodsRes, settingsRes] = await Promise.all([
+        fetch('/api/periods'),
+        fetch('/api/settings'),
+      ]);
+      
+      if (periodsRes.ok) {
+        const periodsData = await periodsRes.json();
+        setPeriods(periodsData);
+        if (periodsData.length > 0) {
+          const activePeriod = periodsData.find((p: any) => p.isActive) || periodsData[0];
           setAdvisingSettings(prev => ({ ...prev, currentPeriodId: activePeriod.id }));
         }
       }
+      
+      if (settingsRes.ok) {
+        const settingsData = await settingsRes.json();
+        for (const setting of settingsData) {
+          if (setting.key === 'email' && setting.value) {
+            setEmailSettings(prev => ({ ...prev, ...setting.value }));
+          } else if (setting.key === 'advising' && setting.value) {
+            setAdvisingSettings(prev => ({ ...prev, ...setting.value }));
+          } else if (setting.key === 'security' && setting.value) {
+            setSecuritySettings(prev => ({ ...prev, ...setting.value }));
+          }
+        }
+      }
     } catch (error) {
-      console.error('Error fetching periods:', error);
+      console.error('Error fetching data:', error);
     } finally {
       setLoading(false);
     }
@@ -94,8 +117,55 @@ export default function AdminSettingsPage() {
 
   const handleSave = async () => {
     setSaving(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setSaving(false);
+    setSaveStatus(null);
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          settings: [
+            { key: 'email', value: emailSettings, category: 'email' },
+            { key: 'advising', value: advisingSettings, category: 'advising' },
+            { key: 'security', value: securitySettings, category: 'security' },
+          ],
+        }),
+      });
+      
+      if (res.ok) {
+        setSaveStatus('success');
+        setTimeout(() => setSaveStatus(null), 3000);
+      } else {
+        setSaveStatus('error');
+      }
+    } catch (error) {
+      console.error('Error saving settings:', error);
+      setSaveStatus('error');
+    } finally {
+      setSaving(false);
+    }
+  };
+  
+  const handleTestEmail = async () => {
+    try {
+      const res = await fetch('/api/email/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipientEmail: emailSettings.fromEmail || emailSettings.smtpUser,
+          subject: 'Test Email from Advising Dashboard',
+          body: '<p>This is a test email from the Advising Dashboard. If you received this, your email settings are configured correctly.</p>',
+        }),
+      });
+      
+      const data = await res.json();
+      if (data.success) {
+        alert('Test email sent successfully!');
+      } else {
+        alert(`Email status: ${data.status} - ${data.message}`);
+      }
+    } catch (error) {
+      alert('Failed to send test email. Please check your settings.');
+    }
   };
 
   return (
@@ -105,9 +175,13 @@ export default function AdminSettingsPage() {
           <h1 className="text-3xl font-bold">Settings</h1>
           <p className="text-muted-foreground">Configure system-wide settings and preferences</p>
         </div>
-        <Button onClick={handleSave} disabled={saving}>
+        <Button onClick={handleSave} disabled={saving} variant={saveStatus === 'success' ? 'default' : saveStatus === 'error' ? 'destructive' : 'default'}>
           {saving ? (
             <><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Saving...</>
+          ) : saveStatus === 'success' ? (
+            <><CheckCircle className="h-4 w-4 mr-2" /> Saved!</>
+          ) : saveStatus === 'error' ? (
+            <><AlertCircle className="h-4 w-4 mr-2" /> Error - Try Again</>
           ) : (
             <><Save className="h-4 w-4 mr-2" /> Save Changes</>
           )}
@@ -230,6 +304,7 @@ export default function AdminSettingsPage() {
                   <Input 
                     value={emailSettings.smtpHost}
                     onChange={(e) => setEmailSettings(prev => ({ ...prev, smtpHost: e.target.value }))}
+                    placeholder="smtp.office365.com"
                   />
                 </div>
                 <div className="space-y-2">
@@ -237,27 +312,47 @@ export default function AdminSettingsPage() {
                   <Input 
                     value={emailSettings.smtpPort}
                     onChange={(e) => setEmailSettings(prev => ({ ...prev, smtpPort: e.target.value }))}
+                    placeholder="587"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Sender Email</Label>
+                  <Label>SMTP Username</Label>
                   <Input 
                     type="email"
                     placeholder="advising@university.edu"
-                    value={emailSettings.senderEmail}
-                    onChange={(e) => setEmailSettings(prev => ({ ...prev, senderEmail: e.target.value }))}
+                    value={emailSettings.smtpUser}
+                    onChange={(e) => setEmailSettings(prev => ({ ...prev, smtpUser: e.target.value }))}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Sender Name</Label>
+                  <Label>SMTP Password</Label>
                   <Input 
-                    value={emailSettings.senderName}
-                    onChange={(e) => setEmailSettings(prev => ({ ...prev, senderName: e.target.value }))}
+                    type="password"
+                    placeholder="••••••••"
+                    value={emailSettings.smtpPassword}
+                    onChange={(e) => setEmailSettings(prev => ({ ...prev, smtpPassword: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>From Email Address</Label>
+                  <Input 
+                    type="email"
+                    placeholder="advising@university.edu"
+                    value={emailSettings.fromEmail}
+                    onChange={(e) => setEmailSettings(prev => ({ ...prev, fromEmail: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>From Name</Label>
+                  <Input 
+                    value={emailSettings.fromName}
+                    onChange={(e) => setEmailSettings(prev => ({ ...prev, fromName: e.target.value }))}
+                    placeholder="Academic Advising"
                   />
                 </div>
               </div>
 
-              <Button variant="outline">
+              <Button variant="outline" onClick={handleTestEmail}>
                 <Mail className="h-4 w-4 mr-2" />
                 Send Test Email
               </Button>
@@ -358,14 +453,22 @@ export default function AdminSettingsPage() {
                     <Label>Session Timeout</Label>
                     <p className="text-sm text-muted-foreground">Auto-logout after inactivity (minutes)</p>
                   </div>
-                  <Input type="number" className="w-24" defaultValue="30" />
+                  <Input 
+                    type="number" 
+                    className="w-24" 
+                    value={securitySettings.sessionTimeout}
+                    onChange={(e) => setSecuritySettings(prev => ({ ...prev, sessionTimeout: e.target.value }))}
+                  />
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
                     <Label>Require Role Selection</Label>
                     <p className="text-sm text-muted-foreground">Users must select role on each login</p>
                   </div>
-                  <Switch defaultChecked />
+                  <Switch 
+                    checked={securitySettings.requireRoleSelection}
+                    onCheckedChange={(checked) => setSecuritySettings(prev => ({ ...prev, requireRoleSelection: checked }))}
+                  />
                 </div>
               </div>
             </CardContent>

@@ -59,3 +59,59 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to create course' }, { status: 500 });
   }
 }
+
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { id, code, name, credits, type, semester, offered, prerequisites, corequisites, concurrent, standingRequired, description } = body;
+    
+    if (!id) {
+      return NextResponse.json({ error: 'Course ID is required' }, { status: 400 });
+    }
+    
+    const updateData: Record<string, unknown> = { updatedAt: new Date() };
+    if (code !== undefined) updateData.code = code;
+    if (name !== undefined) updateData.name = name;
+    if (credits !== undefined) updateData.credits = credits;
+    if (type !== undefined) updateData.type = type;
+    if (semester !== undefined) updateData.semester = semester;
+    if (offered !== undefined) updateData.offered = offered;
+    if (prerequisites !== undefined) updateData.prerequisites = prerequisites;
+    if (corequisites !== undefined) updateData.corequisites = corequisites;
+    if (concurrent !== undefined) updateData.concurrent = concurrent;
+    if (standingRequired !== undefined) updateData.standingRequired = standingRequired;
+    if (description !== undefined) updateData.description = description;
+    
+    const result = await db.update(courses)
+      .set(updateData)
+      .where(eq(courses.id, id))
+      .returning();
+    
+    if (result.length === 0) {
+      return NextResponse.json({ error: 'Course not found' }, { status: 404 });
+    }
+    
+    return NextResponse.json(result[0]);
+  } catch (error) {
+    console.error('Error updating course:', error);
+    return NextResponse.json({ error: 'Failed to update course' }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+    
+    if (!id) {
+      return NextResponse.json({ error: 'Course ID is required' }, { status: 400 });
+    }
+    
+    await db.delete(courses).where(eq(courses.id, id));
+    
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting course:', error);
+    return NextResponse.json({ error: 'Failed to delete course' }, { status: 500 });
+  }
+}
