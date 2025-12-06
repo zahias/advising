@@ -84,6 +84,49 @@ export const advisingSessions = pgTable('advising_sessions', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+export const settings = pgTable('settings', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  key: varchar('key', { length: 100 }).notNull().unique(),
+  value: json('value').$type<Record<string, unknown>>().default({}),
+  category: varchar('category', { length: 50 }).notNull().default('general'),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const advisingPlans = pgTable('advising_plans', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  studentId: uuid('student_id').notNull().references(() => students.id, { onDelete: 'cascade' }),
+  periodId: uuid('period_id').references(() => advisingPeriods.id, { onDelete: 'set null' }),
+  termName: varchar('term_name', { length: 50 }).notNull(),
+  termSequence: integer('term_sequence').notNull(),
+  plannedCourses: json('planned_courses').$type<string[]>().default([]),
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const emailLogs = pgTable('email_logs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  studentId: uuid('student_id').references(() => students.id, { onDelete: 'set null' }),
+  advisorId: uuid('advisor_id').references(() => users.id, { onDelete: 'set null' }),
+  recipientEmail: varchar('recipient_email', { length: 255 }).notNull(),
+  subject: varchar('subject', { length: 255 }).notNull(),
+  body: text('body').notNull(),
+  templateUsed: varchar('template_used', { length: 100 }),
+  status: varchar('status', { length: 20 }).notNull().default('sent'),
+  sentAt: timestamp('sent_at').defaultNow().notNull(),
+});
+
+export const emailTemplates = pgTable('email_templates', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: varchar('name', { length: 100 }).notNull().unique(),
+  subject: varchar('subject', { length: 255 }).notNull(),
+  body: text('body').notNull(),
+  category: varchar('category', { length: 50 }).notNull().default('general'),
+  isActive: boolean('is_active').default(true).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 export const usersRelations = relations(users, ({ many }) => ({
   advisorMajors: many(advisorMajors),
   advisingSessions: many(advisingSessions),
@@ -126,6 +169,28 @@ export const advisingSessionsRelations = relations(advisingSessions, ({ one }) =
   }),
   advisor: one(users, {
     fields: [advisingSessions.advisorId],
+    references: [users.id],
+  }),
+}));
+
+export const advisingPlansRelations = relations(advisingPlans, ({ one }) => ({
+  student: one(students, {
+    fields: [advisingPlans.studentId],
+    references: [students.id],
+  }),
+  period: one(advisingPeriods, {
+    fields: [advisingPlans.periodId],
+    references: [advisingPeriods.id],
+  }),
+}));
+
+export const emailLogsRelations = relations(emailLogs, ({ one }) => ({
+  student: one(students, {
+    fields: [emailLogs.studentId],
+    references: [students.id],
+  }),
+  advisor: one(users, {
+    fields: [emailLogs.advisorId],
     references: [users.id],
   }),
 }));
