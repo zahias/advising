@@ -7,10 +7,16 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const majorId = searchParams.get('majorId');
+    const majorCode = searchParams.get('major');
     
-    let result;
+    let result: (typeof courses.$inferSelect)[] = [];
     if (majorId) {
       result = await db.select().from(courses).where(eq(courses.majorId, majorId));
+    } else if (majorCode) {
+      const majorResult = await db.select().from(majors).where(eq(majors.code, majorCode));
+      if (majorResult.length > 0) {
+        result = await db.select().from(courses).where(eq(courses.majorId, majorResult[0].id));
+      }
     } else {
       result = await db.select().from(courses);
     }
