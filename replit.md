@@ -4,6 +4,21 @@
 The Advising Dashboard is a modern web application designed for Phoenix University academic advisors. It is being rebuilt from a Streamlit-based application to a Next.js application with a PostgreSQL database backend. The dashboard streamlines the academic advising process by providing tools for tracking student progress, checking course eligibility, managing advising sessions, and supporting multiple majors (PBHL, SPTH-New, SPTH-Old, NURS).
 
 ## Recent Changes
+- **2025-12-06** (Audit & Fixes):
+  - **Created Missing Pages**: All sidebar navigation now links to functional pages
+    - Admin: /settings (demo UI for system configuration)
+    - Advisor: /eligibility, /degree-map, /projections, /planner, /courses, /email
+    - Student: /remaining (shows remaining courses by category)
+  - **API Improvements**: 
+    - /api/courses and /api/students now support filtering by major code (e.g., ?major=PBHL)
+    - Both APIs still support majorId (UUID) for full flexibility
+  - **UI Components**: Added Switch component for settings toggles
+  - **Bug Fixes**:
+    - Fixed eligibility page to use GET API with correct data structure
+    - Fixed category mapping for "Eligible (Bypass)" and similar statuses
+    - Fixed React setState error in LoginPage (moved router.push to useEffect)
+    - Fixed student remaining page to use majorId from API response
+
 - **2025-12-06** (Continued):
   - **Eligibility Engine**: Complete TypeScript port with:
     - Prerequisites, corequisites, concurrent requirements
