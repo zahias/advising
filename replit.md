@@ -4,6 +4,30 @@
 The Advising Dashboard is a modern web application designed for Phoenix University academic advisors. It is being rebuilt from a Streamlit-based application to a Next.js application with a PostgreSQL database backend. The dashboard streamlines the academic advising process by providing tools for tracking student progress, checking course eligibility, managing advising sessions, and supporting multiple majors (PBHL, SPTH-New, SPTH-Old, NURS).
 
 ## Recent Changes
+- **2025-12-06** (Continued):
+  - **Eligibility Engine**: Complete TypeScript port with:
+    - Prerequisites, corequisites, concurrent requirements
+    - Mutual concurrent pair detection (A requires B concurrent AND B requires A)
+    - Standing requirements (Senior ≥60 credits, Junior ≥30 credits)
+    - Bypass system with advisor name, note, and timestamp
+    - Requirement parsing with "and" separator support
+  - **API Routes**: Full REST API infrastructure:
+    - /api/courses, /api/students, /api/majors, /api/sessions, /api/periods
+    - /api/eligibility - Real-time eligibility checking
+    - /api/import/courses, /api/import/students - Data import from Excel
+    - /api/seed - Sample data for testing
+  - **Advisor Session Page**: Functional with:
+    - Student and period selection
+    - Real-time eligibility checking with color-coded categories
+    - Course selection for Advised/Optional/Repeat
+    - Bypass granting with dialog
+    - Session save functionality
+  - **Student Portal**: Secure with proper authentication:
+    - Matches student by email or stored ID
+    - Shows error state if no match (no fallback to other students)
+    - Progress tracking with completed/registered/remaining courses
+    - Estimated graduation timeline
+
 - **2025-12-06**:
   - **Major Rebuild**: Started migration from Streamlit to Next.js with TypeScript
   - Created new Next.js project with modern stack:
@@ -13,11 +37,7 @@ The Advising Dashboard is a modern web application designed for Phoenix Universi
     - shadcn/ui component library
     - Drizzle ORM with PostgreSQL database
   - Implemented role-based authentication system (Admin, Advisor, Student)
-  - Built comprehensive dashboard layouts:
-    - **Admin Dashboard**: Overview stats, user management, course management, major management, student management
-    - **Advisor Dashboard**: Student list, eligibility view, advising session interface with course selection
-    - **Student Portal**: Progress tracking, advised courses, degree plan view
-  - Created reusable UI components: sidebar navigation, header with major selector, role switcher
+  - Built comprehensive dashboard layouts
 
 - **2025-12-04** (Legacy Streamlit):
   - Added Requisite Bypass Feature
@@ -51,30 +71,30 @@ advising-dashboard-next/
 │   ├── app/
 │   │   ├── page.tsx                    # Login page with role selector
 │   │   ├── layout.tsx                  # Root layout with AuthProvider
+│   │   ├── api/
+│   │   │   ├── courses/route.ts        # Courses CRUD API
+│   │   │   ├── students/route.ts       # Students CRUD API
+│   │   │   ├── majors/route.ts         # Majors API
+│   │   │   ├── sessions/route.ts       # Advising sessions API
+│   │   │   ├── periods/route.ts        # Advising periods API
+│   │   │   ├── eligibility/route.ts    # Eligibility check API
+│   │   │   ├── import/                 # Data import APIs
+│   │   │   │   ├── courses/route.ts
+│   │   │   │   └── students/route.ts
+│   │   │   └── seed/route.ts           # Sample data seeding
 │   │   └── (dashboard)/
 │   │       ├── layout.tsx              # Dashboard layout with sidebar
-│   │       ├── admin/
-│   │       │   ├── page.tsx            # Admin overview dashboard
-│   │       │   ├── courses/page.tsx    # Course manager
-│   │       │   ├── students/page.tsx   # Student manager
-│   │       │   ├── users/page.tsx      # User/advisor manager
-│   │       │   └── majors/page.tsx     # Major configuration
-│   │       ├── advisor/
-│   │       │   ├── page.tsx            # Advisor dashboard
-│   │       │   ├── students/page.tsx   # Student list
-│   │       │   └── session/page.tsx    # Advising session interface
-│   │       └── student/
-│   │           ├── page.tsx            # Student dashboard
-│   │           ├── progress/page.tsx   # Progress tracking
-│   │           ├── advised/page.tsx    # Advised courses history
-│   │           └── degree-plan/page.tsx # Degree plan view
+│   │       ├── admin/                  # Admin pages
+│   │       ├── advisor/                # Advisor pages
+│   │       └── student/                # Student portal
 │   ├── components/
 │   │   ├── ui/                         # shadcn/ui components
-│   │   └── layout/
-│   │       ├── app-sidebar.tsx         # Navigation sidebar
-│   │       └── header.tsx              # Header with major selector
+│   │   └── layout/                     # Layout components
 │   └── lib/
 │       ├── auth/context.tsx            # Authentication context
+│       ├── eligibility/                # Eligibility engine
+│       │   ├── index.ts                # Main eligibility logic
+│       │   └── types.ts                # TypeScript types
 │       └── db/
 │           ├── index.ts                # Drizzle database connection
 │           └── schema.ts               # Database schema definitions
@@ -85,16 +105,21 @@ advising-dashboard-next/
 #### Database Schema (PostgreSQL)
 - **users**: User accounts (admins, advisors) with role and major assignments
 - **majors**: Academic programs (PBHL, SPTH-New, SPTH-Old, NURS)
-- **courses**: Course catalog with prerequisites, credits, type
-- **students**: Student records with major, credits, standing
-- **student_courses**: Student-course relationships (completed, registered, etc.)
-- **advising_sessions**: Advising session records with notes
-- **advising_periods**: Semester-based advising periods
+- **courses**: Course catalog with prerequisites, corequisites, concurrent, credits, type
+- **students**: Student records with major, credits, standing, courseStatuses (JSON)
+- **advising_sessions**: Session records with advisedCourses, optionalCourses, repeatCourses, bypasses
+- **advising_periods**: Semester-based advising periods with start/end dates
 
 #### Role Permissions
 - **Administrator**: Full access to all majors, users, courses, and settings. Can view as Advisor or Student.
 - **Advisor**: Access to assigned majors only. Can manage students and create advising sessions.
 - **Student**: View-only access to personal progress, advised courses, and degree plan.
+
+#### Eligibility Logic (Critical Thresholds)
+- **Senior**: ≥60 credits
+- **Junior**: ≥30 credits
+- **Sophomore**: ≥15 credits
+- **Freshman**: <15 credits
 
 ### Legacy Streamlit Application (Python)
 The original Streamlit application files remain in the root directory for reference during migration:
@@ -109,13 +134,14 @@ The original Streamlit application files remain in the root directory for refere
 | Feature | Streamlit | Next.js | Status |
 |---------|-----------|---------|--------|
 | Role-based auth | - | ✅ | Complete (demo mode) |
-| Admin dashboard | - | ✅ | Complete |
-| Course manager | ✅ | ✅ | Complete (UI only) |
-| Student manager | ✅ | ✅ | Complete (UI only) |
+| Admin dashboard | - | ✅ | Complete (UI) |
+| Course manager | ✅ | ✅ | Complete (UI + API) |
+| Student manager | ✅ | ✅ | Complete (UI + API) |
 | Advisor dashboard | ✅ | ✅ | Complete |
-| Advising session | ✅ | ✅ | Complete (UI only) |
-| Student portal | - | ✅ | Complete |
-| Eligibility check | ✅ | 🔄 | Pending migration |
+| Advising session | ✅ | ✅ | **Complete (functional)** |
+| Eligibility check | ✅ | ✅ | **Complete** |
+| Student portal | - | ✅ | **Complete (with auth)** |
+| Data import | ✅ | ✅ | **Complete** |
 | Degree map | ✅ | 🔄 | Planned redesign |
 | Course projection | ✅ | 🔄 | Planned as Semester Timeline |
 | Email integration | ✅ | 🔄 | Pending |

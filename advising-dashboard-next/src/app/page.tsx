@@ -2,7 +2,7 @@
 
 import { useAuth, UserRole } from '@/lib/auth/context';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,9 +15,14 @@ export default function LoginPage() {
   const [name, setName] = useState('');
   const [selectedRole, setSelectedRole] = useState<UserRole>('admin');
 
+  useEffect(() => {
+    if (user) {
+      const redirectPath = user.role === 'admin' ? '/admin' : user.role === 'advisor' ? '/advisor' : '/student';
+      router.push(redirectPath);
+    }
+  }, [user, router]);
+
   if (user) {
-    const redirectPath = user.role === 'admin' ? '/admin' : user.role === 'advisor' ? '/advisor' : '/student';
-    router.push(redirectPath);
     return null;
   }
 
