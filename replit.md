@@ -4,6 +4,20 @@
 The Advising Dashboard is a modern web application designed for Phoenix University academic advisors. It is being rebuilt from a Streamlit-based application to a Next.js application with a PostgreSQL database backend. The dashboard streamlines the academic advising process by providing tools for tracking student progress, checking course eligibility, managing advising sessions, and supporting multiple majors (PBHL, SPTH-New, SPTH-Old, NURS).
 
 ## Recent Changes
+- **2025-12-06** (Wiring & Functionality):
+  - **Advisor Courses Page**: Full CRUD operations with dialog-based forms
+    - Add, edit, delete courses with validation
+    - CSV export functionality
+    - PUT/DELETE methods added to /api/courses
+  - **Advisor Planner**: Wired to database with proper error handling
+    - Saves/loads multi-semester plans to /api/plans
+    - Race condition fix: waits for course catalog before hydrating plans
+    - Proper API response checking before showing success/error
+  - **Advisor Email Page**: Real email sending via nodemailer
+    - Personalization tokens: {student_name}, {student_id}, {advisor_name}
+    - Email history tracking with status badges
+    - Template support for common messages
+
 - **2025-12-06** (Audit & Fixes):
   - **Created Missing Pages**: All sidebar navigation now links to functional pages
     - Admin: /settings (demo UI for system configuration)
