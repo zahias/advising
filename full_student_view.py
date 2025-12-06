@@ -192,7 +192,7 @@ def render_degree_plan_table(courses_df, progress_df):
     display_df.index.name = "Student"
     
     styled = _style_codes(display_df, all_courses)
-    st.dataframe(styled, use_container_width=True, height=600)
+    st.dataframe(styled, width="stretch", height=600)
     
     # Show semester headers as info
     with st.expander("📅 Semester Structure"):
@@ -266,9 +266,9 @@ def _render_all_students():
             st.write("")
             col_apply, col_clear = st.columns(2)
             with col_apply:
-                apply_clicked = st.form_submit_button("✅ Apply", type="primary", use_container_width=True)
+                apply_clicked = st.form_submit_button("✅ Apply", type="primary", width="stretch")
             with col_clear:
-                clear_clicked = st.form_submit_button("🔄 Clear", use_container_width=True)
+                clear_clicked = st.form_submit_button("🔄 Clear", width="stretch")
         
         if apply_clicked:
             st.session_state.simulated_courses = selected_sim_courses
@@ -513,7 +513,7 @@ def _render_all_students():
                 
                 col1, col2 = st.columns([1, 5])
                 with col1:
-                    confirm = st.form_submit_button("✓ Confirm", use_container_width=True)
+                    confirm = st.form_submit_button("✓ Confirm", width="stretch")
                 with col2:
                     st.caption("Select courses then click Confirm to update the table")
                 
@@ -590,7 +590,7 @@ def _render_all_students():
 
         st.write(legend_md)
         styled = _style_codes(display_df, selected)
-        st.dataframe(styled, use_container_width=True, height=600, column_config=column_config)
+        st.dataframe(styled, width="stretch", height=600, column_config=column_config)
         return export_df, selected
 
     required_tab, intensive_tab, degree_plan_tab = st.tabs(["Required Courses", "Intensive Courses", "Degree Plan"])
@@ -709,7 +709,7 @@ def _render_individual_student():
     indiv_df = pd.DataFrame(data)
     st.write("*Legend:* c=Completed, r=Registered, a=Advised, ar=Advised-Repeat, o=Optional, b=Bypass, na=Eligible not chosen, ne=Not Eligible")
     styled = _style_codes(indiv_df, selected_courses)
-    st.dataframe(styled, use_container_width=True)
+    st.dataframe(styled, width="stretch")
 
     # Download colored sheet for this student (compact codes)
     col1, col2 = st.columns([1, 1])

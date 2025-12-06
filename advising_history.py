@@ -658,14 +658,14 @@ def advising_history_panel():
 
     b1, b2 = st.columns([1,1])
     with b1:
-        if st.button("📂 Open (view-only)", use_container_width=True, key="sess_open"):
+        if st.button("📂 Open (view-only)", width="stretch", key="sess_open"):
             payload = _load_session_payload_by_id(sid)
             if payload:
                 st.session_state["advising_loaded_payload"] = payload
                 st.success("Loaded archived session below (read-only).")
     with b2:
         confirm = st.checkbox("Confirm delete (index only)", key="sess_del_confirm", value=False)
-        if st.button("🗑️ Delete from index", use_container_width=True, disabled=not confirm, key="sess_del"):
+        if st.button("🗑️ Delete from index", width="stretch", disabled=not confirm, key="sess_del"):
             st.session_state.advising_index = [r for r in st.session_state.advising_index if str(r.get("id","")) != sid]
             _save_index(st.session_state.advising_index)
             st.session_state.pop("advising_loaded_payload", None)
@@ -692,6 +692,6 @@ def advising_history_panel():
             if not df.empty:
                 preferred = ["Course Code","Type","Requisites","Offered","Eligibility Status","Justification","Action"]
                 cols = [c for c in preferred if c in df.columns] + [c for c in df.columns if c not in preferred]
-                st.dataframe(style_df(df[cols]), use_container_width=True)
+                st.dataframe(style_df(df[cols]), width="stretch")
             else:
                 st.info("No course rows stored in this snapshot.")

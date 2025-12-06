@@ -210,10 +210,10 @@ def student_eligibility_view():
     st.markdown("### Course Eligibility")
     if not req_df.empty:
         st.markdown("**Required Courses**")
-        st.dataframe(style_df(req_df), use_container_width=True)
+        st.dataframe(style_df(req_df), width="stretch")
     if not int_df.empty:
         st.markdown("**Intensive Courses**")
-        st.dataframe(style_df(int_df), use_container_width=True)
+        st.dataframe(style_df(int_df), width="stretch")
 
     # ---------- Selection options (eligible + offered, not hidden/completed/registered) ----------
     offered_yes = {
@@ -332,10 +332,10 @@ def student_eligibility_view():
         btn_col1, btn_col2 = st.columns(2)
 
         with btn_col1:
-            submitted = st.form_submit_button("💾 Save Selections", use_container_width=True, type="primary")
+            submitted = st.form_submit_button("💾 Save Selections", width="stretch", type="primary")
 
         with btn_col2:
-            email_clicked = st.form_submit_button("✉️ Email Student", use_container_width=True)
+            email_clicked = st.form_submit_button("✉️ Email Student", width="stretch")
 
         if submitted or email_clicked:
             _persist_student_selections(advised_selection, repeat_selection, optional_selection, note_input)
@@ -405,7 +405,7 @@ def student_eligibility_view():
         file_name=f"Advising_{norm_sid}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         type="secondary",
-        use_container_width=True,
+        width="stretch",
         key=f"download_advising_{norm_sid}",
     )
 

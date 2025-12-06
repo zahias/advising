@@ -430,7 +430,7 @@ def course_projection_view():
     
     # Display table with styling
     styled = _style_projection_codes(projection_df, filtered_courses)
-    st.dataframe(styled, use_container_width=True, height=600)
+    st.dataframe(styled, width="stretch", height=600)
     
     # Display semester credit summaries
     st.markdown("---")
