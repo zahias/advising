@@ -2,110 +2,165 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { courses, majors } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
+import * as XLSX from 'xlsx';
 
-interface CourseImportRow {
-  'Course Code': string;
-  'Title'?: string;
-  'Name'?: string;
-  'Credits'?: number;
-  'Type'?: string;
-  'Semester'?: number;
-  'Offered'?: string | boolean;
-  'Prerequisite'?: string;
-  'Prerequisites'?: string;
-  'Corequisite'?: string;
-  'Corequisites'?: string;
-  'Concurrent'?: string;
-  'Standing'?: string;
-  'Description'?: string;
+function normalizeColumnName(name: string): string {
+  return name.toString().toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+}
+
+function findColumn(headers: string[], variations: string[]): string | null {
+  for (const header of headers) {
+    const normalized = normalizeColumnName(header);
+    for (const variation of variations) {
+      if (normalized === normalizeColumnName(variation)) {
+        return header;
+      }
+    }
+  }
+  return null;
 }
 
 function parseRequirements(str: string | undefined | null): string[] {
-  if (!str || str === '') return [];
-  return str.split(/[,;]/).map(p => p.trim()).filter(p => p.length > 0);
+  if (!str || str === '' || str === 'undefined' || str === 'null') return [];
+  return String(str).split(/[,;]/).map(p => p.trim()).filter(p => p.length > 0);
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { majorId, data } = body as { majorId: string; data: CourseImportRow[] };
+    const contentType = request.headers.get('content-type') || '';
     
-    if (!majorId || !data || !Array.isArray(data)) {
-      return NextResponse.json({ error: 'majorId and data array are required' }, { status: 400 });
-    }
-    
-    const majorResult = await db.select().from(majors).where(eq(majors.id, majorId));
-    if (majorResult.length === 0) {
-      return NextResponse.json({ error: 'Major not found' }, { status: 404 });
-    }
-    
-    const results = { created: 0, updated: 0, errors: [] as string[] };
-    
-    for (const row of data) {
-      try {
-        const code = row['Course Code'];
-        if (!code) {
-          results.errors.push('Row missing Course Code');
-          continue;
-        }
-        
-        const name = row['Title'] || row['Name'] || code;
-        const credits = row['Credits'] || 3;
-        const type = row['Type']?.toLowerCase() || 'required';
-        const semester = row['Semester'] || null;
-        const offered = row['Offered'] === true || row['Offered'] === 'Yes' || row['Offered'] === 'TRUE' || row['Offered'] === 'true';
-        const prerequisites = parseRequirements(row['Prerequisite'] || row['Prerequisites']);
-        const corequisites = parseRequirements(row['Corequisite'] || row['Corequisites']);
-        const concurrent = parseRequirements(row['Concurrent']);
-        const standingRequired = row['Standing'] || null;
-        const description = row['Description'] || null;
-        
-        const existing = await db.select().from(courses)
-          .where(eq(courses.code, code))
-          .limit(1);
-        
-        if (existing.length > 0 && existing[0].majorId === majorId) {
-          await db.update(courses)
-            .set({
-              name,
-              credits,
-              type,
-              semester,
-              offered,
-              prerequisites,
-              corequisites,
-              concurrent,
-              standingRequired,
-              description,
-              updatedAt: new Date(),
-            })
-            .where(eq(courses.id, existing[0].id));
-          results.updated++;
-        } else {
-          await db.insert(courses).values({
-            majorId,
-            code,
-            name,
-            credits,
-            type,
-            semester,
-            offered,
-            prerequisites,
-            corequisites,
-            concurrent,
-            standingRequired,
-            description,
-          });
-          results.created++;
-        }
-      } catch (err) {
-        results.errors.push(`Error processing ${row['Course Code'] || 'unknown'}: ${err}`);
+    let majorId: string;
+    let jsonData: Record<string, unknown>[];
+
+    if (contentType.includes('multipart/form-data')) {
+      const formData = await request.formData();
+      const file = formData.get('file') as File | null;
+      majorId = formData.get('majorId') as string;
+
+      if (!file) {
+        return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
+      }
+
+      if (!majorId) {
+        return NextResponse.json({ error: 'majorId is required' }, { status: 400 });
+      }
+
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: '' });
+    } else {
+      const body = await request.json();
+      majorId = body.majorId;
+      jsonData = body.data;
+      
+      if (!majorId || !jsonData || !Array.isArray(jsonData)) {
+        return NextResponse.json({ error: 'majorId and data array are required' }, { status: 400 });
       }
     }
+
+    const majorRecord = await db.select().from(majors).where(eq(majors.id, majorId)).limit(1);
+    if (majorRecord.length === 0) {
+      return NextResponse.json({ error: 'Major not found' }, { status: 404 });
+    }
+
+    if (jsonData.length === 0) {
+      return NextResponse.json({ error: 'No data found in file' }, { status: 400 });
+    }
+
+    const headers = Object.keys(jsonData[0]);
     
-    return NextResponse.json(results);
+    const codeCol = findColumn(headers, ['Course Code', 'CourseCode', 'Code', 'Course']);
+    const offeredCol = findColumn(headers, ['Offered', 'Semester', 'Term', 'Offering']);
+    const nameCol = findColumn(headers, ['Course Name', 'CourseName', 'Name', 'Title', 'Course Title']);
+    const creditsCol = findColumn(headers, ['Credits', 'Credit', 'Credit Hours', 'CreditHours', 'Cr']);
+    const prereqCol = findColumn(headers, ['Prerequisites', 'Prereq', 'Pre-requisite', 'Prerequisite']);
+    const coreqCol = findColumn(headers, ['Corequisites', 'Coreq', 'Co-requisite', 'Corequisite']);
+    const concurrentCol = findColumn(headers, ['Concurrent', 'Concurrent Enrollment', 'ConcurrentEnrollment']);
+    const typeCol = findColumn(headers, ['Type', 'Course Type', 'CourseType', 'Category']);
+    const standingCol = findColumn(headers, ['Standing', 'Required Standing', 'RequiredStanding', 'Level']);
+    const semesterCol = findColumn(headers, ['Semester Number', 'SemesterNumber', 'Sem', 'Semester Num']);
+
+    if (!codeCol) {
+      return NextResponse.json({ 
+        error: 'Missing required column: Course Code. Found columns: ' + headers.join(', ') 
+      }, { status: 400 });
+    }
+
+    const coursesToInsert: Array<{
+      majorId: string;
+      code: string;
+      name: string;
+      credits: number;
+      prerequisites: string[];
+      corequisites: string[];
+      concurrent: string[];
+      type: string;
+      standingRequired: string | null;
+      offered: boolean;
+      semester: number | null;
+    }> = [];
+
+    for (const row of jsonData) {
+      const code = String(row[codeCol] || '').trim();
+      if (!code) continue;
+
+      const credits = creditsCol ? Number(row[creditsCol]) || 3 : 3;
+      const name = nameCol ? String(row[nameCol] || '').trim() || code : code;
+      const prerequisites = prereqCol ? parseRequirements(String(row[prereqCol])) : [];
+      const corequisites = coreqCol ? parseRequirements(String(row[coreqCol])) : [];
+      const concurrent = concurrentCol ? parseRequirements(String(row[concurrentCol])) : [];
+      const type = typeCol ? String(row[typeCol] || 'required').trim().toLowerCase() : 'required';
+      const standingRequired = standingCol ? String(row[standingCol] || '').trim() || null : null;
+      
+      let offered = true;
+      if (offeredCol) {
+        const offeredVal = row[offeredCol];
+        offered = offeredVal === true || 
+                  offeredVal === 'Yes' || 
+                  offeredVal === 'TRUE' || 
+                  offeredVal === 'true' ||
+                  offeredVal === 'Y' ||
+                  offeredVal === 1 ||
+                  offeredVal === '1';
+      }
+      
+      const semester = semesterCol ? Number(row[semesterCol]) || null : null;
+
+      coursesToInsert.push({
+        majorId,
+        code,
+        name,
+        credits,
+        prerequisites,
+        corequisites,
+        concurrent,
+        type,
+        standingRequired,
+        offered,
+        semester,
+      });
+    }
+
+    if (coursesToInsert.length === 0) {
+      return NextResponse.json({ error: 'No valid courses found in file' }, { status: 400 });
+    }
+
+    await db.delete(courses).where(eq(courses.majorId, majorId));
+
+    const inserted = await db.insert(courses).values(coursesToInsert).returning();
+
+    return NextResponse.json({ 
+      success: true, 
+      count: inserted.length,
+      message: `Imported ${inserted.length} courses for ${majorRecord[0].code}`
+    });
   } catch (error) {
     console.error('Error importing courses:', error);
-    return NextResponse.json({ error: 'Failed to import courses' }, { status: 500 });
+    return NextResponse.json({ 
+      error: error instanceof Error ? error.message : 'Failed to import courses' 
+    }, { status: 500 });
   }
 }

@@ -14,6 +14,7 @@
   "description": "",
   "dependencies": {
     "@types/nodemailer": "^7.0.4",
-    "nodemailer": "^7.0.11"
+    "nodemailer": "^7.0.11",
+    "xlsx": "^0.18.5"
   }
 }

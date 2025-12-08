@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import { createContext, useContext, useState, ReactNode, useEffect, useCallback } from 'react';
 
 export type UserRole = 'admin' | 'advisor' | 'student';
 
@@ -11,16 +11,31 @@ export interface User {
   role: UserRole;
 }
 
+export interface Major {
+  id: string;
+  code: string;
+  name: string;
+  description?: string | null;
+  isActive: boolean;
+  courseCount?: number;
+  studentCount?: number;
+}
+
 export interface AuthContextType {
   user: User | null;
   currentRole: UserRole;
   currentMajor: string | null;
+  currentMajorId: string | null;
   currentStudentId: string | null;
+  majors: Major[];
+  majorsLoading: boolean;
+  majorVersion: number;
   setCurrentRole: (role: UserRole) => void;
   setCurrentMajor: (majorCode: string | null) => void;
   setCurrentStudentId: (studentId: string | null) => void;
   login: (role: UserRole, name: string) => void;
   logout: () => void;
+  refreshMajors: () => Promise<void>;
   isAdmin: boolean;
   isAdvisor: boolean;
   isStudent: boolean;
@@ -33,6 +48,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [currentRole, setCurrentRole] = useState<UserRole>('admin');
   const [currentMajor, setCurrentMajor] = useState<string | null>(null);
   const [currentStudentId, setCurrentStudentId] = useState<string | null>(null);
+  const [majors, setMajors] = useState<Major[]>([]);
+  const [majorsLoading, setMajorsLoading] = useState(true);
+  const [majorVersion, setMajorVersion] = useState(0);
+
+  const fetchMajors = useCallback(async () => {
+    try {
+      setMajorsLoading(true);
+      const res = await fetch('/api/majors');
+      if (res.ok) {
+        const data = await res.json();
+        setMajors(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch majors:', error);
+    } finally {
+      setMajorsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     const savedUser = localStorage.getItem('advisingUser');
@@ -52,7 +85,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (savedStudentId) {
       setCurrentStudentId(savedStudentId);
     }
-  }, []);
+    
+    fetchMajors();
+  }, [fetchMajors]);
+
+  const currentMajorId = majors.find(m => m.code === currentMajor)?.id || null;
 
   const login = (role: UserRole, name: string) => {
     const newUser: User = {
@@ -85,6 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const handleSetCurrentMajor = (majorCode: string | null) => {
     setCurrentMajor(majorCode);
+    setMajorVersion(v => v + 1);
     if (majorCode) {
       localStorage.setItem('advisingMajor', majorCode);
     } else {
@@ -101,18 +139,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const refreshMajors = async () => {
+    await fetchMajors();
+    setMajorVersion(v => v + 1);
+  };
+
   return (
     <AuthContext.Provider
       value={{
         user,
         currentRole,
         currentMajor,
+        currentMajorId,
         currentStudentId,
+        majors,
+        majorsLoading,
+        majorVersion,
         setCurrentRole: handleSetCurrentRole,
         setCurrentMajor: handleSetCurrentMajor,
         setCurrentStudentId: handleSetCurrentStudentId,
         login,
         logout,
+        refreshMajors,
         isAdmin: currentRole === 'admin',
         isAdvisor: currentRole === 'advisor',
         isStudent: currentRole === 'student',

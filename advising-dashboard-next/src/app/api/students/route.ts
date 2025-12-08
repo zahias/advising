@@ -56,3 +56,60 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to create student' }, { status: 500 });
   }
 }
+
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { id, studentId, name, email, standing, creditsCompleted, creditsRegistered, creditsRemaining, courseStatuses } = body;
+    
+    if (!id) {
+      return NextResponse.json({ error: 'id is required' }, { status: 400 });
+    }
+    
+    const updateData: Record<string, unknown> = { updatedAt: new Date() };
+    if (studentId !== undefined) updateData.studentId = studentId;
+    if (name !== undefined) updateData.name = name;
+    if (email !== undefined) updateData.email = email;
+    if (standing !== undefined) updateData.standing = standing;
+    if (creditsCompleted !== undefined) updateData.creditsCompleted = creditsCompleted;
+    if (creditsRegistered !== undefined) updateData.creditsRegistered = creditsRegistered;
+    if (creditsRemaining !== undefined) updateData.creditsRemaining = creditsRemaining;
+    if (courseStatuses !== undefined) updateData.courseStatuses = courseStatuses;
+    
+    const result = await db.update(students)
+      .set(updateData)
+      .where(eq(students.id, id))
+      .returning();
+    
+    if (result.length === 0) {
+      return NextResponse.json({ error: 'Student not found' }, { status: 404 });
+    }
+    
+    return NextResponse.json(result[0]);
+  } catch (error) {
+    console.error('Error updating student:', error);
+    return NextResponse.json({ error: 'Failed to update student' }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+    
+    if (!id) {
+      return NextResponse.json({ error: 'id is required' }, { status: 400 });
+    }
+    
+    const result = await db.delete(students).where(eq(students.id, id)).returning();
+    
+    if (result.length === 0) {
+      return NextResponse.json({ error: 'Student not found' }, { status: 404 });
+    }
+    
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting student:', error);
+    return NextResponse.json({ error: 'Failed to delete student' }, { status: 500 });
+  }
+}

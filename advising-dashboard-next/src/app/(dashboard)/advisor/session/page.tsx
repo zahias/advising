@@ -80,12 +80,6 @@ interface CourseWithEligibility {
   eligibility: EligibilityResult;
 }
 
-interface Major {
-  id: string;
-  code: string;
-  name: string;
-}
-
 interface Period {
   id: string;
   semester: string;
@@ -104,10 +98,8 @@ interface Session {
 }
 
 export default function AdvisorSessionPage() {
-  const { currentMajor, user } = useAuth();
+  const { currentMajor, currentMajorId, majorVersion, user } = useAuth();
   
-  const [majors, setMajors] = useState<Major[]>([]);
-  const [selectedMajorId, setSelectedMajorId] = useState<string>('');
   const [students, setStudents] = useState<Student[]>([]);
   const [selectedStudentId, setSelectedStudentId] = useState<string>('');
   const [periods, setPeriods] = useState<Period[]>([]);
@@ -130,32 +122,25 @@ export default function AdvisorSessionPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function fetchMajors() {
-      try {
-        const res = await fetch('/api/majors');
-        const data = await res.json();
-        setMajors(data);
-        if (data.length > 0 && !selectedMajorId) {
-          const matched = data.find((m: Major) => m.code === currentMajor);
-          if (matched) {
-            setSelectedMajorId(matched.id);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to fetch majors:', err);
-      }
-    }
-    fetchMajors();
-  }, [currentMajor, selectedMajorId]);
+    setSelectedStudentId('');
+    setSelectedPeriodId('');
+    setCoursesWithEligibility([]);
+    setSession(null);
+    setAdvisedCourses([]);
+    setOptionalCourses([]);
+    setRepeatCourses([]);
+    setBypasses({});
+    setAdvisorNote('');
+  }, [currentMajorId, majorVersion]);
 
   useEffect(() => {
     async function fetchStudentsAndPeriods() {
-      if (!selectedMajorId) return;
+      if (!currentMajorId) return;
       
       try {
         const [studentsRes, periodsRes] = await Promise.all([
-          fetch(`/api/students?majorId=${selectedMajorId}`),
-          fetch(`/api/periods?majorId=${selectedMajorId}`)
+          fetch(`/api/students?majorId=${currentMajorId}`),
+          fetch(`/api/periods?majorId=${currentMajorId}`)
         ]);
         
         const studentsData = await studentsRes.json();
@@ -173,10 +158,10 @@ export default function AdvisorSessionPage() {
       }
     }
     fetchStudentsAndPeriods();
-  }, [selectedMajorId]);
+  }, [currentMajorId, majorVersion]);
 
   const fetchEligibility = useCallback(async () => {
-    if (!selectedStudentId || !selectedMajorId) return;
+    if (!selectedStudentId || !currentMajorId) return;
     
     setLoading(true);
     setError(null);
@@ -184,7 +169,7 @@ export default function AdvisorSessionPage() {
     try {
       const url = new URL('/api/eligibility', window.location.origin);
       url.searchParams.set('studentId', selectedStudentId);
-      url.searchParams.set('majorId', selectedMajorId);
+      url.searchParams.set('majorId', currentMajorId);
       if (selectedPeriodId) {
         url.searchParams.set('periodId', selectedPeriodId);
       }
@@ -219,7 +204,7 @@ export default function AdvisorSessionPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedStudentId, selectedMajorId, selectedPeriodId]);
+  }, [selectedStudentId, currentMajorId, selectedPeriodId]);
 
   useEffect(() => {
     fetchEligibility();
