@@ -4,6 +4,26 @@
 The Advising Dashboard is a modern web application designed for Phoenix University academic advisors. It is being rebuilt from a Streamlit-based application to a Next.js application with a PostgreSQL database backend. The dashboard streamlines the academic advising process by providing tools for tracking student progress, checking course eligibility, managing advising sessions, and supporting multiple majors (PBHL, SPTH-New, SPTH-Old, NURS).
 
 ## Recent Changes
+- **2025-12-08** (Admin & Import Fixes):
+  - **Admin Majors Page**: Wired to real API with full CRUD operations
+    - Add, Edit, Delete majors with validation
+    - Configure dialog for data import (courses and students)
+  - **Major Selector**: Now triggers data refresh across all dashboard pages
+    - Added majorVersion counter in AuthContext
+    - Pages listen to majorVersion and refetch when major changes
+    - Session page resets state when major changes
+  - **Excel/CSV Import**: Real file parsing with xlsx library
+    - Courses: Parses Course Code, Offered, Prerequisites, Corequisites, Concurrent, Standing
+    - Students: Parses ID, NAME, course status columns (merges across sheets)
+    - Both delete existing major data before importing
+  - **Admin Courses/Students Pages**: Fixed major filter dropdown
+    - Shows major codes with names instead of raw UUIDs
+    - Syncs selectedMajorId when filter changes
+    - Fallback logic prevents empty majorId on CRUD operations
+  - **API Improvements**:
+    - PUT/DELETE methods added to /api/majors and /api/students
+    - Better error handling and validation
+
 - **2025-12-06** (Wiring & Functionality):
   - **Advisor Courses Page**: Full CRUD operations with dialog-based forms
     - Add, edit, delete courses with validation
