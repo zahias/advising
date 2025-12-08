@@ -13,6 +13,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@radix-ui/react-alert-dialog": "^1.1.15",
     "@types/nodemailer": "^7.0.4",
     "nodemailer": "^7.0.11",
     "xlsx": "^0.18.5"
