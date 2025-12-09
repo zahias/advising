@@ -120,7 +120,18 @@ def _get_sessions_folder_id() -> str:
         log_error(f"Failed to get/create sessions folder", e)
         return ""
 
-def _load_index() -> List[Dict[str, Any]]:
+def _load_index(force_refresh: bool = False) -> List[Dict[str, Any]]:
+    """
+    Load advising index. Uses session state cache to avoid repeated Drive calls.
+    Set force_refresh=True to force reload from Drive.
+    """
+    major = st.session_state.get("current_major", "DEFAULT")
+    cache_key = f"_advising_index_cache_{major}"
+    
+    # Use cached index if available (unless force refresh requested)
+    if not force_refresh and cache_key in st.session_state:
+        return st.session_state[cache_key]
+    
     try:
         gd = _get_drive_module()
         service = gd.initialize_drive_service()
@@ -132,7 +143,9 @@ def _load_index() -> List[Dict[str, Any]]:
             if fid:
                 payload = gd.download_file_from_drive(service, fid)
                 idx = json.loads(payload.decode("utf-8"))
-                return idx if isinstance(idx, list) else []
+                result = idx if isinstance(idx, list) else []
+                st.session_state[cache_key] = result
+                return result
         
         # Fall back to major folder root (backward compatibility for legacy sessions)
         folder_id = _get_major_folder_id()
@@ -142,16 +155,23 @@ def _load_index() -> List[Dict[str, Any]]:
                 payload = gd.download_file_from_drive(service, fid)
                 idx = json.loads(payload.decode("utf-8"))
                 log_info("Loaded legacy advising index from major folder root (consider migrating to sessions/)")
-                return idx if isinstance(idx, list) else []
+                result = idx if isinstance(idx, list) else []
+                st.session_state[cache_key] = result
+                return result
         
+        st.session_state[cache_key] = []
         return []
     except Exception as e:
         log_error("Failed to load advising index", e)
-        return []
+        return st.session_state.get(cache_key, [])
 
 def _save_index_local(index_items: List[Dict[str, Any]]) -> None:
     """Save index to session state immediately (local-first)."""
     st.session_state.advising_index = index_items
+    # Also update the cache
+    major = st.session_state.get("current_major", "DEFAULT")
+    cache_key = f"_advising_index_cache_{major}"
+    st.session_state[cache_key] = index_items
 
 def _save_index(index_items: List[Dict[str, Any]]) -> None:
     """Save index to Drive asynchronously (background)."""

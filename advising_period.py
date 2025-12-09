@@ -281,41 +281,40 @@ def _merge_period_entries(existing: Dict[str, Any], new_entry: Dict[str, Any]) -
     return merged
 
 
-def get_all_periods() -> List[Dict[str, Any]]:
+def get_all_periods(force_refresh: bool = False) -> List[Dict[str, Any]]:
     """
     Get all periods (current + history) for the current major.
     Returns list sorted by creation date (newest first).
+    Uses cache to avoid repeated Drive calls. Set force_refresh=True to reload from Drive.
     """
-
     major = st.session_state.get("current_major", "DEFAULT")
 
     if "period_history_cache" not in st.session_state:
         st.session_state.period_history_cache = {}
 
     cached_history: List[Dict[str, Any]] = st.session_state.period_history_cache.get(major, [])
-    history: List[Dict[str, Any]] = []
-    history_loaded = False
-
-    try:
-        gd = _get_drive_module()
-        service = gd.initialize_drive_service()
-        folder_id = _get_major_folder_id_internal()
-
-        if service and folder_id:
-            file_id = gd.find_file_in_drive(service, PERIODS_HISTORY_FILENAME, folder_id)
-            if file_id:
-                payload = gd.download_file_from_drive(service, file_id)
-                history_payload = json.loads(payload.decode("utf-8"))
-                if isinstance(history_payload, list):
-                    history = history_payload
-                    history_loaded = True
-    except Exception as e:
-        log_error(f"Failed to load period history", e)
-
-    if history_loaded:
-        st.session_state.period_history_cache[major] = history
-    else:
+    
+    # Use cache if available (unless force refresh)
+    if not force_refresh and cached_history:
         history = cached_history
+    else:
+        history = []
+        try:
+            gd = _get_drive_module()
+            service = gd.initialize_drive_service()
+            folder_id = _get_major_folder_id_internal()
+
+            if service and folder_id:
+                file_id = gd.find_file_in_drive(service, PERIODS_HISTORY_FILENAME, folder_id)
+                if file_id:
+                    payload = gd.download_file_from_drive(service, file_id)
+                    history_payload = json.loads(payload.decode("utf-8"))
+                    if isinstance(history_payload, list):
+                        history = history_payload
+                        st.session_state.period_history_cache[major] = history
+        except Exception as e:
+            log_error(f"Failed to load period history", e)
+            history = cached_history
 
     combined_periods: List[Dict[str, Any]] = []
 

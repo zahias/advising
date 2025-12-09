@@ -23,20 +23,14 @@ The Advising Dashboard is a Streamlit-based application designed for Phoenix Uni
     - Detects mutual concurrent/corequisite pairs automatically via `get_mutual_concurrent_pairs()`
     - Shows both courses as "Eligible" with note "Must be taken with: [paired course]"
     - Allows advisors to select and advise both courses together
-  - Refactored Course Projection View to use iterative graph traversal (BFS/topological sort) instead of recursion to prevent stack overflow on complex prerequisite chains
-
 - **2025-11-07**: 
   - Replaced static REQUISITES and SUMMARY sections with clean tooltips on course column headers. Hovering over any course column now shows the course prerequisites and summary statistics (completion rates, registration counts).
   - Removed REQUISITES and SUMMARY rows from Excel exports for cleaner, student-data-only downloads.
   - Added **Degree Plan** tab to Full Student View showing all students' progress on the degree plan grid organized by suggested semester structure.
-  - Implemented **Course Projection View** - a comprehensive semester-by-semester planning tool that projects when each student should take their remaining courses. The system:
-    - Calculates earliest possible semester for each course based on prerequisite completion
-    - Enforces credit limits (15-17 typical, 18 max per semester)
-    - Prioritizes critical path courses (those that block other courses)
-    - Identifies flexible courses (non-critical, can be taken in multiple semesters)
-    - Displays semester credit summaries with warnings for overloaded semesters
-    - Includes cycle detection and memoization for performance and safety
-    - Provides Excel export for projection plans
+
+- **2025-12-09**:
+  - Removed Course Projection View feature to simplify codebase
+  - Performance optimizations: added caching for Google Drive service and session data
 
 ## User Preferences
 I prefer:
