@@ -26,6 +26,58 @@ PERIOD_FILENAME = "current_period.json"
 PERIODS_HISTORY_FILENAME = "periods_history.json"
 
 
+def _reconstruct_periods_from_sessions() -> List[Dict[str, Any]]:
+    """
+    Scan the advising index for period metadata and reconstruct period entries
+    for any periods that have sessions but are missing from the history.
+    This recovers periods that were lost due to sync issues.
+    """
+    try:
+        # Lazy import to avoid circular dependency
+        from advising_history import _load_index
+        
+        index = _load_index()
+        if not index:
+            return []
+        
+        # Extract unique periods from session metadata
+        periods_from_sessions: Dict[str, Dict[str, Any]] = {}
+        
+        for session in index:
+            period_id = session.get("period_id")
+            if not period_id:
+                continue
+            
+            # Only process if we haven't seen this period yet, or update with more info
+            if period_id not in periods_from_sessions:
+                periods_from_sessions[period_id] = {
+                    "period_id": period_id,
+                    "semester": session.get("semester", ""),
+                    "year": session.get("year", ""),
+                    "advisor_name": session.get("advisor_name", ""),
+                    "created_at": session.get("created_at", ""),
+                    "reconstructed": True,  # Mark as reconstructed
+                }
+            else:
+                # Update with earlier created_at if available
+                existing = periods_from_sessions[period_id]
+                session_created = session.get("created_at", "")
+                if session_created and (not existing.get("created_at") or session_created < existing["created_at"]):
+                    existing["created_at"] = session_created
+                # Fill in missing fields
+                if not existing.get("advisor_name") and session.get("advisor_name"):
+                    existing["advisor_name"] = session.get("advisor_name")
+                if not existing.get("semester") and session.get("semester"):
+                    existing["semester"] = session.get("semester")
+                if not existing.get("year") and session.get("year"):
+                    existing["year"] = session.get("year")
+        
+        return list(periods_from_sessions.values())
+    except Exception as e:
+        log_error("Failed to reconstruct periods from sessions", e)
+        return []
+
+
 def _get_major_folder_id_internal() -> str:
     """Get major-specific folder ID."""
     import os
@@ -323,6 +375,11 @@ def get_all_periods(force_refresh: bool = False) -> List[Dict[str, Any]]:
         combined_periods.append(current)
 
     combined_periods.extend(history)
+    
+    # Reconstruct missing periods from advising sessions
+    # This recovers periods that have session data but are missing from history
+    reconstructed = _reconstruct_periods_from_sessions()
+    combined_periods.extend(reconstructed)
 
     unique_periods: Dict[str, Dict[str, Any]] = {}
     order: List[str] = []
