@@ -30,7 +30,13 @@ The Advising Dashboard is a Streamlit-based application designed for Phoenix Uni
 
 - **2025-12-09**:
   - Removed Course Projection View feature to simplify codebase
-  - Performance optimizations: added caching for Google Drive service and session data
+  - **Major performance optimizations** to fix slow loading and crashes:
+    - Added session-state caching for advising index (`_load_index()`) - now only downloads from Drive once per major per session
+    - Added caching for period history (`get_all_periods()`) - eliminates redundant Drive calls on every page load
+    - Save operations now update cache immediately without re-downloading
+    - Updated Streamlit API across 6 files (22 occurrences) from deprecated `use_container_width=True` to `width="stretch"` for Streamlit >=1.40.0
+  - Added manual "Sync from Drive" button in Session Management section for force-refreshing data when modified elsewhere
+  - Pinned Python to 3.10 in `runtime.txt` for deployment stability
 
 ## User Preferences
 I prefer:
