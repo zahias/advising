@@ -769,12 +769,13 @@ def advising_history_panel():
         # Password-protected delete
         admin_pass = st.text_input("Admin Password", type="password", key="admin_pass_sessions")
         
-        # Check against secret
+        # Check against secret (try st.secrets first, then env var)
+        import os
         correct_pass = ""
         try:
             correct_pass = st.secrets["admin_password"]
-        except (KeyError, FileNotFoundError):
-            pass
+        except (KeyError, FileNotFoundError, Exception):
+            correct_pass = os.environ.get("admin_password", "")
         
         if admin_pass and admin_pass == correct_pass:
             st.success("Admin access granted")
