@@ -1,97 +1,42 @@
 # Advising Dashboard
 
 ## Overview
-The Advising Dashboard is a modern web application designed for Phoenix University academic advisors. It is being rebuilt from a Streamlit-based application to a Next.js application with a PostgreSQL database backend. The dashboard streamlines the academic advising process by providing tools for tracking student progress, checking course eligibility, managing advising sessions, and supporting multiple majors (PBHL, SPTH-New, SPTH-Old, NURS).
+The Advising Dashboard is a Streamlit-based application designed for Phoenix University academic advisors. Its core purpose is to streamline the academic advising process by providing tools for tracking student progress, checking course eligibility, managing advising sessions, and syncing data with Google Drive. The dashboard supports multiple majors (PBHL, SPTH-New, SPTH-Old) and aims to offer a comprehensive, user-friendly platform for academic guidance, including advanced features like a Course Offering Planner for optimized course recommendations.
 
 ## Recent Changes
-- **2025-12-08** (Admin & Import Fixes):
-  - **Admin Majors Page**: Wired to real API with full CRUD operations
-    - Add, Edit, Delete majors with validation
-    - Configure dialog for data import (courses and students)
-  - **Major Selector**: Now triggers data refresh across all dashboard pages
-    - Added majorVersion counter in AuthContext
-    - Pages listen to majorVersion and refetch when major changes
-    - Session page resets state when major changes
-  - **Excel/CSV Import**: Real file parsing with xlsx library
-    - Courses: Parses Course Code, Offered, Prerequisites, Corequisites, Concurrent, Standing
-    - Students: Parses ID, NAME, course status columns (merges across sheets)
-    - Both delete existing major data before importing
-  - **Admin Courses/Students Pages**: Fixed major filter dropdown
-    - Shows major codes with names instead of raw UUIDs
-    - Syncs selectedMajorId when filter changes
-    - Fallback logic prevents empty majorId on CRUD operations
-  - **API Improvements**:
-    - PUT/DELETE methods added to /api/majors and /api/students
-    - Better error handling and validation
+- **2025-12-04**:
+  - Added **Requisite Bypass Feature** - Advisors can now grant bypasses to allow students to register for courses without meeting prerequisites:
+    - Bypass UI in Student Eligibility View: Grant bypass with optional reason/note, see active bypasses, remove bypasses
+    - Bypassed courses show as "Eligible (Bypass)" with purple highlighting
+    - Bypasses persist with advising sessions (per-student, per-advising-period)
+    - Full Student View shows `b` status code for bypassed courses
+    - Excel exports include bypass information with advisor name and notes
+    - Backward compatible: existing sessions without bypass data load correctly
+  - Fixed **circular import / segmentation fault** on Streamlit Cloud (Python 3.13):
+    - Created `eligibility_utils.py` module containing all eligibility logic (check_eligibility, get_mutual_concurrent_pairs) with no Streamlit dependencies
+    - Refactored ALL modules to use lazy loading for Google Drive functions via `_get_drive_module()`, preventing import-time side effects:
+      - `advising_history.py`, `app.py`, `full_student_view.py`, `course_exclusions.py`, `data_upload.py`, `email_manager.py`, `advising_period.py`
+    - Updated `utils.py` to import from eligibility_utils for backward compatibility
+    - Added `runtime.txt` with `python-3.11` to pin Python version on Streamlit Cloud
+  - Fixed pandas `combine_first` FutureWarning by handling empty entries before concatenation
+  - Fixed **mutual concurrent/corequisite pairs** eligibility issue. Previously, if Course A required Course B as concurrent AND Course B required Course A, both would show as "Not Eligible" (chicken-and-egg problem). Now the system:
+    - Detects mutual concurrent/corequisite pairs automatically via `get_mutual_concurrent_pairs()`
+    - Shows both courses as "Eligible" with note "Must be taken with: [paired course]"
+    - Allows advisors to select and advise both courses together
+  - Refactored Course Projection View to use iterative graph traversal (BFS/topological sort) instead of recursion to prevent stack overflow on complex prerequisite chains
 
-- **2025-12-06** (Wiring & Functionality):
-  - **Advisor Courses Page**: Full CRUD operations with dialog-based forms
-    - Add, edit, delete courses with validation
-    - CSV export functionality
-    - PUT/DELETE methods added to /api/courses
-  - **Advisor Planner**: Wired to database with proper error handling
-    - Saves/loads multi-semester plans to /api/plans
-    - Race condition fix: waits for course catalog before hydrating plans
-    - Proper API response checking before showing success/error
-  - **Advisor Email Page**: Real email sending via nodemailer
-    - Personalization tokens: {student_name}, {student_id}, {advisor_name}
-    - Email history tracking with status badges
-    - Template support for common messages
-
-- **2025-12-06** (Audit & Fixes):
-  - **Created Missing Pages**: All sidebar navigation now links to functional pages
-    - Admin: /settings (demo UI for system configuration)
-    - Advisor: /eligibility, /degree-map, /projections, /planner, /courses, /email
-    - Student: /remaining (shows remaining courses by category)
-  - **API Improvements**: 
-    - /api/courses and /api/students now support filtering by major code (e.g., ?major=PBHL)
-    - Both APIs still support majorId (UUID) for full flexibility
-  - **UI Components**: Added Switch component for settings toggles
-  - **Bug Fixes**:
-    - Fixed eligibility page to use GET API with correct data structure
-    - Fixed category mapping for "Eligible (Bypass)" and similar statuses
-    - Fixed React setState error in LoginPage (moved router.push to useEffect)
-    - Fixed student remaining page to use majorId from API response
-
-- **2025-12-06** (Continued):
-  - **Eligibility Engine**: Complete TypeScript port with:
-    - Prerequisites, corequisites, concurrent requirements
-    - Mutual concurrent pair detection (A requires B concurrent AND B requires A)
-    - Standing requirements (Senior ≥60 credits, Junior ≥30 credits)
-    - Bypass system with advisor name, note, and timestamp
-    - Requirement parsing with "and" separator support
-  - **API Routes**: Full REST API infrastructure:
-    - /api/courses, /api/students, /api/majors, /api/sessions, /api/periods
-    - /api/eligibility - Real-time eligibility checking
-    - /api/import/courses, /api/import/students - Data import from Excel
-    - /api/seed - Sample data for testing
-  - **Advisor Session Page**: Functional with:
-    - Student and period selection
-    - Real-time eligibility checking with color-coded categories
-    - Course selection for Advised/Optional/Repeat
-    - Bypass granting with dialog
-    - Session save functionality
-  - **Student Portal**: Secure with proper authentication:
-    - Matches student by email or stored ID
-    - Shows error state if no match (no fallback to other students)
-    - Progress tracking with completed/registered/remaining courses
-    - Estimated graduation timeline
-
-- **2025-12-06**:
-  - **Major Rebuild**: Started migration from Streamlit to Next.js with TypeScript
-  - Created new Next.js project with modern stack:
-    - Next.js 15 with App Router
-    - TypeScript for type safety
-    - Tailwind CSS for styling
-    - shadcn/ui component library
-    - Drizzle ORM with PostgreSQL database
-  - Implemented role-based authentication system (Admin, Advisor, Student)
-  - Built comprehensive dashboard layouts
-
-- **2025-12-04** (Legacy Streamlit):
-  - Added Requisite Bypass Feature
-  - Fixed circular import issues
-  - Fixed mutual concurrent/corequisite pairs eligibility
+- **2025-11-07**: 
+  - Replaced static REQUISITES and SUMMARY sections with clean tooltips on course column headers. Hovering over any course column now shows the course prerequisites and summary statistics (completion rates, registration counts).
+  - Removed REQUISITES and SUMMARY rows from Excel exports for cleaner, student-data-only downloads.
+  - Added **Degree Plan** tab to Full Student View showing all students' progress on the degree plan grid organized by suggested semester structure.
+  - Implemented **Course Projection View** - a comprehensive semester-by-semester planning tool that projects when each student should take their remaining courses. The system:
+    - Calculates earliest possible semester for each course based on prerequisite completion
+    - Enforces credit limits (15-17 typical, 18 max per semester)
+    - Prioritizes critical path courses (those that block other courses)
+    - Identifies flexible courses (non-critical, can be taken in multiple semesters)
+    - Displays semester credit summaries with warnings for overloaded semesters
+    - Includes cycle detection and memoization for performance and safety
+    - Provides Excel export for projection plans
 
 ## User Preferences
 I prefer:
@@ -99,112 +44,39 @@ I prefer:
 - Iterative development with clear communication at each stage.
 - To be asked before any major changes are implemented.
 - The agent to prioritize functional completeness over minor optimizations.
-- Do not make changes to files outside of the core application logic.
+- Do not make changes to files outside of the core application logic (e.g., `get_refresh_token.py`, `.streamlit/config.toml`).
 - Do not modify the deployment configuration unless explicitly requested.
 
 ## System Architecture
 
-### New Next.js Application (`advising-dashboard-next/`)
+### UI/UX Decisions
+The dashboard features a modern, accessible design adhering to WCAG AA standards, including keyboard navigation and mobile responsiveness. A mandatory advising period selection gate precedes all functionality. The interface includes a simple student selection dropdown, a stepwise accordion-style data upload with inline validation, and a unified notification system. The sidebar is minimized by default, and inline action buttons are used for efficiency.
 
-#### Tech Stack
-- **Framework**: Next.js 15 with App Router and TypeScript
-- **UI**: Tailwind CSS + shadcn/ui component library
-- **Database**: PostgreSQL with Drizzle ORM
-- **Authentication**: Role-based (Admin, Advisor, Student) - demo mode with planned Microsoft 365 SSO
-- **Deployment Target**: A2 Hosting (future)
+### Technical Implementations
+Built with Streamlit in Python 3.11, the application leverages Pandas for data manipulation, especially with Excel files. It integrates with the Google Drive API for optional cloud storage and synchronization, and uses standard Python SMTP for Outlook/Office 365 email functionality, including HTML templates and per-major rosters. The system supports multi-major data tracking, automated course eligibility checks, and persistent advising sessions.
 
-#### Directory Structure
-```
-advising-dashboard-next/
-├── src/
-│   ├── app/
-│   │   ├── page.tsx                    # Login page with role selector
-│   │   ├── layout.tsx                  # Root layout with AuthProvider
-│   │   ├── api/
-│   │   │   ├── courses/route.ts        # Courses CRUD API
-│   │   │   ├── students/route.ts       # Students CRUD API
-│   │   │   ├── majors/route.ts         # Majors API
-│   │   │   ├── sessions/route.ts       # Advising sessions API
-│   │   │   ├── periods/route.ts        # Advising periods API
-│   │   │   ├── eligibility/route.ts    # Eligibility check API
-│   │   │   ├── import/                 # Data import APIs
-│   │   │   │   ├── courses/route.ts
-│   │   │   │   └── students/route.ts
-│   │   │   └── seed/route.ts           # Sample data seeding
-│   │   └── (dashboard)/
-│   │       ├── layout.tsx              # Dashboard layout with sidebar
-│   │       ├── admin/                  # Admin pages
-│   │       ├── advisor/                # Advisor pages
-│   │       └── student/                # Student portal
-│   ├── components/
-│   │   ├── ui/                         # shadcn/ui components
-│   │   └── layout/                     # Layout components
-│   └── lib/
-│       ├── auth/context.tsx            # Authentication context
-│       ├── eligibility/                # Eligibility engine
-│       │   ├── index.ts                # Main eligibility logic
-│       │   └── types.ts                # TypeScript types
-│       └── db/
-│           ├── index.ts                # Drizzle database connection
-│           └── schema.ts               # Database schema definitions
-├── drizzle.config.ts                   # Drizzle configuration
-└── package.json
-```
+### Feature Specifications
+- **Multi-Major Support**: Manages data and configurations for PBHL, SPTH-New, SPTH-Old.
+- **Course Eligibility**: Automated checks against prerequisites, corequisites, concurrent requirements, and student standing. Includes **Requisite Bypass** feature allowing advisors to grant exceptions for individual students.
+- **Student Views**: Offers "Student Eligibility View" (courses a student can take) and "Full Student View" (complete progress tracking with semester filtering and course requisites display).
+- **Course Offering Planner**: A smart recommendation engine that prioritizes courses based on graduating students (remaining credits), bottleneck analysis, currently eligible students, and cascading eligibility effects. It uses a weighted priority scoring system and provides Top 10 recommendations with visual indicators, interactive selection, and impact summaries.
+- **Advising Sessions**: Records and persists advisor recommendations and notes, synchronized with Google Drive.
+- **Email Integration**: Sends formatted advising sheets directly to students via Outlook/Office 365.
+- **Data Upload**: A validated, stepwise interface for `courses_table.xlsx`, `progress_report.xlsx`, and email rosters, with integrated template download buttons.
+- **Advising Periods**: Tracks advising cycles per major, allowing for archiving of past sessions and creating new periods.
+- **Degree Plan View**: Displays a semester-by-semester curriculum grid based on the official degree plan, color-coding student progress (completed, registered, available, not eligible, failed).
 
-#### Database Schema (PostgreSQL)
-- **users**: User accounts (admins, advisors) with role and major assignments
-- **majors**: Academic programs (PBHL, SPTH-New, SPTH-Old, NURS)
-- **courses**: Course catalog with prerequisites, corequisites, concurrent, credits, type
-- **students**: Student records with major, credits, standing, courseStatuses (JSON)
-- **advising_sessions**: Session records with advisedCourses, optionalCourses, repeatCourses, bypasses
-- **advising_periods**: Semester-based advising periods with start/end dates
-
-#### Role Permissions
-- **Administrator**: Full access to all majors, users, courses, and settings. Can view as Advisor or Student.
-- **Advisor**: Access to assigned majors only. Can manage students and create advising sessions.
-- **Student**: View-only access to personal progress, advised courses, and degree plan.
-
-#### Eligibility Logic (Critical Thresholds)
-- **Senior**: ≥60 credits
-- **Junior**: ≥30 credits
-- **Sophomore**: ≥15 credits
-- **Freshman**: <15 credits
-
-### Legacy Streamlit Application (Python)
-The original Streamlit application files remain in the root directory for reference during migration:
-- `app.py` - Main Streamlit application
-- `eligibility_utils.py` - Course eligibility logic
-- `full_student_view.py` - Student progress views
-- `course_projection_view.py` - Graduation projection
-- `advising_history.py` - Session management
-
-## Feature Migration Status
-
-| Feature | Streamlit | Next.js | Status |
-|---------|-----------|---------|--------|
-| Role-based auth | - | ✅ | Complete (demo mode) |
-| Admin dashboard | - | ✅ | Complete (UI) |
-| Course manager | ✅ | ✅ | Complete (UI + API) |
-| Student manager | ✅ | ✅ | Complete (UI + API) |
-| Advisor dashboard | ✅ | ✅ | Complete |
-| Advising session | ✅ | ✅ | **Complete (functional)** |
-| Eligibility check | ✅ | ✅ | **Complete** |
-| Student portal | - | ✅ | **Complete (with auth)** |
-| Data import | ✅ | ✅ | **Complete** |
-| Degree map | ✅ | 🔄 | Planned redesign |
-| Course projection | ✅ | 🔄 | Planned as Semester Timeline |
-| Email integration | ✅ | 🔄 | Pending |
-| Microsoft 365 SSO | - | 🔄 | Pending IT approval |
+### System Design Choices
+- **File Organization**: Google Drive uses a major-specific folder hierarchy (`{ROOT}/{MAJOR}/`) for all related files, with sessions stored in `{ROOT}/{MAJOR}/sessions/`.
+- **Period Tracking**: Advising periods are tracked per major, with current period metadata in `current_period.json` and historical data in `periods_history.json`.
+- **Data Storage**: Advising sessions are saved locally for responsiveness, then asynchronously synced to Google Drive.
+- **Security**: Sensitive credentials are managed via Replit Secrets and excluded from version control.
 
 ## External Dependencies
 
-### New Application
-- **PostgreSQL**: Replit-managed database (via DATABASE_URL)
-- **Microsoft 365**: Planned for SSO authentication
-- **SMTP**: Planned for email notifications
-
-### Legacy Application
-- **Google Drive API**: Cloud backup and sync (being deprecated)
-- **Outlook/Office 365 SMTP**: Email functionality
-- **Streamlit**: Python web framework
-- **Pandas/openpyxl**: Excel file handling
+- **Google Drive API**: Used for cloud backup, data synchronization, and major-specific file organization. Configured via secrets (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, `GOOGLE_FOLDER_ID`).
+- **Outlook/Office 365 SMTP**: Used for sending advising emails. Configured via secrets (`email.address`, `email.password`).
+- **Streamlit**: The primary web framework.
+- **Pandas**: Used for data manipulation, especially with Excel files.
+- **openpyxl**: Used for reading and writing Excel files.
+- **Pillow**: Used for image handling (e.g., `pu_logo.png`).

@@ -1,4 +1,4 @@
-modules = ["python-3.11", "nodejs-20"]
+modules = ["python-3.11"]
 [agent]
 expertMode = true
 
@@ -16,31 +16,31 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Next.js Advising Dashboard"
+args = "Streamlit App"
 
 [[workflows.workflow]]
-name = "Next.js Advising Dashboard"
+name = "Streamlit App"
 author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd advising-dashboard-next && npm run dev"
-waitForPort = 5000
 
 [workflows.workflow.metadata]
 outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "streamlit run app.py --server.port=5000"
+waitForPort = 5000
 
 [[ports]]
 localPort = 5000
 externalPort = 80
 
 [[ports]]
-localPort = 38585
-externalPort = 3000
+localPort = 33247
+externalPort = 3002
 
 [[ports]]
-localPort = 38891
-externalPort = 3002
+localPort = 38585
+externalPort = 3000
 
 [[ports]]
 localPort = 39861
@@ -49,6 +49,10 @@ externalPort = 3001
 [[ports]]
 localPort = 41405
 externalPort = 3003
+
+[[ports]]
+localPort = 44141
+externalPort = 5000
 
 [[ports]]
 localPort = 44143
