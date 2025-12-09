@@ -160,7 +160,11 @@ def student_eligibility_view():
     # ---------- Eligibility map (skip hidden) ----------
     status_dict: Dict[str, str] = {}
     justification_dict: Dict[str, str] = {}
-    current_advised_for_checks = list(slot.get("advised", []))
+    # Include both advised AND optional courses for concurrent/corequisite checks
+    # Guard against None values from legacy sessions
+    advised_list = slot.get("advised") or []
+    optional_for_checks = slot.get("optional") or []
+    current_advised_for_checks = list(advised_list) + list(optional_for_checks)
     
     # Compute mutual concurrent/corequisite pairs once for the courses table
     mutual_pairs = get_mutual_concurrent_pairs(st.session_state.courses_df)

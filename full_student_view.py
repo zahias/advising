@@ -306,7 +306,12 @@ def _render_all_students():
     def _get_advising_status(sid):
         sels = st.session_state.advising_selections
         slot = sels.get(int(sid)) or sels.get(str(int(sid))) or {}
-        return "Advised" if slot.get("advised") else "Not Advised"
+        # Mark as "Advised" if any advising activity exists (courses selected OR note added)
+        has_advised = bool(slot.get("advised"))
+        has_optional = bool(slot.get("optional"))
+        has_repeat = bool(slot.get("repeat"))
+        has_note = bool(slot.get("note", "").strip())
+        return "Advised" if (has_advised or has_optional or has_repeat or has_note) else "Not Advised"
     
     df["Advising Status"] = df["ID"].apply(_get_advising_status)
 

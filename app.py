@@ -65,8 +65,17 @@ if "majors" not in st.session_state:
         for m in MAJORS
     }
 
-# Choose major up-front
-selected_major = st.selectbox("Major", MAJORS, key="current_major")
+# Choose major up-front - start with placeholder requiring selection
+major_options = ["Select a major..."] + MAJORS
+if "current_major" not in st.session_state or st.session_state.get("current_major") not in MAJORS:
+    st.session_state["current_major"] = "Select a major..."
+    
+selected_major = st.selectbox("Major", major_options, key="current_major")
+
+# Stop here if no major selected
+if selected_major == "Select a major...":
+    st.info("Please select a major to continue.")
+    st.stop()
 
 # ---------- Period Selection Gate ----------
 # Check if period has been selected for this major
