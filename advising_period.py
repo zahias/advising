@@ -228,6 +228,87 @@ def set_current_period(period: Dict[str, Any]) -> bool:
     return success
 
 
+def rename_period(period_id: str, new_semester: str, new_year: int, new_advisor: str) -> bool:
+    """
+    Rename/update a period's display information.
+    Updates both current period (if matching) and history.
+    
+    Args:
+        period_id: The period_id to update
+        new_semester: New semester value (Fall, Spring, Summer)
+        new_year: New year value
+        new_advisor: New advisor name
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    major = st.session_state.get("current_major", "DEFAULT")
+    updated = False
+    
+    try:
+        gd = _get_drive_module()
+        service = gd.initialize_drive_service()
+        folder_id = _get_major_folder_id_internal()
+        
+        if not service or not folder_id:
+            log_error("rename_period: Drive not available", Exception("No service/folder"))
+            return False
+        
+        # Update current period if it matches
+        current = get_current_period()
+        if current and current.get("period_id") == period_id:
+            current["semester"] = new_semester
+            current["year"] = new_year
+            current["advisor_name"] = new_advisor
+            
+            # Update cache
+            if "current_periods" not in st.session_state:
+                st.session_state.current_periods = {}
+            st.session_state.current_periods[major] = current
+            
+            # Save to Drive
+            save_period_to_drive(current)
+            updated = True
+        
+        # Update in history
+        history = []
+        file_id = gd.find_file_in_drive(service, PERIODS_HISTORY_FILENAME, folder_id)
+        if file_id:
+            try:
+                payload = gd.download_file_from_drive(service, file_id)
+                history = json.loads(payload.decode("utf-8"))
+                if not isinstance(history, list):
+                    history = []
+            except:
+                history = []
+        
+        # Find and update the period in history
+        for period in history:
+            if period.get("period_id") == period_id:
+                period["semester"] = new_semester
+                period["year"] = new_year
+                period["advisor_name"] = new_advisor
+                updated = True
+                break
+        
+        # Save updated history
+        if updated:
+            payload = json.dumps(history, indent=2).encode("utf-8")
+            gd.sync_file_with_drive(service, payload, PERIODS_HISTORY_FILENAME, "application/json", folder_id)
+            
+            # Update cache
+            if "period_history_cache" not in st.session_state:
+                st.session_state.period_history_cache = {}
+            st.session_state.period_history_cache[major] = history
+        
+        log_info(f"Renamed period {period_id}: {new_semester} {new_year} - {new_advisor}")
+        return updated
+        
+    except Exception as e:
+        log_error(f"Failed to rename period {period_id}", e)
+        return False
+
+
 def start_new_period(semester: str, year: int, advisor_name: str) -> tuple[Dict[str, Any], bool]:
     """
     Start a new advising period. Archives current period to history.
