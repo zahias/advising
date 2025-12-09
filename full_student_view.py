@@ -116,14 +116,14 @@ def render_degree_plan_table(courses_df, progress_df):
     for sem_key in semester_order:
         all_courses.extend([c['code'] for c in semesters[sem_key]])
     
-    # Calculate curriculum years
-    course_curriculum_years = calculate_course_curriculum_years(courses_df)
-    
-    # Calculate mutual pairs once for efficiency
-    mutual_pairs = get_mutual_concurrent_pairs(courses_df)
-    
     # Get bypasses for this major
     major = st.session_state.get("current_major", "")
+    
+    # Use cached values
+    cached = _get_fsv_cache(major)
+    course_curriculum_years = cached["course_curriculum_years"]
+    mutual_pairs = cached["mutual_pairs"]
+    
     bypasses_key = f"bypasses_{major}"
     all_bypasses = st.session_state.get(bypasses_key, {})
     
@@ -233,13 +233,35 @@ def full_student_view():
     with tab[1]:
         _render_individual_student()
 
+def _get_fsv_cache(major: str = None) -> dict:
+    """Get or create the Full Student View cache for the specified major."""
+    if major is None:
+        major = st.session_state.get("current_major", "")
+    
+    cache_key = f"_fsv_cache_{major}"
+    
+    if cache_key not in st.session_state or st.session_state.get(f"{cache_key}_stale", False):
+        courses_df = st.session_state.courses_df
+        st.session_state[cache_key] = {
+            "coreq_concurrent_courses": get_corequisite_and_concurrent_courses(courses_df),
+            "mutual_pairs": get_mutual_concurrent_pairs(courses_df),
+            "course_curriculum_years": calculate_course_curriculum_years(courses_df),
+        }
+        st.session_state[f"{cache_key}_stale"] = False
+    
+    return st.session_state[cache_key]
+
 def _render_all_students():
     if "simulated_courses" not in st.session_state:
         st.session_state.simulated_courses = []
     
-    # Cache co-requisite and concurrent courses in session state
+    # Get or create cache for expensive calculations
+    major = st.session_state.get("current_major", "")
+    cached = _get_fsv_cache(major)
+    
+    # Legacy support for old cache key
     if "coreq_concurrent_courses" not in st.session_state:
-        st.session_state.coreq_concurrent_courses = get_corequisite_and_concurrent_courses(st.session_state.courses_df)
+        st.session_state.coreq_concurrent_courses = cached["coreq_concurrent_courses"]
     
     st.markdown("### 🎯 Course Offering Simulation")
     st.caption("Select co-requisite or concurrent courses you plan to offer. The table will show eligibility assuming eligible students register for these courses.")
@@ -293,8 +315,8 @@ def _render_all_students():
     # Get courses_df from session state first
     courses_df = st.session_state.courses_df
     
-    # Calculate curriculum years for all courses
-    course_curriculum_years = calculate_course_curriculum_years(courses_df)
+    # Use cached curriculum years (already computed above)
+    course_curriculum_years = cached["course_curriculum_years"]
     
     # Compute derived columns
     df["Total Credits Completed"] = (df.get("# of Credits Completed", 0).fillna(0).astype(float) + \
@@ -430,8 +452,8 @@ def _render_all_students():
     simulated_courses = st.session_state.simulated_courses
     simulated_completions = {}
     
-    # Calculate mutual pairs once for efficiency
-    mutual_pairs = get_mutual_concurrent_pairs(st.session_state.courses_df)
+    # Use cached mutual pairs (already computed above)
+    mutual_pairs = cached["mutual_pairs"]
     
     # Get bypasses for this major
     major = st.session_state.get("current_major", "")
@@ -692,7 +714,10 @@ def _render_individual_student():
     all_bypasses = st.session_state.get(bypasses_key, {})
     student_bypasses = all_bypasses.get(sid) or all_bypasses.get(str(sid)) or {}
 
-    mutual_pairs = get_mutual_concurrent_pairs(st.session_state.courses_df)
+    # Use cached mutual_pairs
+    cached = _get_fsv_cache(major)
+    mutual_pairs = cached["mutual_pairs"]
+    
     for c in selected_courses:
         if c in repeat_list:
             data[c] = ["ar"]
@@ -783,12 +808,15 @@ def _render_individual_student():
 
     def _build_all_advised_bytes() -> bytes:
         output = BytesIO()
-        mutual_pairs = get_mutual_concurrent_pairs(st.session_state.courses_df)
         
         # Get bypasses for this major
         major = st.session_state.get("current_major", "")
         bypasses_key = f"bypasses_{major}"
         all_bypasses = st.session_state.get(bypasses_key, {})
+        
+        # Use cached mutual_pairs
+        cached = _get_fsv_cache(major)
+        mutual_pairs = cached["mutual_pairs"]
         
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             for sid_, sel_ in all_sel:

@@ -221,15 +221,15 @@ def check_eligibility(
         reasons.append("Course not offered.")
 
     def _satisfies_prerequisite(token: str) -> bool:
+        """Prerequisites require completed or registered courses only - advised courses don't count."""
         tok = token.strip()
         if "standing" in tok.lower():
             return _standing_satisfies(tok, standing)
         comp = check_course_completed(student_row, tok)
         reg = check_course_registered(student_row, tok)
-        adv = tok in (advised_courses or [])
         if reg:
             notes.append(f"Prerequisite '{tok}' satisfied by current registration.")
-        return comp or reg or adv
+        return comp or reg
     
     def _satisfies_concurrent_or_coreq(token: str, is_mutual: bool = False) -> bool:
         tok = token.strip()

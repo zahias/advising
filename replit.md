@@ -35,8 +35,11 @@ The Advising Dashboard is a Streamlit-based application designed for Phoenix Uni
     - Added caching for period history (`get_all_periods()`) - eliminates redundant Drive calls on every page load
     - Save operations now update cache immediately without re-downloading
     - Updated Streamlit API across 6 files (22 occurrences) from deprecated `use_container_width=True` to `width="stretch"` for Streamlit >=1.40.0
+    - Added `_get_fsv_cache()` helper to cache expensive Full Student View calculations (mutual_pairs, curriculum_years, coreq_concurrent_courses)
   - Added manual "Sync from Drive" button in Session Management section for force-refreshing data when modified elsewhere
   - Pinned Python to 3.10 in `runtime.txt` for deployment stability
+  - Added automatic date/time stamps to advising period names (format: "Dec 04, 09:23")
+  - **Fixed prerequisite logic**: Advised/optional courses now only satisfy concurrent and corequisite requirements, NOT prerequisites. This matches real academic rules where prerequisites must be completed before taking a course.
 
 ## User Preferences
 I prefer:
