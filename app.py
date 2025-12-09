@@ -255,9 +255,27 @@ with st.expander("⚙️ Advising Utilities"):
     st.markdown("---")
     st.markdown("### Session Management")
     
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     
     with col1:
+        if st.button("🔄 Sync from Drive", help="Refresh data from Google Drive (use if data was modified elsewhere)", width="stretch"):
+            # Clear caches to force refresh from Drive
+            major = st.session_state.get("current_major", "DEFAULT")
+            # Clear period history cache
+            if "period_history_cache" in st.session_state:
+                st.session_state.period_history_cache.pop(major, None)
+            # Clear advising index cache
+            cache_key = f"_advising_index_cache_{major}"
+            if cache_key in st.session_state:
+                del st.session_state[cache_key]
+            # Clear sessions loaded flag
+            for key in list(st.session_state.keys()):
+                if key.startswith("_fsv_sessions_loaded_"):
+                    del st.session_state[key]
+            st.success("✅ Synced from Drive - data refreshed")
+            st.rerun()
+    
+    with col2:
         if st.button("🗑️ Clear All Selections", help="Clear current advising selections for all students (does not affect saved sessions)", width="stretch"):
             # Clear advising selections for all students in current major
             st.session_state.advising_selections = {}
@@ -277,8 +295,8 @@ with st.expander("⚙️ Advising Utilities"):
             st.success(f"✅ Cleared all advising selections for {selected_major}")
             st.rerun()
     
-    with col2:
-        if st.button("📥 Restore Latest Sessions", help="Load most recent advising session for all students from current period", width="stretch"):
+    with col3:
+        if st.button("📥 Restore Sessions", help="Load most recent advising session for all students from current period", width="stretch"):
             # Get all unique student IDs from progress report
             if not st.session_state.progress_df.empty and "ID" in st.session_state.progress_df.columns:
                 student_ids = st.session_state.progress_df["ID"].unique()
