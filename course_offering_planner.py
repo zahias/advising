@@ -2,7 +2,9 @@
 
 import streamlit as st
 import pandas as pd
-from typing import Dict, List, Tuple
+from itertools import combinations
+from typing import Dict, List, Tuple, Set
+from io import BytesIO
 from utils import (
     check_course_completed,
     check_course_registered,
@@ -144,6 +146,8 @@ def course_offering_planner():
             f"**Impact Summary:** This offering will directly serve {total_eligible} currently eligible students, "
             f"including {total_graduating} students who are graduating soon."
         )
+    
+    schedule_conflict_insights()
 
 
 def _analyze_course_recommendations(
@@ -379,3 +383,172 @@ def _render_course_card(rec: Dict, rank: int):
     # Show requisites
     if rec["requisites"]:
         st.caption(f"📋 {rec['requisites']}")
+
+
+def _build_non_conflict_pairs() -> Tuple[List[Dict], Dict[Tuple[str, str], List[str]]]:
+    """
+    Analyze advised courses (excluding optional) across all students to find
+    course pairs that shouldn't conflict in schedule.
+    
+    Returns:
+        - List of pair dicts with counts and flags
+        - Dict mapping course pairs to student names
+    """
+    advising_selections = st.session_state.get("advising_selections", {})
+    progress_df = st.session_state.get("progress_df", pd.DataFrame())
+    courses_df = st.session_state.get("courses_df", pd.DataFrame())
+    
+    if progress_df.empty or not advising_selections:
+        return [], {}
+    
+    mutual_pairs = get_mutual_concurrent_pairs(courses_df) if not courses_df.empty else set()
+    
+    pair_counts: Dict[Tuple[str, str], int] = {}
+    pair_students: Dict[Tuple[str, str], List[str]] = {}
+    
+    for student_id, selections in advising_selections.items():
+        advised = selections.get("advised", [])
+        optional = selections.get("optional", [])
+        
+        advised_only = [c for c in advised if c not in optional]
+        
+        if len(advised_only) < 2:
+            continue
+        
+        try:
+            sid_int = int(student_id)
+            student_rows = progress_df.loc[progress_df["ID"] == sid_int]
+            if student_rows.empty:
+                student_name = str(student_id)
+            else:
+                first_name = str(student_rows.iloc[0].get("First Name", ""))
+                last_name = str(student_rows.iloc[0].get("Last Name", ""))
+                student_name = f"{first_name} {last_name}".strip() or str(student_id)
+        except (ValueError, TypeError):
+            student_name = str(student_id)
+        
+        for course_a, course_b in combinations(sorted(advised_only), 2):
+            pair_key = (course_a, course_b)
+            pair_counts[pair_key] = pair_counts.get(pair_key, 0) + 1
+            if pair_key not in pair_students:
+                pair_students[pair_key] = []
+            pair_students[pair_key].append(student_name)
+    
+    results = []
+    for pair_key, count in sorted(pair_counts.items(), key=lambda x: -x[1]):
+        course_a, course_b = pair_key
+        
+        is_mutual = pair_key in mutual_pairs or (course_b, course_a) in mutual_pairs
+        
+        results.append({
+            "Course A": course_a,
+            "Course B": course_b,
+            "# Students": count,
+            "Students": ", ".join(pair_students[pair_key]),
+            "Coreq/Concurrent": "Yes" if is_mutual else "",
+        })
+    
+    return results, pair_students
+
+
+def schedule_conflict_insights():
+    """
+    Render Schedule Conflict Insights section showing course pairs that shouldn't
+    conflict based on advised courses (not optional).
+    """
+    st.markdown("---")
+    st.markdown("### 📅 Schedule Conflict Insights")
+    st.markdown(
+        "Based on advised courses (excluding optional), these course pairs are being taken together "
+        "by students and **should not conflict** in the schedule."
+    )
+    
+    advising_selections = st.session_state.get("advising_selections", {})
+    if not advising_selections:
+        st.info("No advising sessions found. Advise students first to see schedule conflict insights.")
+        return
+    
+    def _count_non_optional_advised(sel: dict) -> int:
+        advised = sel.get("advised", [])
+        optional = sel.get("optional", [])
+        return len([c for c in advised if c not in optional])
+    
+    students_with_advised = sum(
+        1 for sel in advising_selections.values() 
+        if _count_non_optional_advised(sel) >= 2
+    )
+    
+    if students_with_advised == 0:
+        st.info("No students have been advised for 2+ non-optional courses yet. Schedule conflict data requires students with multiple advised courses (excluding optional).")
+        return
+    
+    major = st.session_state.get("current_major", "")
+    cache_key = f"_conflict_pairs_cache_{major}"
+    
+    all_advised_courses = []
+    for sid, sel in sorted(advising_selections.items(), key=lambda x: str(x[0])):
+        advised = sel.get("advised", [])
+        optional = sel.get("optional", [])
+        advised_only = sorted([c for c in advised if c not in optional])
+        all_advised_courses.append(f"{sid}:{','.join(advised_only)}")
+    version_hash = hash(tuple(all_advised_courses))
+    
+    version_key = f"{cache_key}_version"
+    
+    cache_valid = (
+        cache_key in st.session_state
+        and st.session_state.get(version_key) == version_hash
+    )
+    
+    if not cache_valid:
+        pair_data, pair_students = _build_non_conflict_pairs()
+        st.session_state[cache_key] = {"pairs": pair_data, "students": pair_students}
+        st.session_state[version_key] = version_hash
+    
+    cached = st.session_state[cache_key]
+    pair_data = cached["pairs"]
+    
+    if not pair_data:
+        st.info("No course pairs found. Students need to be advised for 2+ courses to see pairs.")
+        return
+    
+    col_filter, col_refresh = st.columns([3, 1])
+    with col_filter:
+        min_students = st.slider(
+            "Minimum students per pair",
+            min_value=1,
+            max_value=max(p["# Students"] for p in pair_data),
+            value=1,
+            help="Filter to show only pairs advised for at least this many students"
+        )
+    with col_refresh:
+        if st.button("🔄 Refresh Data", key="refresh_conflict_pairs"):
+            pair_data, pair_students = _build_non_conflict_pairs()
+            st.session_state[cache_key] = {"pairs": pair_data, "students": pair_students}
+            st.session_state[version_key] = version_hash
+            st.rerun()
+    
+    filtered_pairs = [p for p in pair_data if p["# Students"] >= min_students]
+    
+    if not filtered_pairs:
+        st.info(f"No pairs meet the minimum of {min_students} students.")
+        return
+    
+    st.markdown(f"**{len(filtered_pairs)} course pairs** should not conflict:")
+    
+    display_df = pd.DataFrame(filtered_pairs)
+    st.dataframe(display_df, width="stretch", height=min(400, 50 + len(filtered_pairs) * 35))
+    
+    def _build_csv() -> bytes:
+        output = BytesIO()
+        df_export = pd.DataFrame(filtered_pairs)
+        df_export.to_csv(output, index=False)
+        return output.getvalue()
+    
+    st.download_button(
+        label="📥 Download CSV",
+        data=_build_csv(),
+        file_name=f"schedule_conflict_pairs_{major}.csv",
+        mime="text/csv",
+        key="download_conflict_pairs"
+    )

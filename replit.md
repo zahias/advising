@@ -40,6 +40,12 @@ The Advising Dashboard is a Streamlit-based application designed for Phoenix Uni
   - Pinned Python to 3.10 in `runtime.txt` for deployment stability
   - Added automatic date/time stamps to advising period names (format: "Dec 04, 09:23")
   - **Fixed prerequisite logic**: Advised/optional courses now only satisfy concurrent and corequisite requirements, NOT prerequisites. This matches real academic rules where prerequisites must be completed before taking a course.
+  - **Schedule Conflict Insights**: New section in Course Offering Planner that analyzes advised courses (excluding optional) across all students to identify course pairs that should not conflict in the schedule. Includes:
+    - Automatic detection of course pairs being taken together by students
+    - Filterable table with student counts and names per pair
+    - Flags for corequisite/concurrent relationships
+    - CSV export functionality
+    - Automatic cache invalidation when advising data changes
 
 ## User Preferences
 I prefer:
