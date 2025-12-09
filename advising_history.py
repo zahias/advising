@@ -751,62 +751,7 @@ def advising_history_panel():
             st.session_state["advising_loaded_payload"] = payload
             st.success("Loaded archived session below (read-only).")
     
-    # Admin session management section
-    with st.expander("Admin: Manage Sessions"):
-        # Direct link to Drive folder
-        try:
-            folder_id = _get_sessions_folder_id()
-            if folder_id:
-                drive_url = f"https://drive.google.com/drive/folders/{folder_id}"
-                st.markdown(f"[Open Sessions Folder in Google Drive]({drive_url})")
-            else:
-                st.caption("Drive folder not configured")
-        except:
-            st.caption("Could not get Drive folder link")
-        
-        st.markdown("---")
-        
-        # Password-protected delete
-        admin_pass = st.text_input("Admin Password", type="password", key="admin_pass_sessions")
-        
-        # Check against secret (try st.secrets first, then env var)
-        import os
-        correct_pass = ""
-        try:
-            correct_pass = st.secrets["admin_password"]
-        except (KeyError, FileNotFoundError, Exception):
-            correct_pass = os.environ.get("admin_password", "")
-        
-        if admin_pass and admin_pass == correct_pass:
-            st.success("Admin access granted")
-            
-            # Full index for deletion (not filtered by student)
-            full_index = list(st.session_state.advising_index or [])
-            if full_index:
-                session_options = {str(r.get("id", "")): r.get("title", "(untitled)") for r in full_index}
-                
-                selected_to_delete = st.multiselect(
-                    "Select sessions to delete",
-                    options=list(session_options.keys()),
-                    format_func=lambda x: session_options.get(x, x),
-                    key="admin_delete_multiselect"
-                )
-                
-                if selected_to_delete:
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.warning(f"Delete {len(selected_to_delete)} session(s)?")
-                    with col2:
-                        if st.button("Delete Selected", key="admin_delete_btn", type="primary"):
-                            deleted = _delete_sessions(selected_to_delete)
-                            st.success(f"Deleted {deleted} session(s)")
-                            st.rerun()
-            else:
-                st.info("No sessions to manage")
-        elif admin_pass:
-            st.error("Incorrect password")
-        else:
-            st.caption("Enter admin password to manage sessions")
+    st.caption("To delete sessions, manage files directly in Google Drive.")
 
     payload = st.session_state.get("advising_loaded_payload")
     if payload:

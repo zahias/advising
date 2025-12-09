@@ -37,8 +37,6 @@ The Advising Dashboard is a Streamlit-based application designed for Phoenix Uni
     - Updated Streamlit API across 6 files (22 occurrences) from deprecated `use_container_width=True` to `width="stretch"` for Streamlit >=1.40.0
   - Added manual "Sync from Drive" button in Session Management section for force-refreshing data when modified elsewhere
   - Pinned Python to 3.10 in `runtime.txt` for deployment stability
-  - **Edit Period Feature**: Can now rename/edit advising periods directly from the frontend (semester, year, advisor name)
-  - **Admin Session Management**: Password-protected panel for bulk session deletion with direct Drive folder link
 
 ## User Preferences
 I prefer:

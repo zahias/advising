@@ -282,56 +282,6 @@ with st.expander("⚙️ Advising Utilities"):
                 st.rerun()
     
     st.markdown("---")
-    st.markdown("### Edit Current Period")
-    
-    # Edit current period name
-    with st.form("edit_period_form"):
-        from advising_period import rename_period
-        edit_col1, edit_col2, edit_col3 = st.columns(3)
-        
-        with edit_col1:
-            edit_semester = st.selectbox(
-                "Semester",
-                ["Fall", "Spring", "Summer"],
-                index=["Fall", "Spring", "Summer"].index(current_period.get("semester", "Fall")) if current_period.get("semester") in ["Fall", "Spring", "Summer"] else 0,
-                key="edit_period_semester"
-            )
-        
-        with edit_col2:
-            edit_year = st.number_input(
-                "Year",
-                min_value=2020,
-                max_value=2099,
-                value=int(current_period.get("year", 2025)),
-                key="edit_period_year"
-            )
-        
-        with edit_col3:
-            edit_advisor = st.text_input(
-                "Advisor Name",
-                value=current_period.get("advisor_name", ""),
-                key="edit_period_advisor"
-            )
-        
-        if st.form_submit_button("Save Changes", width="stretch"):
-            period_id = current_period.get("period_id")
-            if period_id:
-                success = rename_period(period_id, edit_semester, int(edit_year), edit_advisor)
-                if success:
-                    # Clear period cache to refresh
-                    major = st.session_state.get("current_major", "DEFAULT")
-                    if "current_periods" in st.session_state:
-                        st.session_state.current_periods.pop(major, None)
-                    if "period_history_cache" in st.session_state:
-                        st.session_state.period_history_cache.pop(major, None)
-                    st.success("Period updated successfully!")
-                    st.rerun()
-                else:
-                    st.error("Failed to update period")
-            else:
-                st.error("No period selected")
-    
-    st.markdown("---")
     st.markdown("### Session Management")
     
     col1, col2, col3 = st.columns(3)
