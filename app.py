@@ -40,6 +40,26 @@ def _default_period_for_today(today: datetime | None = None) -> tuple[str, int]:
     # October-December (and any remaining months) map to Fall of the current year
     return "Fall", year
 
+
+def _format_period_label(period: dict) -> str:
+    """Format period label with subtle date/time suffix."""
+    semester = period.get('semester', '')
+    year = period.get('year', '')
+    advisor = period.get('advisor_name', 'Unknown')
+    created_at = period.get('created_at', '')
+    
+    # Format the created date subtly
+    date_suffix = ""
+    if created_at:
+        try:
+            # Parse ISO format date
+            dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+            date_suffix = f" ({dt.strftime('%b %d, %H:%M')})"
+        except:
+            pass
+    
+    return f"{semester} {year} — {advisor}{date_suffix}"
+
 st.set_page_config(page_title="Advising Dashboard", layout="wide")
 
 # Apply visual theme and accessibility improvements
@@ -160,7 +180,7 @@ if not st.session_state[period_selected_key]:
             period_options = []
             period_map = {}
             for p in real_periods:
-                label = f"{p.get('semester', '')} {p.get('year', '')} — {p.get('advisor_name', 'Unknown')}"
+                label = _format_period_label(p)
                 period_options.append(label)
                 period_map[label] = p
             
@@ -334,7 +354,7 @@ with st.expander("⚙️ Advising Utilities"):
         period_map = {}
         for p in all_periods:
             if p.get("period_id") != current_period.get("period_id"):
-                label = f"{p.get('semester', '')} {p.get('year', '')} — {p.get('advisor_name', 'Unknown')}"
+                label = _format_period_label(p)
                 period_options.append(label)
                 period_map[label] = p
         
