@@ -306,6 +306,16 @@ def delete_file_by_name(service, parent_folder_id: str, filename: str) -> bool:
         return False
 
 
+def delete_file_from_drive(service, file_id: str) -> bool:
+    """Delete a file by its file ID. Returns True if deleted successfully."""
+    HttpError = _get_http_error_class()
+    try:
+        service.files().delete(fileId=file_id).execute()
+        return True
+    except HttpError:
+        return False
+
+
 def find_folder_by_name(service, folder_name: str, parent_folder_id: str) -> Optional[str]:
     """Find a folder by name inside parent_folder_id. Returns folder ID or None."""
     HttpError = _get_http_error_class()

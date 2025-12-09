@@ -223,6 +223,69 @@ def _save_session_payload(session_id: str, snapshot: Dict[str, Any], meta: Dict[
     except Exception as e:
         log_error(f"Failed to sync session to Drive (local copy preserved): {session_id}", e)
 
+def _delete_session_from_drive(session_id: str) -> bool:
+    """Delete a session file from Drive. Returns True if successful."""
+    try:
+        gd = _get_drive_module()
+        service = gd.initialize_drive_service()
+        
+        # Try sessions subfolder first
+        folder_id = _get_sessions_folder_id()
+        if folder_id:
+            fid = gd.find_file_in_drive(service, _session_filename(session_id), folder_id)
+            if fid:
+                gd.delete_file_from_drive(service, fid)
+                log_info(f"Deleted session from Drive: {session_id}")
+                return True
+        
+        # Try major folder root (backward compatibility)
+        folder_id = _get_major_folder_id()
+        if folder_id:
+            fid = gd.find_file_in_drive(service, _session_filename(session_id), folder_id)
+            if fid:
+                gd.delete_file_from_drive(service, fid)
+                log_info(f"Deleted legacy session from Drive: {session_id}")
+                return True
+        
+        return False
+    except Exception as e:
+        log_error(f"Failed to delete session from Drive: {session_id}", e)
+        return False
+
+
+def _delete_sessions(session_ids: List[str]) -> int:
+    """Delete multiple sessions from both index and Drive. Returns count deleted."""
+    if not session_ids:
+        return 0
+    
+    deleted_count = 0
+    
+    # Remove from index
+    if "advising_index" not in st.session_state:
+        st.session_state.advising_index = _load_index()
+    
+    original_count = len(st.session_state.advising_index)
+    st.session_state.advising_index = [
+        r for r in st.session_state.advising_index 
+        if str(r.get("id", "")) not in session_ids
+    ]
+    deleted_count = original_count - len(st.session_state.advising_index)
+    
+    # Save updated index
+    _save_index(st.session_state.advising_index)
+    
+    # Remove from local cache
+    if "advising_sessions_cache" in st.session_state:
+        for sid in session_ids:
+            st.session_state.advising_sessions_cache.pop(sid, None)
+    
+    # Delete from Drive (best effort)
+    for sid in session_ids:
+        _delete_session_from_drive(sid)
+    
+    return deleted_count
+
+
 def _load_session_payload_by_id(session_id: str) -> Optional[Dict[str, Any]]:
     # Try local cache first
     if "advising_sessions_cache" in st.session_state:
@@ -671,26 +734,24 @@ def advising_history_panel():
         st.info("No sessions found for this student." if current_sid is not None else "No sessions found.")
         return
 
-    labels = [r.get("title","(untitled)") for r in index]
-    choice_idx = st.selectbox("Saved sessions", options=list(range(len(index))), format_func=lambda i: labels[i], key="sess_choice")
+    # Session selector - deletion is managed via Google Drive for admin control
+    labels = [r.get("title", "(untitled)") for r in index]
+    choice_idx = st.selectbox(
+        "Saved sessions", 
+        options=list(range(len(index))), 
+        format_func=lambda i: labels[i], 
+        key="sess_choice"
+    )
     chosen = index[choice_idx]
-    sid = str(chosen.get("id",""))
-
-    b1, b2 = st.columns([1,1])
-    with b1:
-        if st.button("📂 Open (view-only)", width="stretch", key="sess_open"):
-            payload = _load_session_payload_by_id(sid)
-            if payload:
-                st.session_state["advising_loaded_payload"] = payload
-                st.success("Loaded archived session below (read-only).")
-    with b2:
-        confirm = st.checkbox("Confirm delete (index only)", key="sess_del_confirm", value=False)
-        if st.button("🗑️ Delete from index", width="stretch", disabled=not confirm, key="sess_del"):
-            st.session_state.advising_index = [r for r in st.session_state.advising_index if str(r.get("id","")) != sid]
-            _save_index(st.session_state.advising_index)
-            st.session_state.pop("advising_loaded_payload", None)
-            st.success("Deleted from index.")
-            st.rerun()
+    sid = str(chosen.get("id", ""))
+    
+    if st.button("📂 View Session", width="stretch", key="sess_open"):
+        payload = _load_session_payload_by_id(sid)
+        if payload:
+            st.session_state["advising_loaded_payload"] = payload
+            st.success("Loaded archived session below (read-only).")
+    
+    st.caption("To delete sessions, manage files directly in Google Drive.")
 
     payload = st.session_state.get("advising_loaded_payload")
     if payload:
