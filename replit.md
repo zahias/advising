@@ -46,6 +46,16 @@ The Advising Dashboard is a Streamlit-based application designed for Phoenix Uni
     - Flags for corequisite/concurrent relationships
     - CSV export functionality
     - Automatic cache invalidation when advising data changes
+  - **QAA Sheet**: New tab in Full Student View providing per-course quality assurance metrics:
+    - Course Code and Course Name
+    - Eligibility: Count of students eligible for the course
+    - Advised: Students who were advised to take the course
+    - Not Advised: Eligible students who attended advising but were not recommended
+    - Skipped Advising: Eligible students who did not attend advising sessions
+    - Attended + Graduating: Students who attended advising and need the course to graduate (≤36 remaining credits)
+    - Skipped + Graduating: Students who skipped advising and need the course to graduate
+    - Configurable graduating threshold slider
+    - Excel export functionality
 
 ## User Preferences
 I prefer:

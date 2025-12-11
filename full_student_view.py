@@ -227,11 +227,13 @@ def full_student_view():
         load_all_sessions_for_period()
         st.session_state[sessions_loaded_key] = True
 
-    tab = st.tabs(["All Students", "Individual Student"])
+    tab = st.tabs(["All Students", "Individual Student", "QAA Sheet"])
     with tab[0]:
         _render_all_students()
     with tab[1]:
         _render_individual_student()
+    with tab[2]:
+        _render_qaa_sheet()
 
 def _get_fsv_cache(major: str = None) -> dict:
     """Get or create the Full Student View cache for the specified major."""
@@ -883,3 +885,161 @@ def _render_individual_student():
         except Exception as e:
             st.error(f"❌ Error syncing All Advised Students Reports: {e}")
             log_error("Error syncing All Advised Students Reports", e)
+
+
+def _render_qaa_sheet():
+    """
+    QAA Sheet: Per-course summary with eligibility, advising status, and graduation metrics.
+    """
+    st.markdown("### 📋 QAA Sheet")
+    st.markdown("Quality Assurance & Analysis sheet showing per-course advising metrics.")
+    
+    courses_df = st.session_state.courses_df
+    progress_df = st.session_state.progress_df.copy()
+    advising_selections = st.session_state.get("advising_selections", {})
+    
+    progress_df["ID"] = pd.to_numeric(progress_df["ID"], errors="coerce")
+    progress_df = progress_df.dropna(subset=["ID"])
+    progress_df["ID"] = progress_df["ID"].astype(int)
+    
+    progress_df["Remaining Credits"] = pd.to_numeric(
+        progress_df.get("# Remaining", 0), errors="coerce"
+    ).fillna(0).astype(int)
+    
+    major = st.session_state.get("current_major", "")
+    cached = _get_fsv_cache(major)
+    mutual_pairs = cached["mutual_pairs"]
+    
+    bypasses_key = f"bypasses_{major}"
+    all_bypasses = st.session_state.get(bypasses_key, {})
+    
+    graduating_threshold = st.slider(
+        "Graduating Threshold (Remaining Credits)",
+        min_value=12,
+        max_value=60,
+        value=36,
+        step=6,
+        help="Students with this many or fewer remaining credits are considered 'graduating soon'"
+    )
+    
+    st.markdown("---")
+    
+    students_with_sessions = set()
+    for sid in advising_selections.keys():
+        try:
+            students_with_sessions.add(int(sid))
+        except (ValueError, TypeError):
+            students_with_sessions.add(str(sid))
+    
+    all_courses = courses_df["Course Code"].dropna().unique().tolist()
+    
+    qaa_data = []
+    
+    for course_code in all_courses:
+        course_info = courses_df.loc[courses_df["Course Code"] == course_code]
+        if course_info.empty:
+            continue
+        
+        course_name = str(course_info.iloc[0].get("Course Name", ""))
+        
+        eligible_students = []
+        advised_students = []
+        not_advised_students = []
+        skipped_advising_students = []
+        attended_graduating = []
+        skipped_graduating = []
+        
+        for _, student in progress_df.iterrows():
+            sid = int(student["ID"])
+            remaining = student.get("Remaining Credits", 999)
+            is_graduating = remaining <= graduating_threshold
+            
+            if check_course_completed(student, course_code):
+                continue
+            if check_course_registered(student, course_code):
+                continue
+            
+            student_bypasses = all_bypasses.get(sid) or all_bypasses.get(str(sid)) or {}
+            
+            sel = advising_selections.get(sid) or advising_selections.get(str(sid)) or {}
+            student_advised = sel.get("advised", [])
+            
+            status, _ = check_eligibility(
+                student,
+                course_code,
+                student_advised,
+                courses_df,
+                registered_courses=[],
+                ignore_offered=True,
+                mutual_pairs=mutual_pairs,
+                bypass_map=student_bypasses
+            )
+            
+            is_eligible = status in ["Eligible", "Eligible (Bypass)"]
+            
+            if not is_eligible:
+                continue
+            
+            eligible_students.append(sid)
+            
+            has_any_session_content = bool(
+                sel.get("advised") or 
+                sel.get("optional") or 
+                sel.get("repeat") or 
+                sel.get("note", "").strip()
+            )
+            has_session = sid in students_with_sessions and has_any_session_content
+            
+            is_advised = course_code in student_advised
+            
+            if is_advised:
+                advised_students.append(sid)
+            elif has_session:
+                not_advised_students.append(sid)
+            else:
+                skipped_advising_students.append(sid)
+            
+            if is_graduating:
+                if has_session:
+                    attended_graduating.append(sid)
+                else:
+                    skipped_graduating.append(sid)
+        
+        qaa_data.append({
+            "Course Code": course_code,
+            "Course Name": course_name,
+            "Eligibility": len(eligible_students),
+            "Advised": len(advised_students),
+            "Not Advised": len(not_advised_students),
+            "Skipped Advising": len(skipped_advising_students),
+            "Attended + Graduating": len(attended_graduating),
+            "Skipped + Graduating": len(skipped_graduating),
+        })
+    
+    if not qaa_data:
+        st.info("No course data available.")
+        return
+    
+    qaa_df = pd.DataFrame(qaa_data)
+    
+    qaa_df = qaa_df.sort_values(by=["Eligibility", "Advised"], ascending=[False, False])
+    
+    st.markdown(f"**{len(qaa_df)} courses** analyzed across **{len(progress_df)} students**")
+    st.markdown(f"Students with advising sessions: **{len(students_with_sessions)}** | Students without: **{len(progress_df) - len(students_with_sessions)}**")
+    
+    st.dataframe(qaa_df, width="stretch", height=min(600, 50 + len(qaa_df) * 35))
+    
+    def _build_qaa_excel() -> bytes:
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            qaa_df.to_excel(writer, index=False, sheet_name="QAA Sheet")
+        output.seek(0)
+        return output.getvalue()
+    
+    st.download_button(
+        label="📥 Download QAA Sheet (Excel)",
+        data=_build_qaa_excel(),
+        file_name=f"QAA_Sheet_{major}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="download_qaa_sheet"
+    )
