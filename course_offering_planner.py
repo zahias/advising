@@ -514,6 +514,91 @@ def _build_all_course_combinations() -> Tuple[List[Dict], int]:
     return results, students_processed
 
 
+def _merge_overlapping_groups(
+    combo_data: List[Dict], 
+    target_count: int,
+    courses_df: pd.DataFrame
+) -> List[Dict]:
+    """
+    Aggressively merge overlapping course groups until target count is reached.
+    
+    Uses greedy approach: repeatedly merge the pair with most overlap until
+    target count is reached or no overlapping pairs remain.
+    
+    Args:
+        combo_data: List of dicts with Courses, # Courses, # Students, Students, Has Coreq
+        target_count: Target number of groups to reduce to
+        courses_df: Courses dataframe for coreq detection
+    
+    Returns:
+        Merged list of course group dicts
+    """
+    if len(combo_data) <= target_count:
+        return combo_data
+    
+    mutual_pairs = get_mutual_concurrent_pairs(courses_df) if not courses_df.empty else set()
+    
+    groups: List[Dict] = []
+    for c in combo_data:
+        courses_set = frozenset(c["Courses"].split(", "))
+        students_set = set(c["Students"].split(", ")) if c["Students"] else set()
+        groups.append({
+            "courses": courses_set,
+            "students": students_set,
+        })
+    
+    def overlap_score(g1: Dict, g2: Dict) -> int:
+        return len(g1["courses"] & g2["courses"])
+    
+    while len(groups) > target_count:
+        best_pair = None
+        best_overlap = 0
+        
+        for i in range(len(groups)):
+            for j in range(i + 1, len(groups)):
+                overlap = overlap_score(groups[i], groups[j])
+                if overlap > best_overlap:
+                    best_overlap = overlap
+                    best_pair = (i, j)
+        
+        if best_overlap == 0:
+            break
+        
+        i, j = best_pair
+        merged = {
+            "courses": groups[i]["courses"] | groups[j]["courses"],
+            "students": groups[i]["students"] | groups[j]["students"],
+        }
+        
+        new_groups = [g for idx, g in enumerate(groups) if idx not in (i, j)]
+        new_groups.append(merged)
+        groups = new_groups
+    
+    results = []
+    for g in sorted(groups, key=lambda x: (-len(x["students"]), -len(x["courses"]))):
+        courses_list = sorted(g["courses"])
+        students_list = sorted(g["students"])
+        
+        has_coreq = False
+        for i, c1 in enumerate(courses_list):
+            for c2 in courses_list[i+1:]:
+                if (c1, c2) in mutual_pairs or (c2, c1) in mutual_pairs:
+                    has_coreq = True
+                    break
+            if has_coreq:
+                break
+        
+        results.append({
+            "Courses": ", ".join(courses_list),
+            "# Courses": len(courses_list),
+            "# Students": len(students_list),
+            "Students": ", ".join(students_list),
+            "Has Coreq": "Yes" if has_coreq else "",
+        })
+    
+    return results
+
+
 def schedule_conflict_insights():
     """
     Render Schedule Conflict Insights section showing all course combinations
@@ -592,24 +677,16 @@ def _render_schedule_conflict_content():
     max_students = max(c["# Students"] for c in combo_data) if combo_data else 1
     max_courses = max(c["# Courses"] for c in combo_data) if combo_data else 2
     
-    col_filter1, col_filter2, col_refresh = st.columns([2, 2, 1])
-    with col_filter1:
-        min_students = st.slider(
-            "Minimum students",
+    st.markdown("#### Target Groups")
+    col_target, col_refresh = st.columns([3, 1])
+    with col_target:
+        target_groups = st.slider(
+            "Target max groups",
             min_value=1,
-            max_value=max_students,
-            value=1,
-            help="Filter to show only combinations with at least this many students",
-            key="min_students_combos"
-        )
-    with col_filter2:
-        min_courses = st.slider(
-            "Minimum courses",
-            min_value=2,
-            max_value=max_courses,
-            value=2,
-            help="Filter to show only combinations with at least this many courses",
-            key="min_courses_combos"
+            max_value=max(50, len(combo_data)),
+            value=min(10, len(combo_data)),
+            help="Aggressively merge overlapping course sets until this target count is reached. Lower = more merged groups with more courses each.",
+            key="target_groups_slider"
         )
     with col_refresh:
         st.write("")
@@ -620,8 +697,38 @@ def _render_schedule_conflict_content():
             st.session_state[version_key] = version_hash
             st.rerun()
     
+    courses_df = st.session_state.get("courses_df", pd.DataFrame())
+    merged_data = _merge_overlapping_groups(combo_data, target_groups, courses_df)
+    
+    st.caption(f"Original groups: {len(combo_data)} → Merged: {len(merged_data)}")
+    
+    st.markdown("#### Filters")
+    col_filter1, col_filter2 = st.columns(2)
+    
+    max_students_merged = max(c["# Students"] for c in merged_data) if merged_data else 1
+    max_courses_merged = max(c["# Courses"] for c in merged_data) if merged_data else 2
+    
+    with col_filter1:
+        min_students = st.slider(
+            "Minimum students",
+            min_value=1,
+            max_value=max_students_merged,
+            value=1,
+            help="Filter to show only combinations with at least this many students",
+            key="min_students_combos"
+        )
+    with col_filter2:
+        min_courses = st.slider(
+            "Minimum courses",
+            min_value=2,
+            max_value=max(2, max_courses_merged),
+            value=2,
+            help="Filter to show only combinations with at least this many courses",
+            key="min_courses_combos"
+        )
+    
     filtered = [
-        c for c in combo_data 
+        c for c in merged_data 
         if c["# Students"] >= min_students and c["# Courses"] >= min_courses
     ]
     
