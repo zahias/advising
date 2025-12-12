@@ -262,6 +262,26 @@ def _auto_load_from_drive(major: str):
     except Exception as e:
         log_error(f"Auto-load from Drive failed for {major}", e)
 
+def _auto_load_sessions(major: str):
+    """Auto-load saved advising sessions for the current period."""
+    from advising_history import load_all_sessions_for_period
+    
+    sessions_key = f"_sessions_loaded_{major}"
+    if st.session_state.get(sessions_key):
+        return
+    
+    if st.session_state.get("progress_df", pd.DataFrame()).empty:
+        return
+    
+    try:
+        loaded = load_all_sessions_for_period()
+        if loaded > 0:
+            st.session_state.majors[major]["advising_selections"] = st.session_state.get("advising_selections", {}).copy()
+            log_info(f"Auto-loaded {loaded} sessions for {major}")
+        st.session_state[sessions_key] = True
+    except Exception as e:
+        log_error(f"Auto-load sessions failed for {major}", e)
+
 def main():
     """Main application entry point."""
     
@@ -290,6 +310,8 @@ def main():
     
     if not _render_period_gate():
         return
+    
+    _auto_load_sessions(selected_major)
     
     active_nav = _render_navigation()
     
