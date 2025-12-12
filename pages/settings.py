@@ -41,7 +41,7 @@ def _render_session_management():
     with col1:
         st.markdown("#### Clear Sessions")
         
-        if st.button("Clear All Selections", use_container_width=True, type="secondary"):
+        if st.button("Clear All Selections", type="secondary"):
             st.session_state.advising_selections = {}
             st.session_state.majors[major]["advising_selections"] = {}
             
@@ -62,7 +62,7 @@ def _render_session_management():
     with col2:
         st.markdown("#### Restore Sessions")
         
-        if st.button("Restore All Sessions", use_container_width=True, type="primary"):
+        if st.button("Restore All Sessions", type="primary"):
             progress_df = st.session_state.get("progress_df", pd.DataFrame())
             
             if not progress_df.empty and "ID" in progress_df.columns:
@@ -129,7 +129,7 @@ def _render_exclusions():
         with col2:
             selected_courses = st.multiselect("Courses to Exclude", course_options)
         
-        if st.form_submit_button("Add Exclusion", use_container_width=True):
+        if st.form_submit_button("Add Exclusion"):
             if selected_student and selected_courses:
                 sid = selected_student.split("(")[-1].rstrip(")")
                 if sid not in exclusions:
@@ -171,7 +171,7 @@ def _render_sync_settings():
     with col1:
         st.markdown("#### Refresh Data")
         
-        if st.button("Sync from Drive", use_container_width=True, type="primary"):
+        if st.button("Sync from Drive", type="primary"):
             if "period_history_cache" in st.session_state:
                 st.session_state.period_history_cache.pop(major, None)
             

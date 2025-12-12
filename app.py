@@ -136,8 +136,7 @@ def _render_navigation():
             if st.button(
                 f"{icons.get(option, '')} {option}",
                 key=f"nav_{option}",
-                type=btn_type,
-                use_container_width=True
+                type=btn_type
             ):
                 st.session_state["nav_selection"] = option
                 st.rerun()
@@ -171,7 +170,7 @@ def _render_period_gate():
             year = st.number_input("Year", min_value=2020, max_value=2099, value=default_year)
             advisor = st.text_input("Your Name")
             
-            if st.form_submit_button("Start Period", type="primary", use_container_width=True):
+            if st.form_submit_button("Start Period", type="primary"):
                 if not advisor:
                     st.error("Please enter your name")
                 else:
@@ -197,7 +196,7 @@ def _render_period_gate():
             
             selected = st.selectbox("Select Period", period_options)
             
-            if st.button("Use This Period", use_container_width=True):
+            if st.button("Use This Period"):
                 selected_period = period_map[selected]
                 set_current_period(selected_period)
                 st.session_state.advising_selections = {}

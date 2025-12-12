@@ -63,17 +63,17 @@ def render_home():
         action_col1, action_col2, action_col3 = st.columns(3)
         
         with action_col1:
-            if st.button("Start Advising", type="primary", use_container_width=True):
+            if st.button("Start Advising", type="primary"):
                 st.session_state["nav_selection"] = "Workspace"
                 st.rerun()
         
         with action_col2:
-            if st.button("View All Students", use_container_width=True):
+            if st.button("View All Students"):
                 st.session_state["nav_selection"] = "Insights"
                 st.rerun()
         
         with action_col3:
-            if st.button("Course Planning", use_container_width=True):
+            if st.button("Course Planning"):
                 st.session_state["nav_selection"] = "Insights"
                 st.session_state["insights_tab"] = "Planner"
                 st.rerun()

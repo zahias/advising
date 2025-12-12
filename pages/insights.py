@@ -128,7 +128,7 @@ def _render_course_analytics():
     
     qaa_df = qaa_df.sort_values("Eligible", ascending=False)
     
-    st.dataframe(qaa_df, use_container_width=True, height=500)
+    st.dataframe(qaa_df, height=500)
     
     from io import BytesIO
     output = BytesIO()
@@ -210,7 +210,7 @@ def _render_schedule_analysis():
         })
     
     conflict_df = pd.DataFrame(conflict_data)
-    st.dataframe(conflict_df, use_container_width=True, height=400)
+    st.dataframe(conflict_df, height=400)
     
     from io import BytesIO
     output = BytesIO()

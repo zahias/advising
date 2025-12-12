@@ -114,11 +114,11 @@ def _render_data_upload():
     col_sync1, col_sync2 = st.columns(2)
     
     with col_sync1:
-        if st.button("Download from Drive", use_container_width=True):
+        if st.button("Download from Drive"):
             _download_from_drive()
     
     with col_sync2:
-        if st.button("Upload to Drive", use_container_width=True):
+        if st.button("Upload to Drive"):
             _upload_to_drive()
 
 def _download_from_drive():
@@ -256,7 +256,7 @@ def _render_period_management():
         with col3:
             advisor = st.text_input("Advisor Name")
         
-        if st.form_submit_button("Create New Period", type="primary", use_container_width=True):
+        if st.form_submit_button("Create New Period", type="primary"):
             if not advisor:
                 st.error("Please enter advisor name")
             else:
@@ -289,7 +289,7 @@ def _render_period_management():
         
         selected = st.selectbox("Select Period", period_options)
         
-        if st.button("Switch to This Period", use_container_width=True):
+        if st.button("Switch to This Period"):
             selected_period = period_map[selected]
             if selected_period.get("period_id") != current_period.get("period_id"):
                 set_current_period(selected_period)

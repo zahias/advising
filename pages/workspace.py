@@ -113,7 +113,6 @@ def _render_student_list(progress_df: pd.DataFrame):
         if st.button(
             f"{status_icon} {name}{remaining}",
             key=f"student_btn_{sid}",
-            use_container_width=True,
             type=btn_type
         ):
             st.session_state["workspace_selected_student"] = sid
@@ -331,7 +330,7 @@ def _render_advising_tab(student_row: pd.Series, courses_df: pd.DataFrame):
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.form_submit_button("Save Recommendations", type="primary", use_container_width=True):
+            if st.form_submit_button("Save Recommendations", type="primary"):
                 norm_sid = int(sid)
                 st.session_state.advising_selections[norm_sid] = {
                     "advised": list(advised),
@@ -377,7 +376,7 @@ def _render_notes_tab(student_row: pd.Series):
         placeholder="Enter notes about this advising session..."
     )
     
-    if st.button("Save Note", use_container_width=True):
+    if st.button("Save Note"):
         norm_sid = int(sid)
         if norm_sid not in st.session_state.advising_selections:
             st.session_state.advising_selections[norm_sid] = {}
@@ -404,7 +403,7 @@ def _render_notes_tab(student_row: pd.Series):
             email = student_email_row.iloc[0].get("Email", "")
             st.text_input("Email", value=email, disabled=True)
             
-            if st.button("Send Advising Sheet", type="primary", use_container_width=True):
+            if st.button("Send Advising Sheet", type="primary"):
                 st.info("Email functionality will be connected here")
         else:
             st.warning("No email found for this student in the roster")
