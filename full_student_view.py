@@ -650,19 +650,64 @@ def _render_all_students():
     if has_required or has_intensive:
         def _build_full_report_bytes() -> bytes:
             output = BytesIO()
+            
+            # Build credits lookup from courses_df
+            credits_lookup = {}
+            for _, course_row in courses_df.iterrows():
+                code = course_row.get("Course Code", "")
+                credits = course_row.get("Credits", 3)
+                try:
+                    credits_lookup[code] = float(credits) if pd.notna(credits) else 3.0
+                except (ValueError, TypeError):
+                    credits_lookup[code] = 3.0
+            
+            # Helper to calculate credits for a student
+            def calc_student_credits(student_id):
+                sel = st.session_state.advising_selections.get(int(student_id)) or st.session_state.advising_selections.get(str(int(student_id))) or {}
+                advised_list = sel.get("advised", []) or []
+                optional_list = sel.get("optional", []) or []
+                
+                # Credits Advised = sum of all advised courses (including optional)
+                advised_credits = sum(credits_lookup.get(c, 3.0) for c in advised_list)
+                # Optional Credits = sum of just optional courses (subset of advised)
+                optional_credits = sum(credits_lookup.get(c, 3.0) for c in optional_list)
+                
+                return advised_credits, optional_credits
+            
+            # Add credits columns to dataframes
+            def add_credits_columns(df_to_modify):
+                if df_to_modify is None or df_to_modify.empty:
+                    return df_to_modify
+                result_df = df_to_modify.copy()
+                credits_advised = []
+                optional_credits = []
+                for _, row in result_df.iterrows():
+                    sid = row.get("ID", 0)
+                    adv_cr, opt_cr = calc_student_credits(sid)
+                    credits_advised.append(int(adv_cr))
+                    optional_credits.append(int(opt_cr))
+                # Insert after Advising Status column
+                adv_status_idx = result_df.columns.get_loc("Advising Status") + 1 if "Advising Status" in result_df.columns else len(result_df.columns)
+                result_df.insert(adv_status_idx, "Credits Advised", credits_advised)
+                result_df.insert(adv_status_idx + 1, "Optional Credits", optional_credits)
+                return result_df
+            
+            required_with_credits = add_credits_columns(required_display_df) if has_required else None
+            intensive_with_credits = add_credits_columns(intensive_display_df) if has_intensive else None
+            
             with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                if has_required:
-                    required_display_df.to_excel(writer, index=False, sheet_name="Required Courses")
-                if has_intensive:
-                    intensive_display_df.to_excel(writer, index=False, sheet_name="Intensive Courses")
+                if has_required and required_with_credits is not None:
+                    required_with_credits.to_excel(writer, index=False, sheet_name="Required Courses")
+                if has_intensive and intensive_with_credits is not None:
+                    intensive_with_credits.to_excel(writer, index=False, sheet_name="Intensive Courses")
 
                 summary_frames = []
                 summary_courses: list[str] = []
-                if has_required:
-                    summary_frames.append(required_display_df)
+                if has_required and required_with_credits is not None:
+                    summary_frames.append(required_with_credits)
                     summary_courses.extend(required_selected)
-                if has_intensive:
-                    summary_frames.append(intensive_display_df)
+                if has_intensive and intensive_with_credits is not None:
+                    summary_frames.append(intensive_with_credits)
                     summary_courses.extend(intensive_selected)
 
                 if summary_frames and summary_courses:
