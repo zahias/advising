@@ -262,6 +262,72 @@ def _render_eligibility_tab(student_row: pd.Series, courses_df: pd.DataFrame):
         st.markdown("**Registered:**")
         for c in registered_courses:
             st.caption(f"📝 {c['code']} - {c['title']}")
+    
+    with st.expander("Manage Bypasses", expanded=False):
+        from advising_history import save_session_for_student
+        from advising_period import get_current_period
+        
+        norm_sid = int(sid)
+        
+        if student_bypasses:
+            st.markdown("**Active Bypasses:**")
+            for course_code, bypass_info in student_bypasses.items():
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    note = bypass_info.get("note", "") if isinstance(bypass_info, dict) else ""
+                    advisor = bypass_info.get("advisor", "") if isinstance(bypass_info, dict) else ""
+                    st.markdown(f"🟣 **{course_code}** — {note or 'No note'} (by {advisor or 'Unknown'})")
+                with col2:
+                    if st.button("Remove", key=f"remove_bypass_{norm_sid}_{course_code}", type="secondary"):
+                        del student_bypasses[course_code]
+                        if bypasses_key not in st.session_state:
+                            st.session_state[bypasses_key] = {}
+                        st.session_state[bypasses_key][norm_sid] = student_bypasses
+                        save_session_for_student(norm_sid)
+                        st.success(f"Bypass removed for {course_code}")
+                        st.rerun()
+        
+        not_eligible_codes = [c["code"] for c in not_eligible_courses]
+        if not_eligible_codes:
+            st.markdown("**Grant New Bypass:**")
+            bypass_course = st.selectbox(
+                "Course to bypass",
+                options=not_eligible_codes,
+                key=f"bypass_course_{norm_sid}",
+                help="Select a course that is currently 'Not Eligible'"
+            )
+            
+            if bypass_course:
+                reason = next((c["note"] for c in not_eligible_courses if c["code"] == bypass_course), "")
+                if reason:
+                    st.caption(f"Currently not eligible: {reason}")
+            
+            bypass_note = st.text_input(
+                "Bypass reason (optional)",
+                key=f"bypass_note_{norm_sid}",
+                placeholder="e.g., Department chair approved"
+            )
+            
+            current_period = get_current_period()
+            advisor_name = current_period.get("advisor_name", "")
+            
+            if st.button("Grant Bypass", key=f"grant_bypass_{norm_sid}", type="primary"):
+                from datetime import datetime
+                if bypasses_key not in st.session_state:
+                    st.session_state[bypasses_key] = {}
+                if norm_sid not in st.session_state[bypasses_key]:
+                    st.session_state[bypasses_key][norm_sid] = {}
+                st.session_state[bypasses_key][norm_sid][bypass_course] = {
+                    "note": bypass_note,
+                    "advisor": advisor_name,
+                    "timestamp": datetime.now().isoformat()
+                }
+                save_session_for_student(norm_sid)
+                st.success(f"Bypass granted for {bypass_course}")
+                st.rerun()
+        else:
+            if not student_bypasses:
+                st.info("No courses currently need a bypass.")
 
 def _render_advising_tab(student_row: pd.Series, courses_df: pd.DataFrame):
     """Render advising form for this student."""
