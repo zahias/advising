@@ -58,6 +58,16 @@ The Advising Dashboard is a Streamlit-based application designed for Phoenix Uni
     - Excel export functionality
 
 - **2025-12-12**:
+  - **Complete UI/UX Overhaul**: Restructured the entire application with a modern 5-section navigation system:
+    - **Home**: Dashboard with KPIs (students, advised count, progress %), quick action buttons, graduating student alerts, and recent activity feed
+    - **Setup**: Unified page combining data file uploads and advising period management with Google Drive sync
+    - **Workspace**: New dual-pane advisor workspace with searchable/filterable student list on left, student details with Eligibility/Advising/Notes tabs on right
+    - **Insights Hub**: Combined analytics section with All Students grid, Course Analytics (QAA), Schedule Analysis, and Course Planner tabs
+    - **Settings**: Administrative controls for session management, course exclusions, and Google Drive sync
+  - Added persistent header with major selector, period display, and progress indicator
+  - Created new page modules in `pages/` directory for better code organization
+  - Applied consistent visual styling via `visual_theme.py` with accessibility improvements
+  - Fixed deprecated Streamlit API usage (`use_container_width` parameter removed from all components)
   - **Fixed session loading bug**: Sessions were saving to archive but not loading into editable view on refresh. Root cause was `_load_index()` not populating `st.session_state.advising_index` after downloading from Drive. Now calls `_save_index_local(result)` to ensure proper state initialization.
   - **Bulk Restore Feature**: New expandable panel in Session Management for restoring saved sessions:
     - Shows all students with saved sessions in current period
