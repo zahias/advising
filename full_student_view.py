@@ -227,13 +227,15 @@ def full_student_view():
         load_all_sessions_for_period()
         st.session_state[sessions_loaded_key] = True
 
-    tab = st.tabs(["All Students", "Individual Student", "QAA Sheet"])
+    tab = st.tabs(["All Students", "Individual Student", "QAA Sheet", "Schedule Conflict"])
     with tab[0]:
         _render_all_students()
     with tab[1]:
         _render_individual_student()
     with tab[2]:
         _render_qaa_sheet()
+    with tab[3]:
+        _render_schedule_conflict()
 
 def _get_fsv_cache(major: str = None) -> dict:
     """Get or create the Full Student View cache for the specified major."""
@@ -1049,3 +1051,351 @@ def _render_qaa_sheet():
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         key="download_qaa_sheet"
     )
+
+
+def _render_schedule_conflict():
+    """Render Schedule Conflict Insights tab."""
+    st.markdown("### 📅 Schedule Conflict Insights")
+    st.markdown(
+        "Based on advised courses (excluding optional), these course combinations are being taken together "
+        "by students and **should not conflict** in the schedule."
+    )
+    
+    major = st.session_state.get("current_major", "")
+    if major and "majors" in st.session_state and major in st.session_state.majors:
+        advising_selections = st.session_state.majors[major].get("advising_selections", {})
+    else:
+        advising_selections = st.session_state.get("advising_selections", {})
+    
+    if not advising_selections:
+        st.info("No advising sessions found. Advise students first to see schedule conflict insights.")
+        return
+    
+    def _count_non_optional_advised(sel: dict) -> int:
+        advised = sel.get("advised", [])
+        optional = sel.get("optional", [])
+        return len([c for c in advised if c not in optional])
+    
+    students_with_advised = sum(
+        1 for sel in advising_selections.values() 
+        if _count_non_optional_advised(sel) >= 2
+    )
+    
+    if students_with_advised == 0:
+        st.info("No students have been advised for 2+ non-optional courses yet.")
+        return
+    
+    cache_key = f"_conflict_combos_cache_{major}"
+    
+    all_advised_courses = []
+    for sid, sel in sorted(advising_selections.items(), key=lambda x: str(x[0])):
+        advised = sel.get("advised", [])
+        optional = sel.get("optional", [])
+        advised_only = sorted([c for c in advised if c not in optional])
+        all_advised_courses.append(f"{sid}:{','.join(advised_only)}")
+    version_hash = hash(tuple(all_advised_courses))
+    
+    version_key = f"{cache_key}_version"
+    students_processed_key = f"{cache_key}_students_processed"
+    
+    cache_valid = (
+        cache_key in st.session_state
+        and st.session_state.get(version_key) == version_hash
+    )
+    
+    if not cache_valid:
+        combo_data, students_processed = _build_schedule_combinations(advising_selections)
+        st.session_state[cache_key] = combo_data
+        st.session_state[students_processed_key] = students_processed
+        st.session_state[version_key] = version_hash
+    
+    combo_data = st.session_state[cache_key]
+    students_processed = st.session_state.get(students_processed_key, 0)
+    
+    st.caption(f"Students processed (with 2+ non-optional advised courses): **{students_processed}**")
+    
+    if not combo_data:
+        st.info("No course combinations found.")
+        return
+    
+    st.markdown("#### Merging Controls")
+    col1, col2, col3 = st.columns([2, 2, 1])
+    
+    with col1:
+        target_groups = st.slider(
+            "Target max groups",
+            min_value=1,
+            max_value=max(50, len(combo_data)),
+            value=min(10, len(combo_data)),
+            help="Merge overlapping course sets until this target count is reached.",
+            key="sc_target_groups"
+        )
+    
+    with col2:
+        max_courses_per_group = st.slider(
+            "Target max courses per group",
+            min_value=2,
+            max_value=20,
+            value=10,
+            help="Stop merging a group once it reaches this many courses.",
+            key="sc_max_courses"
+        )
+    
+    with col3:
+        st.write("")
+        if st.button("🔄 Refresh", key="sc_refresh"):
+            combo_data, students_processed = _build_schedule_combinations(advising_selections)
+            st.session_state[cache_key] = combo_data
+            st.session_state[students_processed_key] = students_processed
+            st.session_state[version_key] = version_hash
+            st.rerun()
+    
+    courses_df = st.session_state.get("courses_df", pd.DataFrame())
+    merged_data = _merge_schedule_groups(combo_data, target_groups, max_courses_per_group, courses_df)
+    
+    st.caption(f"Original groups: {len(combo_data)} → Merged: {len(merged_data)}")
+    
+    st.markdown("#### Filters")
+    col_f1, col_f2 = st.columns(2)
+    
+    max_students_merged = max(c["# Students"] for c in merged_data) if merged_data else 1
+    max_courses_merged = max(c["# Courses"] for c in merged_data) if merged_data else 2
+    
+    with col_f1:
+        min_students = st.slider(
+            "Minimum students",
+            min_value=1,
+            max_value=max_students_merged,
+            value=1,
+            key="sc_min_students"
+        )
+    with col_f2:
+        min_courses = st.slider(
+            "Minimum courses",
+            min_value=2,
+            max_value=max(2, max_courses_merged),
+            value=2,
+            key="sc_min_courses"
+        )
+    
+    filtered = [
+        c for c in merged_data 
+        if c["# Students"] >= min_students and c["# Courses"] >= min_courses
+    ]
+    
+    if not filtered:
+        st.info(f"No combinations meet the filters.")
+    else:
+        st.markdown(f"**{len(filtered)} course combinations** should not conflict:")
+        
+        display_df = pd.DataFrame(filtered)
+        st.dataframe(
+            display_df, 
+            width="stretch", 
+            height=min(500, 50 + len(filtered) * 35),
+            column_config={
+                "Courses": st.column_config.TextColumn("Courses", width="large"),
+            }
+        )
+        
+        def _build_csv() -> bytes:
+            output = BytesIO()
+            pd.DataFrame(filtered).to_csv(output, index=False)
+            return output.getvalue()
+        
+        st.download_button(
+            label="📥 Download CSV",
+            data=_build_csv(),
+            file_name=f"schedule_conflict_{major}.csv",
+            mime="text/csv",
+            key="sc_download"
+        )
+
+
+def _build_schedule_combinations(advising_selections: dict):
+    """Build all course combinations from advising selections."""
+    progress_df = st.session_state.get("progress_df", pd.DataFrame())
+    courses_df = st.session_state.get("courses_df", pd.DataFrame())
+    
+    if progress_df.empty:
+        return [], 0
+    
+    mutual_pairs = get_mutual_concurrent_pairs(courses_df) if not courses_df.empty else set()
+    
+    raw_combinations = {}
+    students_processed = 0
+    
+    for student_id, selections in advising_selections.items():
+        advised = selections.get("advised", [])
+        optional = selections.get("optional", [])
+        
+        advised_only = sorted([c for c in advised if c not in optional])
+        
+        if len(advised_only) < 2:
+            continue
+        
+        students_processed += 1
+        student_name = _get_student_name_for_conflict(student_id, progress_df)
+        
+        combo_key = tuple(advised_only)
+        if combo_key not in raw_combinations:
+            raw_combinations[combo_key] = []
+        raw_combinations[combo_key].append((student_id, student_name))
+    
+    if not raw_combinations:
+        return [], students_processed
+    
+    all_combos = list(raw_combinations.keys())
+    superset_map = {}
+    
+    for combo in all_combos:
+        combo_set = set(combo)
+        supersets_at_min_size = []
+        min_size = float('inf')
+        
+        for other in all_combos:
+            if other == combo:
+                continue
+            other_set = set(other)
+            if combo_set.issubset(other_set):
+                if len(other) < min_size:
+                    min_size = len(other)
+                    supersets_at_min_size = [other]
+                elif len(other) == min_size:
+                    supersets_at_min_size.append(other)
+        
+        if len(supersets_at_min_size) == 1:
+            superset_map[combo] = supersets_at_min_size[0]
+    
+    def find_final_target(combo):
+        visited = set()
+        current = combo
+        while current in superset_map and current not in visited:
+            visited.add(current)
+            current = superset_map[current]
+        return current
+    
+    merged_data = {}
+    for combo, students in raw_combinations.items():
+        target = find_final_target(combo)
+        if target not in merged_data:
+            merged_data[target] = []
+        merged_data[target].extend(students)
+    
+    results = []
+    for combo_key, students in sorted(merged_data.items(), key=lambda x: (-len(x[1]), -len(x[0]))):
+        courses_list = list(combo_key)
+        has_coreq = False
+        for i, c1 in enumerate(courses_list):
+            for c2 in courses_list[i+1:]:
+                if (c1, c2) in mutual_pairs or (c2, c1) in mutual_pairs:
+                    has_coreq = True
+                    break
+            if has_coreq:
+                break
+        
+        results.append({
+            "Courses": ", ".join(combo_key),
+            "# Courses": len(combo_key),
+            "# Students": len(students),
+            "Students": ", ".join(s[1] for s in students),
+            "_student_ids": [s[0] for s in students],
+            "Has Coreq": "Yes" if has_coreq else "",
+        })
+    
+    return results, students_processed
+
+
+def _get_student_name_for_conflict(student_id, progress_df) -> str:
+    """Get student name from progress_df."""
+    try:
+        sid_int = int(student_id)
+        student_rows = progress_df.loc[progress_df["ID"] == sid_int]
+        if student_rows.empty:
+            return str(student_id)
+        else:
+            first_name = str(student_rows.iloc[0].get("First Name", ""))
+            last_name = str(student_rows.iloc[0].get("Last Name", ""))
+            return f"{first_name} {last_name}".strip() or str(student_id)
+    except (ValueError, TypeError):
+        return str(student_id)
+
+
+def _merge_schedule_groups(combo_data, target_count, max_courses, courses_df):
+    """Merge overlapping course groups with constraints."""
+    if len(combo_data) <= target_count:
+        return combo_data
+    
+    mutual_pairs = get_mutual_concurrent_pairs(courses_df) if not courses_df.empty else set()
+    
+    groups = []
+    for c in combo_data:
+        courses_set = frozenset(c["Courses"].split(", "))
+        student_ids = c.get("_student_ids", [])
+        student_names = c["Students"].split(", ") if c["Students"] else []
+        student_map = {}
+        for idx, sid in enumerate(student_ids):
+            if idx < len(student_names):
+                student_map[sid] = student_names[idx]
+            else:
+                student_map[sid] = str(sid)
+        groups.append({
+            "courses": courses_set,
+            "student_map": student_map,
+        })
+    
+    def overlap_score(g1, g2):
+        return len(g1["courses"] & g2["courses"])
+    
+    while len(groups) > target_count:
+        best_pair = None
+        best_overlap = 0
+        
+        for i in range(len(groups)):
+            for j in range(i + 1, len(groups)):
+                merged_size = len(groups[i]["courses"] | groups[j]["courses"])
+                if merged_size > max_courses:
+                    continue
+                overlap = overlap_score(groups[i], groups[j])
+                if overlap > best_overlap:
+                    best_overlap = overlap
+                    best_pair = (i, j)
+        
+        if best_overlap == 0:
+            break
+        
+        i, j = best_pair
+        merged_map = dict(groups[i]["student_map"])
+        merged_map.update(groups[j]["student_map"])
+        merged = {
+            "courses": groups[i]["courses"] | groups[j]["courses"],
+            "student_map": merged_map,
+        }
+        
+        new_groups = [g for idx, g in enumerate(groups) if idx not in (i, j)]
+        new_groups.append(merged)
+        groups = new_groups
+    
+    results = []
+    for g in sorted(groups, key=lambda x: (-len(x["student_map"]), -len(x["courses"]))):
+        courses_list = sorted(g["courses"])
+        students_list = sorted(g["student_map"].values())
+        
+        has_coreq = False
+        for i, c1 in enumerate(courses_list):
+            for c2 in courses_list[i+1:]:
+                if (c1, c2) in mutual_pairs or (c2, c1) in mutual_pairs:
+                    has_coreq = True
+                    break
+            if has_coreq:
+                break
+        
+        results.append({
+            "Courses": ", ".join(courses_list),
+            "# Courses": len(courses_list),
+            "# Students": len(g["student_map"]),
+            "Students": ", ".join(students_list),
+            "Has Coreq": "Yes" if has_coreq else "",
+        })
+    
+    return results
