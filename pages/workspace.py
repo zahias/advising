@@ -470,6 +470,40 @@ def _render_notes_tab(student_row: pd.Series):
             st.text_input("Email", value=email, disabled=True)
             
             if st.button("Send Advising Sheet", type="primary"):
-                st.info("Email functionality will be connected here")
+                from email_manager import send_advising_email
+                from advising_period import get_current_period
+                
+                courses_df = st.session_state.get("courses_df", pd.DataFrame())
+                current_period = get_current_period()
+                
+                advised = sel.get("advised", [])
+                optional = sel.get("optional", [])
+                repeat = sel.get("repeat", [])
+                note_text = sel.get("note", "")
+                
+                name = student_row.get("NAME", "")
+                remaining = int(float(student_row.get("# Remaining", student_row.get("Remaining Credits", 0)) or 0))
+                period_str = f"{current_period.get('semester', '')} {current_period.get('year', '')} — {current_period.get('advisor_name', '')}"
+                
+                if not advised and not optional and not repeat:
+                    st.warning("No courses advised yet. Please advise courses before sending email.")
+                else:
+                    with st.spinner("Sending email..."):
+                        success, msg = send_advising_email(
+                            to_email=email,
+                            student_name=name,
+                            student_id=str(sid),
+                            advised_courses=advised,
+                            repeat_courses=repeat,
+                            optional_courses=optional,
+                            note=note_text,
+                            courses_df=courses_df,
+                            remaining_credits=remaining,
+                            period_info=period_str
+                        )
+                    if success:
+                        st.success(msg)
+                    else:
+                        st.error(msg)
         else:
             st.warning("No email found for this student in the roster")

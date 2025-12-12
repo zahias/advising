@@ -180,7 +180,7 @@ def _render_sync_settings():
                 del st.session_state[cache_key]
             
             for key in list(st.session_state.keys()):
-                if key.startswith("_fsv_sessions_loaded_"):
+                if isinstance(key, str) and key.startswith("_fsv_sessions_loaded_"):
                     del st.session_state[key]
             
             st.success("Cache cleared - data will refresh from Drive")
