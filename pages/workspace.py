@@ -266,7 +266,7 @@ def _render_eligibility_tab(student_row: pd.Series, courses_df: pd.DataFrame):
 def _render_advising_tab(student_row: pd.Series, courses_df: pd.DataFrame):
     """Render advising form for this student."""
     from utils import check_course_completed, check_course_registered, check_eligibility, get_mutual_concurrent_pairs
-    from advising_history import save_advising_session
+    from advising_history import save_session_for_student
     
     st.markdown("#### Course Recommendations")
     
@@ -340,7 +340,7 @@ def _render_advising_tab(student_row: pd.Series, courses_df: pd.DataFrame):
                 }
                 st.session_state.majors[major]["advising_selections"] = st.session_state.advising_selections.copy()
                 
-                save_advising_session(norm_sid)
+                save_session_for_student(norm_sid)
                 st.success("Saved!")
                 st.rerun()
         
@@ -356,7 +356,7 @@ def _render_advising_tab(student_row: pd.Series, courses_df: pd.DataFrame):
 
 def _render_notes_tab(student_row: pd.Series):
     """Render notes and email section."""
-    from advising_history import save_advising_session
+    from advising_history import save_session_for_student
     
     st.markdown("#### Notes")
     
@@ -382,7 +382,7 @@ def _render_notes_tab(student_row: pd.Series):
             st.session_state.advising_selections[norm_sid] = {}
         st.session_state.advising_selections[norm_sid]["note"] = note
         st.session_state.majors[major]["advising_selections"] = st.session_state.advising_selections.copy()
-        save_advising_session(norm_sid)
+        save_session_for_student(norm_sid)
         st.success("Note saved!")
     
     st.markdown("---")
