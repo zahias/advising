@@ -65,11 +65,12 @@ The Advising Dashboard is a Streamlit-based application designed for Phoenix Uni
     - Summary metrics: Total with saved sessions, Not Loaded, Already Active
     - Force overwrite option to replace existing active sessions
     - Syncs restored sessions to per-major bucket for persistence
-  - **Schedule Conflict Insights - Course Groups**: Expanded from pairs only to include groups of 3-6 courses:
-    - New "Course Groups (3-6)" tab alongside existing "Course Pairs" tab
-    - Shows full sets of courses each student is taking together
-    - Filters for minimum students and minimum courses per group
-    - Separate CSV export for groups
+  - **Schedule Conflict Insights - Unified Table**: Simplified from separate tabs to one unified table:
+    - Shows ALL course combinations (2, 3, 4, 5... any number of courses) in one table
+    - Each row is a unique combination of courses being taken together by students
+    - Columns: Courses, # Courses, # Students, Students
+    - Filters for minimum students and minimum courses per combination
+    - CSV export for all combinations
   - **Fixed double-click page navigation**: Changed from return-value assignment pattern to key-based state reading for radio button navigation
 
 ## User Preferences
