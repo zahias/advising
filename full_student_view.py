@@ -944,6 +944,7 @@ def _render_qaa_sheet():
         
         eligible_students = []
         advised_students = []
+        optional_advised_students = []
         not_advised_students = []
         skipped_advising_students = []
         attended_graduating = []
@@ -991,9 +992,13 @@ def _render_qaa_sheet():
             has_session = sid in students_with_sessions and has_any_session_content
             
             is_advised = course_code in student_advised
+            student_optional = sel.get("optional", [])
+            is_optional = course_code in student_optional
             
             if is_advised:
                 advised_students.append(sid)
+                if is_optional:
+                    optional_advised_students.append(sid)
             elif has_session:
                 not_advised_students.append(sid)
             else:
@@ -1010,6 +1015,7 @@ def _render_qaa_sheet():
             "Course Name": course_name,
             "Eligibility": len(eligible_students),
             "Advised": len(advised_students),
+            "Optional": len(optional_advised_students),
             "Not Advised": len(not_advised_students),
             "Skipped Advising": len(skipped_advising_students),
             "Attended + Graduating": len(attended_graduating),

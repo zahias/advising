@@ -26,12 +26,16 @@ def course_offering_planner():
         st.warning("Progress report not loaded.")
         return
 
-    st.markdown("## 🎯 Course Offering Planner")
-    st.markdown(
-        "Data-driven recommendations for which courses to offer based on "
-        "graduating students, bottleneck analysis, and cascading eligibility effects."
-    )
+    with st.expander("Course Offering Planner", expanded=False):
+        st.markdown(
+            "Data-driven recommendations for which courses to offer based on "
+            "graduating students, bottleneck analysis, and cascading eligibility effects."
+        )
+        _render_course_offering_planner_content()
 
+
+def _render_course_offering_planner_content():
+    """Internal function to render the Course Offering Planner content."""
     courses_df = st.session_state.courses_df
     progress_df = st.session_state.progress_df.copy()
 
@@ -399,27 +403,30 @@ def _get_student_name(student_id, progress_df) -> str:
         return str(student_id)
 
 
-def _build_all_course_combinations() -> List[Dict]:
+def _build_all_course_combinations() -> Tuple[List[Dict], int]:
     """
     Analyze advised courses (excluding optional) across all students to find
     all unique course combinations (2+ courses) that shouldn't conflict in schedule.
     
-    Each student's advised courses form a combination - all courses
-    a student is taking together must not have schedule conflicts.
+    Merges subset combinations into their smallest superset:
+    - If student A has [X,Y,Z] and student B has [X,Y], B counts toward [X,Y,Z]
+    - Only shows "maximal" sets (sets that aren't subsets of other sets)
     
     Returns:
         - List of dicts with courses, course count, student count, student names, and coreq flag
+        - Total number of students processed
     """
     advising_selections = st.session_state.get("advising_selections", {})
     progress_df = st.session_state.get("progress_df", pd.DataFrame())
     courses_df = st.session_state.get("courses_df", pd.DataFrame())
     
     if progress_df.empty or not advising_selections:
-        return []
+        return [], 0
     
     mutual_pairs = get_mutual_concurrent_pairs(courses_df) if not courses_df.empty else set()
     
-    combination_data: Dict[Tuple[str, ...], List[str]] = {}
+    raw_combinations: Dict[Tuple[str, ...], List[str]] = {}
+    students_processed = 0
     
     for student_id, selections in advising_selections.items():
         advised = selections.get("advised", [])
@@ -430,15 +437,58 @@ def _build_all_course_combinations() -> List[Dict]:
         if len(advised_only) < 2:
             continue
         
+        students_processed += 1
         student_name = _get_student_name(student_id, progress_df)
         
         combo_key = tuple(advised_only)
-        if combo_key not in combination_data:
-            combination_data[combo_key] = []
-        combination_data[combo_key].append(student_name)
+        if combo_key not in raw_combinations:
+            raw_combinations[combo_key] = []
+        raw_combinations[combo_key].append(student_name)
+    
+    if not raw_combinations:
+        return [], students_processed
+    
+    all_combos = list(raw_combinations.keys())
+    
+    superset_map: Dict[Tuple[str, ...], Tuple[str, ...]] = {}
+    
+    for combo in all_combos:
+        combo_set = set(combo)
+        supersets_at_min_size = []
+        min_size = float('inf')
+        
+        for other in all_combos:
+            if other == combo:
+                continue
+            other_set = set(other)
+            if combo_set.issubset(other_set):
+                if len(other) < min_size:
+                    min_size = len(other)
+                    supersets_at_min_size = [other]
+                elif len(other) == min_size:
+                    supersets_at_min_size.append(other)
+        
+        if len(supersets_at_min_size) == 1:
+            superset_map[combo] = supersets_at_min_size[0]
+    
+    def find_final_target(combo: Tuple[str, ...]) -> Tuple[str, ...]:
+        visited = set()
+        current = combo
+        while current in superset_map and current not in visited:
+            visited.add(current)
+            current = superset_map[current]
+        return current
+    
+    merged_data: Dict[Tuple[str, ...], List[str]] = {}
+    
+    for combo, students in raw_combinations.items():
+        target = find_final_target(combo)
+        if target not in merged_data:
+            merged_data[target] = []
+        merged_data[target].extend(students)
     
     results = []
-    for combo_key, students in sorted(combination_data.items(), key=lambda x: (-len(x[1]), -len(x[0]))):
+    for combo_key, students in sorted(merged_data.items(), key=lambda x: (-len(x[1]), -len(x[0]))):
         courses_list = list(combo_key)
         has_coreq = False
         for i, c1 in enumerate(courses_list):
@@ -457,7 +507,7 @@ def _build_all_course_combinations() -> List[Dict]:
             "Has Coreq": "Yes" if has_coreq else "",
         })
     
-    return results
+    return results, students_processed
 
 
 def schedule_conflict_insights():
@@ -466,11 +516,16 @@ def schedule_conflict_insights():
     that shouldn't conflict based on advised courses (not optional).
     """
     st.markdown("---")
-    st.markdown("### Schedule Conflict Insights")
-    st.markdown(
-        "Based on advised courses (excluding optional), these course combinations are being taken together "
-        "by students and **should not conflict** in the schedule."
-    )
+    with st.expander("Schedule Conflict Insights", expanded=False):
+        st.markdown(
+            "Based on advised courses (excluding optional), these course combinations are being taken together "
+            "by students and **should not conflict** in the schedule."
+        )
+        _render_schedule_conflict_content()
+
+
+def _render_schedule_conflict_content():
+    """Internal function to render Schedule Conflict Insights content."""
     
     advising_selections = st.session_state.get("advising_selections", {})
     if not advising_selections:
@@ -509,12 +564,18 @@ def schedule_conflict_insights():
         and st.session_state.get(version_key) == version_hash
     )
     
+    students_processed_key = f"{cache_key}_students_processed"
+    
     if not cache_valid:
-        combo_data = _build_all_course_combinations()
+        combo_data, students_processed = _build_all_course_combinations()
         st.session_state[cache_key] = combo_data
+        st.session_state[students_processed_key] = students_processed
         st.session_state[version_key] = version_hash
     
     combo_data = st.session_state[cache_key]
+    students_processed = st.session_state.get(students_processed_key, 0)
+    
+    st.caption(f"Students processed (with 2+ non-optional advised courses): **{students_processed}**")
     
     if not combo_data:
         st.info("No course combinations found. Students need to be advised for 2+ non-optional courses.")
@@ -545,8 +606,9 @@ def schedule_conflict_insights():
     with col_refresh:
         st.write("")
         if st.button("Refresh", key="refresh_conflict_combos"):
-            combo_data = _build_all_course_combinations()
+            combo_data, students_processed = _build_all_course_combinations()
             st.session_state[cache_key] = combo_data
+            st.session_state[students_processed_key] = students_processed
             st.session_state[version_key] = version_hash
             st.rerun()
     
