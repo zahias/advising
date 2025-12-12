@@ -853,10 +853,35 @@ def _render_individual_student():
                     data_rows["Justification"].append(just)
                     data_rows["Bypass"].append(bypass_note)
                 pd.DataFrame(data_rows).to_excel(writer, index=False, sheet_name=str(sid_))
-            index_df = st.session_state.progress_df.loc[
-                st.session_state.progress_df["ID"].isin([sid for sid, _ in all_sel]),
-                ["ID", "NAME"]
-            ]
+            index_data = []
+            courses_df = st.session_state.courses_df
+            for sid_, sel_ in all_sel:
+                srow = st.session_state.progress_df.loc[st.session_state.progress_df["ID"] == sid_].iloc[0]
+                advised = sel_.get("advised", [])
+                optional = sel_.get("optional", [])
+                
+                advised_credits = 0
+                optional_credits = 0
+                for cc in advised:
+                    course_info = courses_df.loc[courses_df["Course Code"] == cc]
+                    if not course_info.empty:
+                        cr = course_info.iloc[0].get("Credits", 0)
+                        try:
+                            cr = float(cr) if pd.notna(cr) else 0
+                        except (ValueError, TypeError):
+                            cr = 0
+                        advised_credits += cr
+                        if cc in optional:
+                            optional_credits += cr
+                
+                index_data.append({
+                    "ID": sid_,
+                    "NAME": srow.get("NAME", ""),
+                    "Credits Advised": int(advised_credits),
+                    "Optional Credits": int(optional_credits),
+                })
+            
+            index_df = pd.DataFrame(index_data)
             index_df.to_excel(writer, index=False, sheet_name="Index")
 
         output.seek(0)
