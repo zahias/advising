@@ -65,14 +65,15 @@ The Advising Dashboard is a Streamlit-based application designed for Phoenix Uni
     - Summary metrics: Total with saved sessions, Not Loaded, Already Active
     - Force overwrite option to replace existing active sessions
     - Syncs restored sessions to per-major bucket for persistence
-  - **Schedule Conflict Insights - Unified Table with Subset Merging**:
+  - **Schedule Conflict Insights - Unified Table with Aggressive Merging**:
     - Shows ALL course combinations (2, 3, 4, 5... any number of courses) in one unified table
-    - Subset merging: If student A has [X,Y,Z] and student B has [X,Y], B counts toward [X,Y,Z]
-    - Only merges when there's a unique smallest superset (multiple same-size supersets keeps combo as own row)
+    - **Target Max Groups slider**: Specify how many course groups you want (1-50), and overlapping sets are merged until that target is reached
+    - Greedy overlap-based merging: unions course sets with the most overlap together
+    - Uses student IDs for accurate counting (handles duplicate names correctly)
     - Columns: Courses, # Courses, # Students, Students, Has Coreq
-    - "Students Processed" metric for verification
+    - "Students Processed" metric and "Original groups → Merged" feedback
     - Filters for minimum students and minimum courses per combination
-    - Section is collapsible (collapsed by default)
+    - Course Offering Planner and Schedule Conflict Insights are separate collapsible sections
     - CSV export for all combinations
   - **Course Offering Planner collapsible**: Section is now collapsed by default
   - **QAA Sheet - Optional column**: Added "Optional" column showing count of students advised with course marked as optional
