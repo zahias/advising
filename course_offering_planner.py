@@ -447,7 +447,7 @@ def _build_all_course_combinations() -> Tuple[List[Dict], int]:
         combo_key = tuple(advised_only)
         if combo_key not in raw_combinations:
             raw_combinations[combo_key] = []
-        raw_combinations[combo_key].append(student_name)
+        raw_combinations[combo_key].append((student_id, student_name))
     
     if not raw_combinations:
         return [], students_processed
@@ -507,7 +507,8 @@ def _build_all_course_combinations() -> Tuple[List[Dict], int]:
             "Courses": ", ".join(combo_key),
             "# Courses": len(combo_key),
             "# Students": len(students),
-            "Students": ", ".join(students),
+            "Students": ", ".join(s[1] for s in students),
+            "_student_ids": [s[0] for s in students],
             "Has Coreq": "Yes" if has_coreq else "",
         })
     
@@ -526,7 +527,7 @@ def _merge_overlapping_groups(
     target count is reached or no overlapping pairs remain.
     
     Args:
-        combo_data: List of dicts with Courses, # Courses, # Students, Students, Has Coreq
+        combo_data: List of dicts with Courses, # Courses, # Students, Students, _student_ids, Has Coreq
         target_count: Target number of groups to reduce to
         courses_df: Courses dataframe for coreq detection
     
@@ -541,10 +542,17 @@ def _merge_overlapping_groups(
     groups: List[Dict] = []
     for c in combo_data:
         courses_set = frozenset(c["Courses"].split(", "))
-        students_set = set(c["Students"].split(", ")) if c["Students"] else set()
+        student_ids = c.get("_student_ids", [])
+        student_names = c["Students"].split(", ") if c["Students"] else []
+        student_map = {}
+        for idx, sid in enumerate(student_ids):
+            if idx < len(student_names):
+                student_map[sid] = student_names[idx]
+            else:
+                student_map[sid] = str(sid)
         groups.append({
             "courses": courses_set,
-            "students": students_set,
+            "student_map": student_map,
         })
     
     def overlap_score(g1: Dict, g2: Dict) -> int:
@@ -565,9 +573,11 @@ def _merge_overlapping_groups(
             break
         
         i, j = best_pair
+        merged_map = dict(groups[i]["student_map"])
+        merged_map.update(groups[j]["student_map"])
         merged = {
             "courses": groups[i]["courses"] | groups[j]["courses"],
-            "students": groups[i]["students"] | groups[j]["students"],
+            "student_map": merged_map,
         }
         
         new_groups = [g for idx, g in enumerate(groups) if idx not in (i, j)]
@@ -575,9 +585,9 @@ def _merge_overlapping_groups(
         groups = new_groups
     
     results = []
-    for g in sorted(groups, key=lambda x: (-len(x["students"]), -len(x["courses"]))):
+    for g in sorted(groups, key=lambda x: (-len(x["student_map"]), -len(x["courses"]))):
         courses_list = sorted(g["courses"])
-        students_list = sorted(g["students"])
+        students_list = sorted(g["student_map"].values())
         
         has_coreq = False
         for i, c1 in enumerate(courses_list):
@@ -591,7 +601,7 @@ def _merge_overlapping_groups(
         results.append({
             "Courses": ", ".join(courses_list),
             "# Courses": len(courses_list),
-            "# Students": len(students_list),
+            "# Students": len(g["student_map"]),
             "Students": ", ".join(students_list),
             "Has Coreq": "Yes" if has_coreq else "",
         })
