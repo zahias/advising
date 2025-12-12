@@ -78,6 +78,7 @@ The Advising Dashboard is a Streamlit-based application designed for Phoenix Uni
   - **Course Offering Planner collapsible**: Section is now collapsed by default
   - **QAA Sheet - Optional column**: Added "Optional" column showing count of students advised with course marked as optional
   - **Fixed double-click page navigation**: Changed from return-value assignment pattern to key-based state reading for radio button navigation
+  - **Full Advising Report export enhancements**: Added "Credits Advised" and "Optional Credits" columns to the "Download Full Advising Report" Excel export in Full Student View → All Students tab. These columns appear after "Advising Status" and show total credits for advised courses and optional courses per student.
 
 ## User Preferences
 I prefer:
