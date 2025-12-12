@@ -57,6 +57,21 @@ The Advising Dashboard is a Streamlit-based application designed for Phoenix Uni
     - Configurable graduating threshold slider
     - Excel export functionality
 
+- **2025-12-12**:
+  - **Fixed session loading bug**: Sessions were saving to archive but not loading into editable view on refresh. Root cause was `_load_index()` not populating `st.session_state.advising_index` after downloading from Drive. Now calls `_save_index_local(result)` to ensure proper state initialization.
+  - **Bulk Restore Feature**: New expandable panel in Session Management for restoring saved sessions:
+    - Shows all students with saved sessions in current period
+    - Checkbox selection with "Select All Not Loaded" and "Clear Selection" buttons
+    - Summary metrics: Total with saved sessions, Not Loaded, Already Active
+    - Force overwrite option to replace existing active sessions
+    - Syncs restored sessions to per-major bucket for persistence
+  - **Schedule Conflict Insights - Course Groups**: Expanded from pairs only to include groups of 3-6 courses:
+    - New "Course Groups (3-6)" tab alongside existing "Course Pairs" tab
+    - Shows full sets of courses each student is taking together
+    - Filters for minimum students and minimum courses per group
+    - Separate CSV export for groups
+  - **Fixed double-click page navigation**: Changed from return-value assignment pattern to key-based state reading for radio button navigation
+
 ## User Preferences
 I prefer:
 - Simple, direct language in explanations.

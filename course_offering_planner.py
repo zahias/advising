@@ -385,6 +385,21 @@ def _render_course_card(rec: Dict, rank: int):
         st.caption(f"📋 {rec['requisites']}")
 
 
+def _get_student_name(student_id, progress_df) -> str:
+    """Helper to get student name from progress_df."""
+    try:
+        sid_int = int(student_id)
+        student_rows = progress_df.loc[progress_df["ID"] == sid_int]
+        if student_rows.empty:
+            return str(student_id)
+        else:
+            first_name = str(student_rows.iloc[0].get("First Name", ""))
+            last_name = str(student_rows.iloc[0].get("Last Name", ""))
+            return f"{first_name} {last_name}".strip() or str(student_id)
+    except (ValueError, TypeError):
+        return str(student_id)
+
+
 def _build_non_conflict_pairs() -> Tuple[List[Dict], Dict[Tuple[str, str], List[str]]]:
     """
     Analyze advised courses (excluding optional) across all students to find
@@ -415,17 +430,7 @@ def _build_non_conflict_pairs() -> Tuple[List[Dict], Dict[Tuple[str, str], List[
         if len(advised_only) < 2:
             continue
         
-        try:
-            sid_int = int(student_id)
-            student_rows = progress_df.loc[progress_df["ID"] == sid_int]
-            if student_rows.empty:
-                student_name = str(student_id)
-            else:
-                first_name = str(student_rows.iloc[0].get("First Name", ""))
-                last_name = str(student_rows.iloc[0].get("Last Name", ""))
-                student_name = f"{first_name} {last_name}".strip() or str(student_id)
-        except (ValueError, TypeError):
-            student_name = str(student_id)
+        student_name = _get_student_name(student_id, progress_df)
         
         for course_a, course_b in combinations(sorted(advised_only), 2):
             pair_key = (course_a, course_b)
@@ -451,15 +456,65 @@ def _build_non_conflict_pairs() -> Tuple[List[Dict], Dict[Tuple[str, str], List[
     return results, pair_students
 
 
+def _build_non_conflict_groups(min_group_size: int = 3, max_group_size: int = 6) -> List[Dict]:
+    """
+    Analyze advised courses (excluding optional) across all students to find
+    course groups (3+ courses) that shouldn't conflict in schedule.
+    
+    Each student's advised courses form a "non-conflict group" - all courses
+    a student is taking together must not have schedule conflicts.
+    
+    Returns:
+        - List of group dicts with courses, student count, and student names
+    """
+    advising_selections = st.session_state.get("advising_selections", {})
+    progress_df = st.session_state.get("progress_df", pd.DataFrame())
+    
+    if progress_df.empty or not advising_selections:
+        return []
+    
+    group_data: Dict[Tuple[str, ...], List[str]] = {}
+    
+    for student_id, selections in advising_selections.items():
+        advised = selections.get("advised", [])
+        optional = selections.get("optional", [])
+        
+        advised_only = sorted([c for c in advised if c not in optional])
+        
+        if len(advised_only) < min_group_size:
+            continue
+        
+        if len(advised_only) > max_group_size:
+            advised_only = advised_only[:max_group_size]
+        
+        student_name = _get_student_name(student_id, progress_df)
+        
+        group_key = tuple(advised_only)
+        if group_key not in group_data:
+            group_data[group_key] = []
+        group_data[group_key].append(student_name)
+    
+    results = []
+    for group_key, students in sorted(group_data.items(), key=lambda x: (-len(x[1]), -len(x[0]))):
+        results.append({
+            "Courses": ", ".join(group_key),
+            "# Courses": len(group_key),
+            "# Students": len(students),
+            "Students": ", ".join(students),
+        })
+    
+    return results
+
+
 def schedule_conflict_insights():
     """
-    Render Schedule Conflict Insights section showing course pairs that shouldn't
-    conflict based on advised courses (not optional).
+    Render Schedule Conflict Insights section showing course pairs and groups
+    that shouldn't conflict based on advised courses (not optional).
     """
     st.markdown("---")
     st.markdown("### 📅 Schedule Conflict Insights")
     st.markdown(
-        "Based on advised courses (excluding optional), these course pairs are being taken together "
+        "Based on advised courses (excluding optional), these courses are being taken together "
         "by students and **should not conflict** in the schedule."
     )
     
@@ -484,6 +539,7 @@ def schedule_conflict_insights():
     
     major = st.session_state.get("current_major", "")
     cache_key = f"_conflict_pairs_cache_{major}"
+    groups_cache_key = f"_conflict_groups_cache_{major}"
     
     all_advised_courses = []
     for sid, sel in sorted(advising_selections.items(), key=lambda x: str(x[0])):
@@ -502,53 +558,124 @@ def schedule_conflict_insights():
     
     if not cache_valid:
         pair_data, pair_students = _build_non_conflict_pairs()
+        group_data = _build_non_conflict_groups()
         st.session_state[cache_key] = {"pairs": pair_data, "students": pair_students}
+        st.session_state[groups_cache_key] = group_data
         st.session_state[version_key] = version_hash
     
     cached = st.session_state[cache_key]
     pair_data = cached["pairs"]
+    group_data = st.session_state.get(groups_cache_key, [])
     
-    if not pair_data:
-        st.info("No course pairs found. Students need to be advised for 2+ courses to see pairs.")
-        return
+    # Use tabs for pairs vs groups
+    tab_pairs, tab_groups = st.tabs(["📊 Course Pairs", "📋 Course Groups (3-6)"])
     
-    col_filter, col_refresh = st.columns([3, 1])
-    with col_filter:
-        min_students = st.slider(
-            "Minimum students per pair",
-            min_value=1,
-            max_value=max(p["# Students"] for p in pair_data),
-            value=1,
-            help="Filter to show only pairs advised for at least this many students"
+    with tab_pairs:
+        if not pair_data:
+            st.info("No course pairs found. Students need to be advised for 2+ courses to see pairs.")
+        else:
+            col_filter, col_refresh = st.columns([3, 1])
+            with col_filter:
+                min_students = st.slider(
+                    "Minimum students per pair",
+                    min_value=1,
+                    max_value=max(p["# Students"] for p in pair_data),
+                    value=1,
+                    help="Filter to show only pairs advised for at least this many students",
+                    key="min_students_pairs"
+                )
+            with col_refresh:
+                if st.button("🔄 Refresh Data", key="refresh_conflict_pairs"):
+                    pair_data, pair_students = _build_non_conflict_pairs()
+                    group_data = _build_non_conflict_groups()
+                    st.session_state[cache_key] = {"pairs": pair_data, "students": pair_students}
+                    st.session_state[groups_cache_key] = group_data
+                    st.session_state[version_key] = version_hash
+                    st.rerun()
+            
+            filtered_pairs = [p for p in pair_data if p["# Students"] >= min_students]
+            
+            if not filtered_pairs:
+                st.info(f"No pairs meet the minimum of {min_students} students.")
+            else:
+                st.markdown(f"**{len(filtered_pairs)} course pairs** should not conflict:")
+                
+                display_df = pd.DataFrame(filtered_pairs)
+                st.dataframe(display_df, width="stretch", height=min(400, 50 + len(filtered_pairs) * 35))
+                
+                def _build_pairs_csv() -> bytes:
+                    output = BytesIO()
+                    df_export = pd.DataFrame(filtered_pairs)
+                    df_export.to_csv(output, index=False)
+                    return output.getvalue()
+                
+                st.download_button(
+                    label="📥 Download Pairs CSV",
+                    data=_build_pairs_csv(),
+                    file_name=f"schedule_conflict_pairs_{major}.csv",
+                    mime="text/csv",
+                    key="download_conflict_pairs"
+                )
+    
+    with tab_groups:
+        st.markdown(
+            "**Course groups** show the full set of courses each student is taking together. "
+            "All courses in a group must be scheduled without conflicts."
         )
-    with col_refresh:
-        if st.button("🔄 Refresh Data", key="refresh_conflict_pairs"):
-            pair_data, pair_students = _build_non_conflict_pairs()
-            st.session_state[cache_key] = {"pairs": pair_data, "students": pair_students}
-            st.session_state[version_key] = version_hash
-            st.rerun()
-    
-    filtered_pairs = [p for p in pair_data if p["# Students"] >= min_students]
-    
-    if not filtered_pairs:
-        st.info(f"No pairs meet the minimum of {min_students} students.")
-        return
-    
-    st.markdown(f"**{len(filtered_pairs)} course pairs** should not conflict:")
-    
-    display_df = pd.DataFrame(filtered_pairs)
-    st.dataframe(display_df, width="stretch", height=min(400, 50 + len(filtered_pairs) * 35))
-    
-    def _build_csv() -> bytes:
-        output = BytesIO()
-        df_export = pd.DataFrame(filtered_pairs)
-        df_export.to_csv(output, index=False)
-        return output.getvalue()
-    
-    st.download_button(
-        label="📥 Download CSV",
-        data=_build_csv(),
-        file_name=f"schedule_conflict_pairs_{major}.csv",
-        mime="text/csv",
-        key="download_conflict_pairs"
-    )
+        
+        if not group_data:
+            st.info("No course groups found. Students need to be advised for 3+ non-optional courses to see groups.")
+        else:
+            col_filter_g, col_size = st.columns([2, 2])
+            with col_filter_g:
+                min_students_g = st.slider(
+                    "Minimum students per group",
+                    min_value=1,
+                    max_value=max(g["# Students"] for g in group_data) if group_data else 1,
+                    value=1,
+                    help="Filter to show only groups with at least this many students",
+                    key="min_students_groups"
+                )
+            with col_size:
+                min_courses = st.slider(
+                    "Minimum courses per group",
+                    min_value=3,
+                    max_value=6,
+                    value=3,
+                    help="Filter to show only groups with at least this many courses",
+                    key="min_courses_groups"
+                )
+            
+            filtered_groups = [
+                g for g in group_data 
+                if g["# Students"] >= min_students_g and g["# Courses"] >= min_courses
+            ]
+            
+            if not filtered_groups:
+                st.info(f"No groups meet the minimum of {min_students_g} students and {min_courses} courses.")
+            else:
+                st.markdown(f"**{len(filtered_groups)} course groups** should not conflict:")
+                
+                display_groups_df = pd.DataFrame(filtered_groups)
+                st.dataframe(
+                    display_groups_df, 
+                    width="stretch", 
+                    height=min(400, 50 + len(filtered_groups) * 35),
+                    column_config={
+                        "Courses": st.column_config.TextColumn("Courses", width="large"),
+                    }
+                )
+                
+                def _build_groups_csv() -> bytes:
+                    output = BytesIO()
+                    df_export = pd.DataFrame(filtered_groups)
+                    df_export.to_csv(output, index=False)
+                    return output.getvalue()
+                
+                st.download_button(
+                    label="📥 Download Groups CSV",
+                    data=_build_groups_csv(),
+                    file_name=f"schedule_conflict_groups_{major}.csv",
+                    mime="text/csv",
+                    key="download_conflict_groups"
+                )

@@ -43,7 +43,16 @@ try:
 except Exception:
     _LOCAL_TZ = None
 
-__all__ = ["advising_history_panel", "autosave_current_student_session", "save_session_for_student", "_find_latest_session_for_student", "_load_session_and_apply"]
+__all__ = [
+    "advising_history_panel", 
+    "autosave_current_student_session", 
+    "save_session_for_student", 
+    "_find_latest_session_for_student", 
+    "_load_session_and_apply",
+    "get_students_with_saved_sessions",
+    "bulk_restore_sessions",
+    "bulk_restore_panel",
+]
 
 
 # ---------- internal helpers ----------
@@ -144,7 +153,8 @@ def _load_index(force_refresh: bool = False) -> List[Dict[str, Any]]:
                 payload = gd.download_file_from_drive(service, fid)
                 idx = json.loads(payload.decode("utf-8"))
                 result = idx if isinstance(idx, list) else []
-                st.session_state[cache_key] = result
+                # Update both cache AND advising_index for downstream functions
+                _save_index_local(result)
                 return result
         
         # Fall back to major folder root (backward compatibility for legacy sessions)
@@ -156,10 +166,12 @@ def _load_index(force_refresh: bool = False) -> List[Dict[str, Any]]:
                 idx = json.loads(payload.decode("utf-8"))
                 log_info("Loaded legacy advising index from major folder root (consider migrating to sessions/)")
                 result = idx if isinstance(idx, list) else []
-                st.session_state[cache_key] = result
+                # Update both cache AND advising_index for downstream functions
+                _save_index_local(result)
                 return result
         
-        st.session_state[cache_key] = []
+        # No index found - initialize empty
+        _save_index_local([])
         return []
     except Exception as e:
         log_error("Failed to load advising index", e)
@@ -692,6 +704,314 @@ def load_all_sessions_for_period(period_id: Optional[str] = None) -> int:
         log_info(f"Loaded {loaded_count} advising sessions for period {period_id}")
     
     return loaded_count
+
+
+# ---------- bulk restore helpers ----------
+
+def get_students_with_saved_sessions(period_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    """
+    Get list of students who have saved sessions in the current period.
+    Returns list of dicts with student_id, student_name, session_count, latest_session info.
+    """
+    if "advising_index" not in st.session_state:
+        st.session_state.advising_index = _load_index()
+    
+    index = st.session_state.advising_index or []
+    
+    if period_id is None:
+        current_period = get_current_period()
+        period_id = current_period.get("period_id", "")
+    
+    # Filter sessions for current period
+    period_sessions = [r for r in index if r.get("period_id", "") == period_id]
+    
+    # Group by student
+    students_info: Dict[str, Dict[str, Any]] = {}
+    for session in period_sessions:
+        student_id = session.get("student_id")
+        if not student_id:
+            continue
+        
+        sid_str = str(student_id)
+        if sid_str not in students_info:
+            students_info[sid_str] = {
+                "student_id": student_id,
+                "student_name": session.get("student_name", ""),
+                "session_count": 0,
+                "latest_session_id": None,
+                "latest_created_at": "",
+            }
+        
+        students_info[sid_str]["session_count"] += 1
+        created_at = session.get("created_at", "")
+        if created_at > students_info[sid_str]["latest_created_at"]:
+            students_info[sid_str]["latest_created_at"] = created_at
+            students_info[sid_str]["latest_session_id"] = session.get("id")
+    
+    return list(students_info.values())
+
+
+def bulk_restore_sessions(student_ids: List[Union[int, str]], force: bool = False) -> Dict[str, Any]:
+    """
+    Restore most recent saved sessions for multiple students at once.
+    
+    Args:
+        student_ids: List of student IDs to restore
+        force: If True, overwrite existing advising_selections. If False, skip already loaded.
+    
+    Returns:
+        Dict with 'restored', 'skipped', 'failed' counts and 'details' list
+    """
+    result = {
+        "restored": 0,
+        "skipped": 0,
+        "failed": 0,
+        "details": []
+    }
+    
+    if "advising_selections" not in st.session_state:
+        st.session_state.advising_selections = {}
+    
+    major = st.session_state.get("current_major", "")
+    bypasses_key = f"bypasses_{major}"
+    if bypasses_key not in st.session_state:
+        st.session_state[bypasses_key] = {}
+    
+    for student_id in student_ids:
+        try:
+            # Normalize ID
+            try:
+                norm_id = int(student_id)
+            except (ValueError, TypeError):
+                norm_id = str(student_id)
+            
+            # Check if already loaded (unless force=True)
+            if not force:
+                if norm_id in st.session_state.advising_selections:
+                    existing = st.session_state.advising_selections[norm_id]
+                    if existing.get("advised") or existing.get("optional") or existing.get("note"):
+                        result["skipped"] += 1
+                        result["details"].append({
+                            "student_id": student_id,
+                            "status": "skipped",
+                            "reason": "Already has active session"
+                        })
+                        continue
+            
+            # Find and load latest session
+            latest_session = _find_latest_session_for_student(student_id)
+            if not latest_session:
+                result["failed"] += 1
+                result["details"].append({
+                    "student_id": student_id,
+                    "status": "failed",
+                    "reason": "No saved session found"
+                })
+                continue
+            
+            session_id = latest_session.get("id")
+            payload = _load_session_payload_by_id(session_id)
+            if not payload:
+                result["failed"] += 1
+                result["details"].append({
+                    "student_id": student_id,
+                    "status": "failed",
+                    "reason": "Could not load session payload"
+                })
+                continue
+            
+            snapshot = payload.get("snapshot", {})
+            students = snapshot.get("students", [])
+            if not students:
+                result["failed"] += 1
+                result["details"].append({
+                    "student_id": student_id,
+                    "status": "failed",
+                    "reason": "Session has no student data"
+                })
+                continue
+            
+            student_data = students[0]
+            
+            # Apply to advising_selections
+            st.session_state.advising_selections[norm_id] = {
+                "advised": student_data.get("advised", []),
+                "optional": student_data.get("optional", []),
+                "repeat": student_data.get("repeat", []),
+                "note": student_data.get("note", ""),
+            }
+            
+            # Apply bypasses
+            student_bypasses = student_data.get("bypasses", {})
+            if student_bypasses:
+                st.session_state[bypasses_key][norm_id] = student_bypasses
+            
+            result["restored"] += 1
+            result["details"].append({
+                "student_id": student_id,
+                "student_name": latest_session.get("student_name", ""),
+                "status": "restored",
+                "session_date": latest_session.get("created_at", "")[:16]
+            })
+            
+        except Exception as e:
+            result["failed"] += 1
+            result["details"].append({
+                "student_id": student_id,
+                "status": "failed",
+                "reason": str(e)
+            })
+    
+    if result["restored"] > 0:
+        log_info(f"Bulk restored {result['restored']} sessions")
+        # Invalidate caches that depend on advising data
+        if "_conflict_insights_cache" in st.session_state:
+            del st.session_state["_conflict_insights_cache"]
+        
+        # Sync to per-major bucket so it persists across reruns
+        major = st.session_state.get("current_major", "")
+        if major and "majors" in st.session_state:
+            if major in st.session_state.majors:
+                st.session_state.majors[major]["advising_selections"] = st.session_state.advising_selections.copy()
+    
+    return result
+
+
+def bulk_restore_panel():
+    """
+    UI panel for bulk restoring saved sessions.
+    Shows students with saved sessions and allows selecting multiple to restore.
+    """
+    st.markdown("---")
+    st.subheader("Restore Saved Sessions")
+    st.caption("Restore advising sessions from saved archive to make them active and editable.")
+    
+    # Get students with saved sessions
+    students_with_sessions = get_students_with_saved_sessions()
+    
+    if not students_with_sessions:
+        st.info("No saved sessions found for the current advising period.")
+        return
+    
+    # Get current advising_selections to identify what's already loaded
+    current_selections = st.session_state.get("advising_selections", {})
+    
+    # Build display data
+    display_data = []
+    for s in students_with_sessions:
+        sid = s["student_id"]
+        
+        # Check if already has active session
+        sel = current_selections.get(sid) or current_selections.get(str(sid)) or {}
+        has_active = bool(sel.get("advised") or sel.get("optional") or sel.get("note"))
+        
+        display_data.append({
+            "student_id": sid,
+            "student_name": s["student_name"],
+            "session_count": s["session_count"],
+            "latest_date": s["latest_created_at"][:16].replace("T", " ") if s["latest_created_at"] else "",
+            "has_active": has_active,
+            "status": "Active" if has_active else "Not Loaded"
+        })
+    
+    # Sort by status (not loaded first), then name
+    display_data.sort(key=lambda x: (x["has_active"], x["student_name"]))
+    
+    # Summary stats
+    not_loaded_count = sum(1 for d in display_data if not d["has_active"])
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric("Total with Saved Sessions", len(display_data))
+    with c2:
+        st.metric("Not Loaded", not_loaded_count)
+    with c3:
+        st.metric("Already Active", len(display_data) - not_loaded_count)
+    
+    # Create dataframe for selection
+    df = pd.DataFrame(display_data)
+    df = df.rename(columns={
+        "student_id": "ID",
+        "student_name": "Name", 
+        "session_count": "Saved Sessions",
+        "latest_date": "Latest Save",
+        "status": "Status"
+    })
+    
+    # Multi-select using checkboxes
+    st.markdown("**Select students to restore:**")
+    
+    # Quick actions
+    col1, col2, col3 = st.columns([1, 1, 2])
+    with col1:
+        if st.button("Select All Not Loaded", key="bulk_select_all"):
+            st.session_state["_bulk_restore_selection"] = [
+                str(d["student_id"]) for d in display_data if not d["has_active"]
+            ]
+            st.rerun()
+    with col2:
+        if st.button("Clear Selection", key="bulk_clear_selection"):
+            st.session_state["_bulk_restore_selection"] = []
+            st.rerun()
+    
+    # Initialize selection state
+    if "_bulk_restore_selection" not in st.session_state:
+        st.session_state["_bulk_restore_selection"] = []
+    
+    # Display as a data editor with selection column
+    df_display = df[["ID", "Name", "Saved Sessions", "Latest Save", "Status"]].copy()
+    df_display.insert(0, "Select", [str(d["student_id"]) in st.session_state["_bulk_restore_selection"] for d in display_data])
+    
+    edited_df = st.data_editor(
+        df_display,
+        column_config={
+            "Select": st.column_config.CheckboxColumn("Select", default=False),
+            "ID": st.column_config.NumberColumn("ID", format="%d"),
+        },
+        disabled=["ID", "Name", "Saved Sessions", "Latest Save", "Status"],
+        hide_index=True,
+        key="bulk_restore_editor",
+        width="stretch"
+    )
+    
+    # Update selection from editor
+    selected_ids = []
+    for i, row in edited_df.iterrows():
+        if row["Select"]:
+            selected_ids.append(str(display_data[i]["student_id"]))
+    
+    st.session_state["_bulk_restore_selection"] = selected_ids
+    
+    # Restore options
+    st.markdown(f"**{len(selected_ids)} student(s) selected**")
+    
+    force_overwrite = st.checkbox(
+        "Force overwrite existing active sessions", 
+        value=False,
+        help="If checked, will overwrite any existing advising data. Otherwise, skips students who already have active sessions."
+    )
+    
+    # Restore button
+    if st.button("Restore Selected Sessions", type="primary", disabled=len(selected_ids) == 0, key="bulk_restore_btn"):
+        with st.spinner(f"Restoring {len(selected_ids)} sessions..."):
+            result = bulk_restore_sessions(selected_ids, force=force_overwrite)
+        
+        # Show results
+        if result["restored"] > 0:
+            st.success(f"Successfully restored {result['restored']} session(s)")
+        if result["skipped"] > 0:
+            st.info(f"Skipped {result['skipped']} session(s) (already have active data)")
+        if result["failed"] > 0:
+            st.warning(f"Failed to restore {result['failed']} session(s)")
+        
+        # Show details in expander
+        if result["details"]:
+            with st.expander("View Details"):
+                details_df = pd.DataFrame(result["details"])
+                st.dataframe(details_df, hide_index=True, width="stretch")
+        
+        # Clear selection and refresh
+        st.session_state["_bulk_restore_selection"] = []
+        st.rerun()
 
 
 # ---------- panel UI ----------

@@ -325,7 +325,7 @@ with st.expander("⚙️ Advising Utilities"):
             st.rerun()
     
     with col3:
-        if st.button("📥 Restore Sessions", help="Load most recent advising session for all students from current period", width="stretch"):
+        if st.button("📥 Restore All Sessions", help="Load most recent advising session for ALL students from current period", width="stretch"):
             # Get all unique student IDs from progress report
             if not st.session_state.progress_df.empty and "ID" in st.session_state.progress_df.columns:
                 student_ids = st.session_state.progress_df["ID"].unique()
@@ -343,6 +343,18 @@ with st.expander("⚙️ Advising Utilities"):
                 st.rerun()
             else:
                 st.warning("No students found in progress report. Upload progress report first.")
+    
+    # Bulk restore panel with student selection
+    with st.expander("📋 Select Students to Restore", expanded=False):
+        st.caption("Choose specific students to restore their saved sessions")
+        try:
+            import advising_history as ah
+            if hasattr(ah, "bulk_restore_panel"):
+                ah.bulk_restore_panel()
+            else:
+                st.info("Bulk restore functionality not available")
+        except Exception as e:
+            st.error(f"Error loading bulk restore panel: {e}")
     
     st.markdown("---")
     st.markdown("### View Previous Periods")
@@ -495,23 +507,23 @@ def _render_advising_panel_safely():
         log_error("Advising Sessions panel error", e)
 
 # ---------- Navigation (always available) ----------
-# Initialize active view in session state if not set
-if "active_view" not in st.session_state:
-    st.session_state.active_view = "Student Eligibility View"
-
 # View selector in sidebar (always shown, but disabled when no data)
 has_data = not st.session_state.progress_df.empty and not st.session_state.courses_df.empty
+
+view_options = ["Student Eligibility View", "Full Student View", "Course Offering Planner", "Degree Plan"]
+
+# Initialize the key-based view selector if not set
+if "view_selector" not in st.session_state:
+    st.session_state["view_selector"] = "Student Eligibility View"
 
 with st.sidebar:
     st.markdown("---")
     st.markdown("### 📑 Navigation")
-    view_options = ["Student Eligibility View", "Full Student View", "Course Offering Planner", "Degree Plan"]
     
     if has_data:
-        st.session_state.active_view = st.radio(
+        st.radio(
             "Select View",
             options=view_options,
-            index=view_options.index(st.session_state.active_view) if st.session_state.active_view in view_options else 0,
             key="view_selector",
             label_visibility="collapsed"
         )
@@ -526,16 +538,19 @@ with st.sidebar:
         )
         st.caption("Upload data to enable navigation")
 
+# Get the active view from the key (not from return value to avoid double-click issue)
+active_view = st.session_state.get("view_selector", "Student Eligibility View")
+
 # ---------- Main ----------
 if has_data:
     # Render selected view
-    if st.session_state.active_view == "Student Eligibility View":
+    if active_view == "Student Eligibility View":
         student_eligibility_view()
-    elif st.session_state.active_view == "Full Student View":
+    elif active_view == "Full Student View":
         full_student_view()
-    elif st.session_state.active_view == "Course Offering Planner":
+    elif active_view == "Course Offering Planner":
         course_offering_planner()
-    elif st.session_state.active_view == "Degree Plan":
+    elif active_view == "Degree Plan":
         degree_plan_view()
 
     # Advising Sessions (per major)
