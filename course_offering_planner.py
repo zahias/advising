@@ -32,6 +32,8 @@ def course_offering_planner():
             "graduating students, bottleneck analysis, and cascading eligibility effects."
         )
         _render_course_offering_planner_content()
+    
+    schedule_conflict_insights()
 
 
 def _render_course_offering_planner_content():
@@ -149,8 +151,6 @@ def _render_course_offering_planner_content():
             f"**Impact Summary:** This offering will directly serve {total_eligible} currently eligible students, "
             f"including {total_graduating} students who are graduating soon."
         )
-    
-    schedule_conflict_insights()
 
 
 def _analyze_course_recommendations(
@@ -416,7 +416,11 @@ def _build_all_course_combinations() -> Tuple[List[Dict], int]:
         - List of dicts with courses, course count, student count, student names, and coreq flag
         - Total number of students processed
     """
-    advising_selections = st.session_state.get("advising_selections", {})
+    major = st.session_state.get("current_major", "")
+    if major and "majors" in st.session_state and major in st.session_state.majors:
+        advising_selections = st.session_state.majors[major].get("advising_selections", {})
+    else:
+        advising_selections = st.session_state.get("advising_selections", {})
     progress_df = st.session_state.get("progress_df", pd.DataFrame())
     courses_df = st.session_state.get("courses_df", pd.DataFrame())
     
@@ -527,7 +531,11 @@ def schedule_conflict_insights():
 def _render_schedule_conflict_content():
     """Internal function to render Schedule Conflict Insights content."""
     
-    advising_selections = st.session_state.get("advising_selections", {})
+    major = st.session_state.get("current_major", "")
+    if major and "majors" in st.session_state and major in st.session_state.majors:
+        advising_selections = st.session_state.majors[major].get("advising_selections", {})
+    else:
+        advising_selections = st.session_state.get("advising_selections", {})
     if not advising_selections:
         st.info("No advising sessions found. Advise students first to see schedule conflict insights.")
         return
