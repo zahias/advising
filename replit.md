@@ -89,6 +89,12 @@ The Advising Dashboard is a Streamlit-based application designed for Phoenix Uni
   - **QAA Sheet - Optional column**: Added "Optional" column showing count of students advised with course marked as optional
   - **Fixed double-click page navigation**: Changed from return-value assignment pattern to key-based state reading for radio button navigation
   - **Full Advising Report export enhancements**: Added "Credits Advised" and "Optional Credits" columns to the "Download Full Advising Report" Excel export in Full Student View → All Students tab. These columns appear after "Advising Status" and show total credits for advised courses and optional courses per student.
+  - **Bug fixes for UI/UX overhaul**:
+    - Fixed import errors in pages/workspace.py (save_session_for_student)
+    - Connected email functionality in Workspace Notes tab (was placeholder, now calls send_advising_email)
+    - Fixed type error in Settings sync (isinstance check for session state keys)
+    - Auto-loading of advising sessions after period gate passes
+    - Bypass management UI fully integrated in Workspace eligibility tab
 
 ## User Preferences
 I prefer:
