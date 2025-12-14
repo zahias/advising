@@ -733,6 +733,7 @@ def _render_all_students():
             file_name="Full_Advising_Report.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary",
+            help="Download Excel report with all students' course progress, advising status, and credits"
         )
 
 def _render_individual_student():
@@ -807,11 +808,12 @@ def _render_individual_student():
             file_name=f"Student_{sid}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary",
+            help="Download Excel report for this student with course status codes and colors"
         )
     
     with col2:
         # Email advising sheet to student
-        if st.button("📧 Email Advising Sheet", key=f"email_indiv_{sid}"):
+        if st.button("📧 Email Advising Sheet", key=f"email_indiv_{sid}", help="Send this student's advising recommendations via email"):
             from email_manager import get_student_email, send_advising_email
             
             student_email = get_student_email(str(sid))
@@ -939,6 +941,7 @@ def _render_individual_student():
         file_name="All_Advised_Students.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         type="primary",
+        help="Download Excel workbook with individual sheets for each advised student plus an index"
     )
 
     if download_clicked:
@@ -1119,7 +1122,8 @@ def _render_qaa_sheet():
         data=_build_qaa_excel(),
         file_name=f"QAA_Sheet_{major}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        key="download_qaa_sheet"
+        key="download_qaa_sheet",
+        help="Download per-course metrics: eligibility counts, advising stats, and graduation data"
     )
 
 
@@ -1213,7 +1217,7 @@ def _render_schedule_conflict():
     
     with col3:
         st.write("")
-        if st.button("🔄 Refresh", key="sc_refresh"):
+        if st.button("🔄 Refresh", key="sc_refresh", help="Recalculate schedule combinations from current advising data"):
             combo_data, students_processed = _build_schedule_combinations(advising_selections)
             st.session_state[cache_key] = combo_data
             st.session_state[students_processed_key] = students_processed

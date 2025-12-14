@@ -270,10 +270,14 @@ def student_eligibility_view():
         optional_selection: List[str],
         note_value: str,
     ) -> None:
+        # Enforce mutual exclusivity: remove any courses from optional that are in advised
+        advised_set = set(advised_selection)
+        clean_optional = [c for c in optional_selection if c not in advised_set]
+        
         st.session_state.advising_selections[norm_sid] = {
             "advised": list(advised_selection),
             "repeat": list(repeat_selection),
-            "optional": list(optional_selection),
+            "optional": clean_optional,
             "note": note_value,
         }
 
@@ -313,20 +317,37 @@ def student_eligibility_view():
         output.seek(0)
         return output.getvalue()
 
+    # Remove mutual exclusivity - advised courses shouldn't appear in optional options
+    # We handle this dynamically: options for optional exclude current advised, and vice versa
+    advised_key = f"advised_ms_{norm_sid}"
+    optional_key = f"optional_ms_{norm_sid}"
+    
+    # Get current selections from session state (for real-time mutual exclusivity)
+    current_advised_sel = set(st.session_state.get(advised_key, default_advised))
+    current_optional_sel = set(st.session_state.get(optional_key, default_optional))
+    
+    # Filter options: optional can't include advised, advised can't include optional
+    optional_opts = [c for c in eligible_opts if c not in current_advised_sel]
+    advised_opts_filtered = [c for c in eligible_opts if c not in current_optional_sel]
+    
     with st.form(key=f"advise_form_{norm_sid}"):
         advised_selection = st.multiselect(
-            "Advised Courses (Eligible, Not Yet Taken)", options=eligible_opts, default=default_advised, key=f"advised_ms_{norm_sid}"
+            "Advised Courses (Eligible, Not Yet Taken)", 
+            options=advised_opts_filtered, 
+            default=[c for c in default_advised if c in advised_opts_filtered], 
+            key=advised_key,
+            help="Primary course recommendations for this student"
         )
         repeat_selection = st.multiselect(
             "Repeat Courses (Completed or Registered)", options=repeat_opts, default=default_repeat, key=f"repeat_ms_{norm_sid}",
-            help="Select courses that the student should repeat"
+            help="Select courses that the student should repeat to improve GPA"
         )
         optional_selection = st.multiselect(
             "Optional Courses",
-            options=eligible_opts,
-            default=default_optional,
-            key=f"optional_ms_{norm_sid}",
-            help="Additional courses to suggest"
+            options=optional_opts,
+            default=[c for c in default_optional if c in optional_opts],
+            key=optional_key,
+            help="Additional optional courses (cannot overlap with Advised)"
         )
         note_input = st.text_area(
             "Advisor Note (optional)", value=slot.get("note", ""), key=f"note_{norm_sid}"
