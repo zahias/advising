@@ -154,6 +154,7 @@ def _render_exclusions():
         
         if st.form_submit_button("Add Exclusions", type="primary", help="Apply selected course exclusions to selected students"):
             if selected_courses and selected_students:
+                from course_exclusions import set_for_student
                 added_count = 0
                 for student_label in selected_students:
                     sid = student_label.split("(")[-1].rstrip(")")
@@ -163,6 +164,8 @@ def _render_exclusions():
                         if course not in exclusions[sid]:
                             exclusions[sid].append(course)
                             added_count += 1
+                    # Sync to course_exclusions module so workspace picks it up
+                    set_for_student(sid, exclusions[sid])
                 st.session_state[exclusions_key] = exclusions
                 st.success(f"Added {added_count} exclusions across {len(selected_students)} students")
                 st.rerun()
@@ -188,7 +191,9 @@ def _render_exclusions():
                             st.write(course)
                         with col2:
                             if st.button("Remove", key=f"remove_{sid}_{course}", help="Remove this exclusion"):
+                                from course_exclusions import set_for_student
                                 exclusions[sid].remove(course)
+                                set_for_student(sid, exclusions[sid])
                                 st.session_state[exclusions_key] = exclusions
                                 st.rerun()
 

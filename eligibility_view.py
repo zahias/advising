@@ -338,16 +338,16 @@ def student_eligibility_view():
             key=advised_key,
             help="Primary course recommendations for this student"
         )
-        repeat_selection = st.multiselect(
-            "Repeat Courses (Completed or Registered)", options=repeat_opts, default=default_repeat, key=f"repeat_ms_{norm_sid}",
-            help="Select courses that the student should repeat to improve GPA"
-        )
         optional_selection = st.multiselect(
             "Optional Courses",
             options=optional_opts,
             default=[c for c in default_optional if c in optional_opts],
             key=optional_key,
             help="Additional optional courses (cannot overlap with Advised)"
+        )
+        repeat_selection = st.multiselect(
+            "Repeat Courses (Completed or Registered)", options=repeat_opts, default=default_repeat, key=f"repeat_ms_{norm_sid}",
+            help="Select courses that the student should repeat to improve GPA"
         )
         note_input = st.text_area(
             "Advisor Note (optional)", value=slot.get("note", ""), key=f"note_{norm_sid}"

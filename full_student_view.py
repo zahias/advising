@@ -624,22 +624,18 @@ def _render_all_students():
         st.dataframe(styled, width="stretch", height=600, column_config=column_config)
         return export_df, selected
 
-    required_tab, intensive_tab, degree_plan_tab = st.tabs(["Required Courses", "Intensive Courses", "Degree Plan"])
+    required_tab, intensive_tab = st.tabs(["Required Courses", "Intensive Courses"])
 
     required_display_df = None
     required_selected = []
     intensive_display_df = None
     intensive_selected = []
-    degree_plan_display_df = None
 
     with required_tab:
         required_display_df, required_selected = render_course_table("Required", required_courses, "required")
 
     with intensive_tab:
         intensive_display_df, intensive_selected = render_course_table("Intensive", intensive_courses, "intensive")
-    
-    with degree_plan_tab:
-        degree_plan_display_df = render_degree_plan_table(courses_df, df)
 
     has_required = required_display_df is not None and len(required_selected) > 0
     has_intensive = intensive_display_df is not None and len(intensive_selected) > 0
