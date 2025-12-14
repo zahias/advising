@@ -306,12 +306,28 @@ def main():
     
     _sync_globals_from_bucket(selected_major)
     
-    _auto_load_from_drive(selected_major)
+    # Check if we need to load from Drive (bucket is empty)
+    bucket = st.session_state.majors.get(selected_major, {})
+    needs_loading = (
+        bucket.get("courses_df", pd.DataFrame()).empty or 
+        bucket.get("progress_df", pd.DataFrame()).empty
+    )
     
-    if not _render_period_gate():
-        return
+    # Check if sessions need loading
+    sessions_key = f"_sessions_loaded_{selected_major}"
+    needs_sessions = not st.session_state.get(sessions_key)
     
-    _auto_load_sessions(selected_major)
+    if needs_loading or needs_sessions:
+        with st.spinner("Loading data..."):
+            if needs_loading:
+                _auto_load_from_drive(selected_major)
+            if not _render_period_gate():
+                return
+            if needs_sessions:
+                _auto_load_sessions(selected_major)
+    else:
+        if not _render_period_gate():
+            return
     
     active_nav = _render_navigation()
     
