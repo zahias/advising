@@ -11,7 +11,7 @@ from utils import log_info, log_error, load_progress_excel
 import data_upload  # Explicit import to avoid NameError
 from eligibility_view import student_eligibility_view
 from full_student_view import full_student_view
-from course_planning_view import course_planning_view
+from course_offering_planner import course_offering_planner
 from advising_history import advising_history_panel
 
 # Lazy loader for drive if needed
@@ -156,7 +156,7 @@ else:
         
     elif view == "Course Planning":
         st.header("📊 Course Planning & Optimization")
-        course_planning_view()
+        course_offering_planner()
         
     elif view == "Advising History":
         advising_history_panel()
