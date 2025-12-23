@@ -65,6 +65,60 @@ def _load_bucket_to_globals(major: str):
         st.session_state.progress_df = pd.DataFrame()
         st.session_state.advising_selections = {}
 
+from io import BytesIO
+
+def _attempt_auto_load_from_drive(major: str):
+    """Attempt to load data from Drive if not present in memory."""
+    if major not in st.session_state.majors:
+        return
+
+    # If already loaded, skip
+    bucket = st.session_state.majors[major]
+    if not bucket["courses_df"].empty and not bucket["progress_df"].empty:
+        return
+
+    try:
+        # Import here to avoid early failures if Drive not set up
+        from google_drive import initialize_drive_service, get_major_folder_id, download_file_by_name, GoogleAuthError
+        
+        try:
+            service = initialize_drive_service()
+        except GoogleAuthError:
+            # Drive not available/configured, skip silently (user will see warning in dashboard)
+            return
+
+        # Get root folder
+        root_id = ""
+        if "google" in st.secrets:
+            root_id = st.secrets["google"].get("folder_id", "")
+        if not root_id:
+            root_id = os.getenv("GOOGLE_FOLDER_ID", "")
+        
+        if not root_id:
+            return
+
+        major_folder_id = get_major_folder_id(service, major, root_id)
+        
+        # Load Courses
+        if bucket["courses_df"].empty:
+            content = download_file_by_name(service, major_folder_id, "courses_table.xlsx")
+            if content:
+                df = pd.read_excel(BytesIO(content))
+                st.session_state.majors[major]["courses_df"] = df
+                st.toast(f"✅ Loaded courses for {major}")
+
+        # Load Progress
+        if bucket["progress_df"].empty:
+            content = download_file_by_name(service, major_folder_id, "progress_report.xlsx")
+            if content:
+                df = load_progress_excel(content)
+                st.session_state.majors[major]["progress_df"] = df
+                st.toast(f"✅ Loaded progress for {major}")
+
+    except Exception as e:
+        log_error(f"Auto-load from Drive failed for {major}", e)
+        # Don't show error to user user, just log it. They will see "Data not loaded" in UI.
+
 # ---------- Sidebar Navigation & Layout ----------
 
 # Initialize navigation state
@@ -90,6 +144,7 @@ with st.sidebar:
     if "current_major" not in st.session_state or st.session_state["current_major"] != selected_major:
         # Save old data if needed (optional, assuming auto-save happened at end of last run)
         # Load new data
+        _attempt_auto_load_from_drive(selected_major)
         _load_bucket_to_globals(selected_major)
         st.session_state["current_major"] = selected_major
         st.rerun()
