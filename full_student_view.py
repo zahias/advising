@@ -8,22 +8,12 @@ from utils import (
     check_course_registered,
     check_eligibility,
     get_student_standing,
-    build_requisites_str,
-    get_corequisite_and_concurrent_courses,
-    get_mutual_concurrent_pairs,
-    calculate_course_curriculum_years,
-    calculate_student_curriculum_year,
-    style_df,          # kept (used elsewhere in app)
+    style_df,
     log_info,
     log_error
 )
 from reporting import add_summary_sheet, apply_full_report_formatting, apply_individual_compact_formatting
-from advising_history import load_all_sessions_for_period
-
-def _get_drive_module():
-    """Lazy loader for google_drive module to avoid import-time side effects."""
-    import google_drive as gd
-    return gd
+from visual_theme import render_glass_card, render_status_badge, render_help_tooltip
 
 # -----------------------------
 # Color map (aligned with Advising table)
@@ -310,18 +300,6 @@ def _render_all_students():
     st.markdown("---")
     
     df = st.session_state.progress_df.copy()
-    df["ID"] = pd.to_numeric(df["ID"], errors="coerce")
-    df = df.dropna(subset=["ID"])
-    df["ID"] = df["ID"].astype(int)
-
-    progress_df_original = df.copy().set_index("ID")
-    original_rows = {int(idx): row for idx, row in progress_df_original.iterrows()}
-
-    # Get courses_df from session state first
-    courses_df = st.session_state.courses_df
-    
-    # Use cached curriculum years (already computed above)
-    course_curriculum_years = cached["course_curriculum_years"]
     
     # Compute derived columns
     df["Total Credits Completed"] = (df.get("# of Credits Completed", 0).fillna(0).astype(float) + \
@@ -342,25 +320,26 @@ def _render_all_students():
     
     df["Advising Status"] = df["ID"].apply(_get_advising_status)
 
-    # Normalize remaining credits for filtering and display
-    remaining_credits_series = pd.to_numeric(df.get("# Remaining", 0), errors="coerce").fillna(0).astype(int)
-    df["Remaining Credits"] = remaining_credits_series
-    min_remaining = int(remaining_credits_series.min()) if not remaining_credits_series.empty else 0
-    max_remaining = int(remaining_credits_series.max()) if not remaining_credits_series.empty else 0
-
-    if min_remaining == max_remaining:
-        remaining_range = (min_remaining, max_remaining)
-        st.caption(
-            f"All students currently have {min_remaining} remaining credits."
-        )
+    # --- Summary Metrics ---
+    total_students = len(df)
+    advised_count = len(df[df["Advising Status"] == "Advised"])
+    probation_count = len(df[df["Standing"].str.contains("Probation", case=False, na=False)])
+    
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Total Students", total_students)
+    m2.metric("Advised", advised_count, delta=f"{round(advised_count/total_students*100)}%" if total_students else None)
+    m3.metric("Pending", total_students - advised_count)
+    if probation_count > 0:
+        m4.metric("At Risk", probation_count, delta_color="inverse")
     else:
-        remaining_range = st.slider(
-            "Filter by remaining credits",
-            min_value=min_remaining,
-            max_value=max_remaining,
-            value=(min_remaining, max_remaining),
-            help="Narrow the table to students within the selected remaining-credit range.",
-        )
+        m4.metric("At Risk", 0, delta_color="normal")
+        
+    st.markdown("---")
+
+    available_courses = st.session_state.courses_df["Course Code"].tolist()
+    
+    with st.expander("🛠️ Table Configuration"):
+        selected_courses = st.multiselect("Select course columns", options=available_courses, default=available_courses)
 
     if min_remaining != max_remaining:
         df = df[
@@ -519,10 +498,15 @@ def _render_all_students():
             return "b"
         return "na" if stt == "Eligible" else "ne"
 
-    def render_course_table(label: str, course_codes: list[str], key_suffix: str):
-        if not course_codes:
-            st.info(f"No {label.lower()} courses available.")
-            return None, []
+    for c in selected_courses:
+        if c in df.columns: # optimization
+            continue
+            
+        df[c] = df.apply(lambda r: status_code(
+            progress_df_original.loc[r["ID"]],
+            r["ID"],
+            c
+        ), axis=1)
 
         # Use session state to store confirmed selections
         confirmed_key = f"confirmed_{key_suffix}_courses"
@@ -559,171 +543,24 @@ def _render_all_students():
             st.info("Select at least one course column to display student eligibility statuses.")
             return None, []
 
-        table_df = df[base_display_cols].copy()
-        student_ids = table_df["ID"].astype(int).tolist()
+    # Show table (color-coded)
+    render_glass_card(
+        title="Student Rosters",
+        content="Overview of all eligible students and their course statuses."
+    )
+    
+    st.caption("Legend: c=Completed, r=Registered, a=Advised, ar=Advised-Repeat, o=Optional, na=Eligible not chosen, ne=Not Eligible")
+    styled = _style_codes(df[display_cols], selected_courses)
+    st.dataframe(styled, width=None, height=600, use_container_width=True)
 
-        # Track statuses for summary calculation
-        course_status_data = {}
-        for course in selected:
-            statuses = []
-            for sid in student_ids:
-                row_original = original_rows.get(int(sid))
-                if row_original is None:
-                    statuses.append("")
-                    continue
-                student_simulated = simulated_completions.get(sid, [])
-                statuses.append(status_code(row_original, sid, course, student_simulated))
-            table_df[course] = statuses
-            course_status_data[course] = statuses
-
-        # Build requisites and summary data
-        requisites_data = {}
-        summary_data = {}
-        for course in selected:
-            course_info = courses_df.loc[courses_df["Course Code"] == course]
-            if not course_info.empty:
-                requisites_data[course] = build_requisites_str(course_info.iloc[0])
-            else:
-                requisites_data[course] = ""
-            
-            # Calculate summary statistics
-            statuses = course_status_data[course]
-            total_students = len([s for s in statuses if s])
-            c_count = statuses.count("c")
-            r_count = statuses.count("r")
-            s_count = statuses.count("s")
-            na_count = statuses.count("na")
-            ne_count = statuses.count("ne")
-            completion_rate = f"{(c_count / total_students * 100):.0f}%" if total_students > 0 else "0%"
-            summary_data[course] = f"c:{c_count} | r:{r_count} | s:{s_count} | na:{na_count} | ne:{ne_count} | {completion_rate}"
-
-        # Show semester header if filtering
-        if semester_filter != "All Courses":
-            st.markdown(f"### 📅 {semester_filter}")
-            st.write("")
-        
-        # Use only the student data table (no requisites/summary rows)
-        display_df = table_df.set_index("NAME")
-        display_df.index.name = "Student"
-        
-        # Build column config with tooltips for course columns
-        column_config = {}
-        for course in selected:
-            req_str = requisites_data[course] if requisites_data[course] else "None"
-            help_text = f"📋 {req_str}\n\n📊 {summary_data[course]}"
-            column_config[course] = st.column_config.TextColumn(
-                course,
-                help=help_text,
-                width="small"
-            )
-        
-        # For export, use only student data (no requisites/summary rows)
-        export_df = table_df.copy()
-
-        st.write(legend_md)
-        styled = _style_codes(display_df, selected)
-        st.dataframe(styled, width="stretch", height=600, column_config=column_config)
-        return export_df, selected
-
-    required_tab, intensive_tab = st.tabs(["Required Courses", "Intensive Courses"])
-
-    required_display_df = None
-    required_selected = []
-    intensive_display_df = None
-    intensive_selected = []
-
-    with required_tab:
-        required_display_df, required_selected = render_course_table("Required", required_courses, "required")
-
-    with intensive_tab:
-        intensive_display_df, intensive_selected = render_course_table("Intensive", intensive_courses, "intensive")
-
-    has_required = required_display_df is not None and len(required_selected) > 0
-    has_intensive = intensive_display_df is not None and len(intensive_selected) > 0
-
-    if not has_required and not has_intensive:
-        return
-
-    if has_required or has_intensive:
-        def _build_full_report_bytes() -> bytes:
-            output = BytesIO()
-            
-            # Build credits lookup from courses_df
-            credits_lookup = {}
-            for _, course_row in courses_df.iterrows():
-                code = course_row.get("Course Code", "")
-                credits = course_row.get("Credits", 3)
-                try:
-                    credits_lookup[code] = float(credits) if pd.notna(credits) else 3.0
-                except (ValueError, TypeError):
-                    credits_lookup[code] = 3.0
-            
-            # Helper to calculate credits for a student
-            def calc_student_credits(student_id):
-                sel = st.session_state.advising_selections.get(int(student_id)) or st.session_state.advising_selections.get(str(int(student_id))) or {}
-                advised_list = sel.get("advised", []) or []
-                optional_list = sel.get("optional", []) or []
-                
-                # Credits Advised = sum of all advised courses (including optional)
-                advised_credits = sum(credits_lookup.get(c, 3.0) for c in advised_list)
-                # Optional Credits = sum of just optional courses (subset of advised)
-                optional_credits = sum(credits_lookup.get(c, 3.0) for c in optional_list)
-                
-                return advised_credits, optional_credits
-            
-            # Add credits columns to dataframes
-            def add_credits_columns(df_to_modify):
-                if df_to_modify is None or df_to_modify.empty:
-                    return df_to_modify
-                result_df = df_to_modify.copy()
-                credits_advised = []
-                optional_credits = []
-                for _, row in result_df.iterrows():
-                    sid = row.get("ID", 0)
-                    adv_cr, opt_cr = calc_student_credits(sid)
-                    credits_advised.append(int(adv_cr))
-                    optional_credits.append(int(opt_cr))
-                # Insert after Advising Status column
-                adv_status_idx = result_df.columns.get_loc("Advising Status") + 1 if "Advising Status" in result_df.columns else len(result_df.columns)
-                result_df.insert(adv_status_idx, "Credits Advised", credits_advised)
-                result_df.insert(adv_status_idx + 1, "Optional Credits", optional_credits)
-                return result_df
-            
-            required_with_credits = add_credits_columns(required_display_df) if has_required else None
-            intensive_with_credits = add_credits_columns(intensive_display_df) if has_intensive else None
-            
-            with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                if has_required and required_with_credits is not None:
-                    required_with_credits.to_excel(writer, index=False, sheet_name="Required Courses")
-                if has_intensive and intensive_with_credits is not None:
-                    intensive_with_credits.to_excel(writer, index=False, sheet_name="Intensive Courses")
-
-                summary_frames = []
-                summary_courses: list[str] = []
-                if has_required and required_with_credits is not None:
-                    summary_frames.append(required_with_credits)
-                    summary_courses.extend(required_selected)
-                if has_intensive and intensive_with_credits is not None:
-                    summary_frames.append(intensive_with_credits)
-                    summary_courses.extend(intensive_selected)
-
-                if summary_frames and summary_courses:
-                    summary_input = pd.concat(summary_frames, ignore_index=True)
-                    add_summary_sheet(writer, summary_input, summary_courses)
-
-                if has_required:
-                    apply_full_report_formatting(
-                        writer.book, sheet_name="Required Courses", course_cols=required_selected
-                    )
-                if has_intensive:
-                    apply_full_report_formatting(
-                        writer.book, sheet_name="Intensive Courses", course_cols=intensive_selected
-                    )
-
-            output.seek(0)
-            return output.getvalue()
-
-        full_report_bytes = _build_full_report_bytes()
+    # Export full advising report with summary + COLORS in Excel
+    if st.button("Download Full Advising Report", type="primary"):
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            df[display_cols].to_excel(writer, index=False, sheet_name="Full Report")
+            add_summary_sheet(writer, df[display_cols], selected_courses)  # includes Optional (o)
+        # Apply color formatting to code columns in the saved workbook
+        apply_full_report_formatting(output=output, sheet_name="Full Report", course_cols=selected_courses)
         st.download_button(
             "Download Full Advising Report",
             data=full_report_bytes,
@@ -736,17 +573,46 @@ def _render_all_students():
 def _render_individual_student():
     students_df = st.session_state.progress_df.copy()
     students_df["DISPLAY"] = students_df["NAME"].astype(str) + " — " + students_df["ID"].astype(str)
-    choice = st.selectbox("Select a student", students_df["DISPLAY"].tolist(), key="full_single_select")
+    
+    # Student Selector in a card
+    with st.container():
+        choice = st.selectbox("Select a student to view details", students_df["DISPLAY"].tolist(), key="full_single_select")
+    
     sid = int(students_df.loc[students_df["DISPLAY"] == choice, "ID"].iloc[0])
     row_original = st.session_state.progress_df.loc[st.session_state.progress_df["ID"] == sid].iloc[0]
     row = students_df.loc[students_df["ID"] == sid].iloc[0]
 
-    # IMPORTANT: do NOT overwrite st.session_state["current_student_id"] here.
-    # Eligibility view is the single source of truth for the "current student"
-    # used by autosave and the sessions panel.
+    # Student Profile Card
+    st.markdown("### Profile Overview")
+    
+    # Calculate standing color
+    standing = get_student_standing(float(row.get("# of Credits Completed", 0) or 0))
+    status_type = "error" if "Probation" in standing else "success" if "Senior" in standing else "info"
+    
+    col_profile, col_stats = st.columns([2, 1])
+    
+    with col_profile:
+        render_glass_card(
+            title=row["NAME"],
+            subtitle=f"ID: {sid}",
+            content=f"""
+            <div style="display: flex; gap: 1rem; align-items: center; margin-top: 0.5rem;">
+                <div><b>Major:</b> {st.session_state.get('current_major', 'Unknown')}</div>
+                <div><b>Email:</b> {row.get('EMAIL', 'N/A')}</div>
+            </div>
+            """
+        )
+        
+    with col_stats:
+        render_status_badge(standing, status=status_type)
+        st.markdown(f"**Credits Completed:** {row.get('# of Credits Completed', 0)}")
+        st.markdown(f"**GPA:** {row.get('GPA', 'N/A')}")
+
+    st.markdown("### Course Status")
 
     available_courses = st.session_state.courses_df["Course Code"].tolist()
-    selected_courses = st.multiselect("Select Courses", options=available_courses, default=available_courses, key="indiv_courses")
+    with st.expander("Filter Courses", expanded=False):
+        selected_courses = st.multiselect("Select Courses", options=available_courses, default=available_courses, key="indiv_courses")
 
     # Build status codes for this student (includes Optional = 'o' and Repeat = 'ar')
     data = {"ID": [sid], "NAME": [row["NAME"]]}
@@ -784,14 +650,16 @@ def _render_individual_student():
                 data[c] = ["na" if stt == "Eligible" else "ne"]
 
     indiv_df = pd.DataFrame(data)
-    st.write("*Legend:* c=Completed, r=Registered, a=Advised, ar=Advised-Repeat, o=Optional, b=Bypass, na=Eligible not chosen, ne=Not Eligible")
+    st.caption("Legend: c=Completed, r=Registered, a=Advised, ar=Advised-Repeat, o=Optional, na=Eligible not chosen, ne=Not Eligible")
     styled = _style_codes(indiv_df, selected_courses)
-    st.dataframe(styled, width="stretch")
+    st.dataframe(styled, width=None, use_container_width=True)
 
-    # Download colored sheet for this student (compact codes)
+    # Actions Area
+    render_glass_card(title="Actions", content="Export reports or email the student.")
+    
     col1, col2 = st.columns([1, 1])
     with col1:
-        def _build_individual_report_bytes() -> bytes:
+        if st.button("Download Individual Report", use_container_width=True):
             output = BytesIO()
             with pd.ExcelWriter(output, engine="openpyxl") as writer:
                 indiv_df.to_excel(writer, index=False, sheet_name="Student")
@@ -810,7 +678,7 @@ def _render_individual_student():
     
     with col2:
         # Email advising sheet to student
-        if st.button("📧 Email Advising Sheet", key=f"email_indiv_{sid}", help="Send this student's advising recommendations via email"):
+        if st.button("📧 Email Advising Sheet", key=f"email_indiv_{sid}", use_container_width=True):
             from email_manager import get_student_email, send_advising_email
             
             student_email = get_student_email(str(sid))
@@ -840,21 +708,13 @@ def _render_individual_student():
                     st.error(f"❌ {message}")
 
     # Download sheets for all advised students into one workbook + sync to Drive (unchanged)
-    all_sel = [(int(k), v) for k, v in st.session_state.advising_selections.items() if v.get("advised")]
-    if not all_sel:
-        st.info("No advised students found.")
-        st.download_button(
-            "Download All Advised Students Reports",
-            data=b"",
-            file_name="All_Advised_Students.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            type="primary",
-            disabled=True,
-            help="Advise at least one student to enable the export.",
-        )
-        return
-
-    def _build_all_advised_bytes() -> bytes:
+    st.markdown("---")
+    st.subheader("Global Export")
+    if st.button("Download All Advised Students Reports"):
+        all_sel = [(int(k), v) for k, v in st.session_state.advising_selections.items() if v.get("advised")]
+        if not all_sel:
+            st.info("No advised students found.")
+            return
         output = BytesIO()
         
         # Get bypasses for this major

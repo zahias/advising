@@ -1016,6 +1016,8 @@ def bulk_restore_panel():
 
 # ---------- panel UI ----------
 
+from visual_theme import render_glass_card, render_status_badge
+
 def advising_history_panel():
     st.markdown("---")
     st.subheader(f"Advising Sessions — {st.session_state.get('current_major','')}")
@@ -1054,41 +1056,73 @@ def advising_history_panel():
         st.info("No sessions found for this student." if current_sid is not None else "No sessions found.")
         return
 
-    # Session selector - deletion is managed via Google Drive for admin control
-    labels = [r.get("title", "(untitled)") for r in index]
-    choice_idx = st.selectbox(
-        "Saved sessions", 
-        options=list(range(len(index))), 
-        format_func=lambda i: labels[i], 
-        key="sess_choice"
-    )
-    chosen = index[choice_idx]
-    sid = str(chosen.get("id", ""))
+    # Layout: List of cards on the left (scrollable area effectively), Details on the right or below.
+    # For simplicity in Streamlit, we'll list them. if many, maybe limit?
     
-    if st.button("📂 View Session", width="stretch", key="sess_open"):
-        payload = _load_session_payload_by_id(sid)
-        if payload:
-            st.session_state["advising_loaded_payload"] = payload
-            st.success("Loaded archived session below (read-only).")
+    st.caption(f"Showing {len(index)} sessions")
     
-    st.caption("To delete sessions, manage files directly in Google Drive.")
+    # Session List Container
+    with st.container():
+        for i, session in enumerate(index):
+            sid = str(session.get("id",""))
+            date_str = session.get("created_at", "").replace("T", " ")[:16]
+            student_name = session.get("student_name", "Unknown")
+            advisor = session.get("advisor_name", "Unknown")
+            period = f"{session.get('semester','')} {session.get('year','')}"
+            
+            # Card Content
+            with st.container():
+                col_info, col_action = st.columns([3, 1])
+                with col_info:
+                    st.markdown(f"**{date_str}** — {student_name}")
+                    st.caption(f"Advisor: {advisor} | {period}")
+                with col_action:
+                    if st.button("View", key=f"view_{sid}"):
+                        payload = _load_session_payload_by_id(sid)
+                        if payload:
+                            st.session_state["advising_loaded_payload"] = payload
+                            st.rerun()
+                st.markdown("---")
 
+
+    # Details View (if loaded)
     payload = st.session_state.get("advising_loaded_payload")
     if payload:
+        st.markdown("### 📄 Session Details")
+        
         snapshot = payload.get("snapshot", {})
         students = snapshot.get("students", [])
+        meta = payload.get("meta", {})
+        
+        # Add delete button for the currently viewed session
+        col_del_1, col_del_2 = st.columns([3, 1])
+        with col_del_2:
+             if st.button("🗑️ Delete Session", key="del_from_view", type="secondary"):
+                 current_view_id = meta.get("id")
+                 if current_view_id:
+                     st.session_state.advising_index = [r for r in st.session_state.advising_index if str(r.get("id","")) != current_view_id]
+                     _save_index(st.session_state.advising_index)
+                     st.session_state.pop("advising_loaded_payload", None)
+                     st.success("Session deleted.")
+                     st.rerun()
+
         if students:
             s = students[0]
-            st.markdown("### Archived Session (read-only)")
-            with st.container(border=True):
-                st.write(
-                    f"**Name:** {s.get('NAME','')}  |  **ID:** {s.get('ID','')}  |  "
-                    f"**Credits:** {int((s.get('# of Credits Completed',0) or 0) + (s.get('# Registered',0) or 0))}  |  "
-                    f"**Standing:** {s.get('Standing','')}"
-                )
-                if s.get("note"):
-                    st.caption("Advisor Note:")
-                    st.write(s["note"])
+            
+            render_glass_card(
+                title=f"Snapshot: {s.get('NAME','')}",
+                subtitle=f"ID: {s.get('ID','')} | {meta.get('created_at','').replace('T',' ')[:16]}",
+                content=f"""
+                <div style="display: flex; gap: 2rem;">
+                    <div><b>Credits:</b> {int((s.get('# of Credits Completed',0) or 0) + (s.get('# Registered',0) or 0))}</div>
+                    <div><b>Standing:</b> {s.get('Standing','')}</div>
+                </div>
+                <div style="margin-top: 1rem; font-style: italic; color: var(--text-muted);">
+                    "{s.get("note", "No advisor notes.")}"
+                </div>
+                """
+            )
+
             df = pd.DataFrame(s.get("courses", []))
             if not df.empty:
                 preferred = ["Course Code","Type","Requisites","Offered","Eligibility Status","Justification","Action"]
@@ -1096,3 +1130,5 @@ def advising_history_panel():
                 st.dataframe(style_df(df[cols]), width="stretch")
             else:
                 st.info("No course rows stored in this snapshot.")
+        else:
+            st.warning("Snapshot data is empty or corrupted.")
