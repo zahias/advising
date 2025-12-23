@@ -1,7 +1,14 @@
 # Advising Dashboard
 
 ## Overview
-The Advising Dashboard is a Streamlit application for Phoenix University academic advisors. It aims to streamline academic advising by providing tools for student progress tracking, course eligibility checks, advising session management, and Google Drive data synchronization. It supports multiple majors (PBHL, SPTH-New, SPTH-Old) and includes features like a Course Offering Planner for optimized course recommendations, ultimately providing a comprehensive platform for academic guidance. The project envisions enhancing academic success and administrative efficiency through intuitive and data-driven advising.
+This Streamlit-based Advising Dashboard for Phoenix University assists academic advisors in tracking student progress and course eligibility across multiple majors (PBHL, SPTH-New, SPTH-Old). Its primary purpose is to enable advisors to view student course completion and registration status, check course eligibility based on prerequisites, manage advising sessions, and sync data with Google Drive for backup and collaboration. The project aims to streamline the advising process, providing a comprehensive and user-friendly tool for academic guidance.
+
+## Recent Changes
+- **2025-10-31**: Added interactive course selection to Course Planning feature. Users can now select courses to offer and see live eligibility updates assuming eligible students will take those courses. Added credits remaining slider (0-60, default 15) to filter critical path courses by graduation proximity. Fixed Clear Selection button to properly reset checkbox states.
+- **2025-10-31**: Fixed critical eligibility calculation bug in full student view where registered courses weren't satisfying prerequisites. The bug was caused by overwriting course column data with status codes during loop processing. Now preserves original progress data using indexed lookups for accurate eligibility calculations.
+- **2025-10-31**: Added Course Planning feature with comprehensive semester offering optimization. New "Course Planning" tab analyzes all courses across all students to suggest optimal offerings based on current eligibility, students 1-2 prerequisites away, graduation proximity (remaining credits), and prerequisite chain analysis. Includes priority scoring, bottleneck course identification, critical path analysis, and exportable Excel reports.
+- **2025-10-31**: Fixed period persistence bug where sync_file_with_drive() was being called with incorrect parameter order, preventing periods from saving to Google Drive.
+- **2025-10-30**: Added mandatory period selection gate. Users must now select or create an advising period before accessing the dashboard. Period selection screen appears immediately after major selection with two options: "Start New Period" or "Use Existing Period". Added "Change Advising Period" button in Advising Utilities for easy period switching. Added debug info panel and Drive save verification to troubleshoot period persistence issues.
 
 ## User Preferences
 I prefer:
@@ -15,35 +22,37 @@ I prefer:
 ## System Architecture
 
 ### UI/UX Decisions
-The dashboard features a modern, accessible design adhering to WCAG AA standards, including keyboard navigation and mobile responsiveness. It uses a 5-section navigation system (Home, Setup, Workspace, Insights Hub, Settings) with a persistent header. Functionality is gated by a mandatory advising period selection. The interface includes a simple student selection dropdown, a stepwise accordion-style data upload with inline validation, and a unified notification system. Visual styling is consistent, and deprecated Streamlit API usage has been updated.
+The dashboard features a modern, accessible design with WCAG AA compliant colors, keyboard navigation, and mobile responsiveness. Before accessing any functionality, users must select or create an advising period via a mandatory selection gate. The dashboard uses a simple dropdown for student selection, a stepwise accordion-style data upload interface with inline validation, and a unified notification system with persistent and toast-style messages. The sidebar is minimized by default for more workspace, and inline action buttons are used for efficiency. A "Change Advising Period" button in Advising Utilities allows users to switch periods at any time.
 
 ### Technical Implementations
-Built with Streamlit in Python 3.11, the application uses Pandas for data manipulation. It integrates with the Google Drive API for cloud storage and synchronization, and uses standard Python SMTP for Outlook/Office 365 email functionality with HTML templates. Key features include multi-major data tracking, automated course eligibility checks (including a Requisite Bypass feature), and persistent advising sessions. Performance optimizations include extensive session-state caching for advising data and period history.
+The application is built using Streamlit in Python 3.11. It utilizes Pandas for data manipulation, particularly with Excel files. Google Drive API is optionally integrated for cloud storage and synchronization. Email functionality is implemented using standard Python SMTP for Outlook/Office 365, supporting HTML email templates and per-major email rosters. The system supports multi-major data tracking, course eligibility checks, and persistent advising sessions.
 
 ### Feature Specifications
-- **Multi-Major Support**: Manages data for PBHL, SPTH-New, SPTH-Old.
-- **Course Eligibility**: Automated checks with support for prerequisites, corequisites, concurrent requirements, and student standing. Includes a "Requisite Bypass" feature.
-- **Student Views**: Provides a "Student Eligibility View" and a "Full Student View" with degree plan, QAA sheet, and schedule conflict insights.
-- **Course Offering Planner**: Recommends courses based on student needs, bottlenecks, and eligibility, using a weighted priority scoring system.
-- **Advising Sessions**: Records and persists advisor recommendations and notes, with Google Drive synchronization and a bulk restore feature.
-- **Email Integration**: Sends formatted advising sheets via Outlook/Office 365.
-- **Data Upload**: Validated, stepwise interface for `courses_table.xlsx`, `progress_report.xlsx`, and email rosters.
-- **Advising Periods**: Tracks advising cycles per major, with archiving and new period creation.
-- **Degree Plan View**: Displays curriculum grid with color-coded student progress.
-- **Course Exclusions**: Allows advisors to exclude intensive courses for selected students.
+- **Multi-Major Support**: Handles data and configurations for PBHL, SPTH-New, SPTH-Old.
+- **Course Eligibility**: Automated checking against prerequisites, corequisites, concurrent requirements, and student standing.
+- **Student Views**: Provides both an "Eligibility view" (courses a student can take) and a "Full student view" (complete progress tracking).
+- **Course Planning**: Comprehensive semester planning tool that analyzes optimal course offerings by calculating student eligibility status (currently eligible, 1 prerequisite away, 2+ away), prioritizing students close to graduation, identifying bottleneck courses that unlock many downstream courses, and flagging critical path courses needed to prevent delays. Includes exportable Excel reports with detailed recommendations.
+- **Advising Sessions**: Records advisor recommendations and notes, persisting them across sessions and syncing to Drive.
+- **Email Integration**: Sends formatted advising sheets directly to students via Outlook/Office 365.
+- **Data Upload**: Stepwise, validated interface for `courses_table.xlsx`, `progress_report.xlsx`, and email rosters.
+- **Student Selection**: Simple dropdown selector showing student name, ID, and standing.
+- **Advising Periods**: Track advising cycles by semester/year/advisor. Starting a new period archives previous sessions and creates a clean slate.
+- **Utility Buttons**: Clear All Selections (clears all current advising selections) and Restore Latest Sessions (loads most recent saved sessions from current period for all students).
+- **Repeat Courses**: Functionality to mark courses for repeat, displayed as "Advised-Repeat".
+- **Period History**: View previous advising periods and browse archived sessions from past semesters.
 
 ### System Design Choices
-- **File Organization**: Google Drive uses a major-specific folder hierarchy (`{ROOT}/{MAJOR}/`) with sessions in `{ROOT}/{MAJOR}/sessions/`.
-- **Period Tracking**: Advising periods are tracked per major, with metadata in `current_period.json` and historical data in `periods_history.json`.
-- **Data Storage**: Advising sessions are saved locally and asynchronously synced to Google Drive.
-- **Security**: Sensitive credentials are managed via Replit Secrets.
-- **Module Structure**: Eligibility logic is isolated in `eligibility_utils.py`, and Google Drive functions use lazy loading to prevent import-time side effects.
+- **File Organization**: Google Drive uses a major-specific folder hierarchy (`{ROOT}/{MAJOR}/`) for all related files (e.g., `courses_table.xlsx`, `advising_index.json`). Sessions are stored in `{ROOT}/{MAJOR}/sessions/` subfolder.
+- **Period Tracking**: Each advising period (semester/year/advisor) is tracked per major. Sessions are tagged with period_id. Current period stored in `current_period.json`, historical periods in `periods_history.json`.
+- **Data Storage**: Advising sessions are saved locally first for responsiveness, then synced to Google Drive in the background. Each session includes period metadata.
+- **Configuration**: Streamlit configuration (`.streamlit/config.toml`) sets server port, disables CORS for iframe compatibility, and minimizes the sidebar.
+- **Security**: Sensitive credentials are managed via Replit Secrets, and `.gitignore` excludes them from version control.
 
 ## External Dependencies
 
-- **Google Drive API**: For cloud backup, data synchronization, and file organization.
-- **Outlook/Office 365 SMTP**: For sending advising emails.
-- **Streamlit**: Primary web framework.
+- **Google Drive API**: Used for optional cloud backup, data synchronization, and major-specific file organization. Requires `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, and `GOOGLE_FOLDER_ID` configured as secrets.
+- **Outlook/Office 365 SMTP**: Used for sending advising sheets to students via email. Requires `email.address` and `email.password` (app password) configured as secrets.
+- **Streamlit**: Main web framework.
 - **Pandas**: For data manipulation, especially with Excel files.
 - **openpyxl**: For reading and writing Excel files.
-- **Pillow**: For image handling.
+- **Pillow**: For image handling (e.g., `pu_logo.png`).

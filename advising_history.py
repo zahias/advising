@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Union
 from uuid import uuid4
 from datetime import datetime
 import numpy as np
@@ -10,32 +10,26 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-# Import eligibility functions from standalone module (no Streamlit dependencies)
-from eligibility_utils import (
+from google_drive import (
+    initialize_drive_service,
+    find_file_in_drive,
+    download_file_from_drive,
+    sync_file_with_drive,
+    get_major_folder_id,
+    get_or_create_folder,
+)
+from utils import (
+    log_info,
+    log_error,
     check_course_completed,
     check_course_registered,
     is_course_offered,
     check_eligibility,
     build_requisites_str,
     get_student_standing,
-    get_mutual_concurrent_pairs,
+    style_df,
 )
-
-# Import logging from utils (lightweight, no circular deps)
-from utils import log_info, log_error, style_df
-
 from advising_period import get_current_period
-
-# Lazy import for Google Drive to prevent import-time initialization
-_drive_module = None
-
-def _get_drive_module():
-    """Lazy load google_drive module to prevent import-time side effects."""
-    global _drive_module
-    if _drive_module is None:
-        import google_drive as gd
-        _drive_module = gd
-    return _drive_module
 
 try:
     from zoneinfo import ZoneInfo
@@ -43,16 +37,7 @@ try:
 except Exception:
     _LOCAL_TZ = None
 
-__all__ = [
-    "advising_history_panel", 
-    "autosave_current_student_session", 
-    "save_session_for_student", 
-    "_find_latest_session_for_student", 
-    "_load_session_and_apply",
-    "get_students_with_saved_sessions",
-    "bulk_restore_sessions",
-    "bulk_restore_panel",
-]
+__all__ = ["advising_history_panel", "autosave_current_student_session", "save_session_for_student", "_find_latest_session_for_student", "_load_session_and_apply"]
 
 
 # ---------- internal helpers ----------
@@ -90,8 +75,7 @@ def _get_major_folder_id() -> str:
     """Get major-specific folder ID. Returns major-specific folder inside root folder."""
     import os
     try:
-        gd = _get_drive_module()
-        service = gd.initialize_drive_service()
+        service = initialize_drive_service()
         major = st.session_state.get("current_major", "DEFAULT")
         
         # Get root folder ID
@@ -109,81 +93,56 @@ def _get_major_folder_id() -> str:
             return ""
         
         # Get or create major-specific folder
-        return gd.get_major_folder_id(service, major, root_folder_id)
+        return get_major_folder_id(service, major, root_folder_id)
     except Exception:
         return ""
 
 def _get_sessions_folder_id() -> str:
     """Get sessions subfolder ID within the major folder. Creates it if it doesn't exist."""
     try:
-        gd = _get_drive_module()
-        service = gd.initialize_drive_service()
+        service = initialize_drive_service()
         major_folder_id = _get_major_folder_id()
         if not major_folder_id:
             return ""
         
         # Get or create 'sessions' subfolder within major folder
-        sessions_folder_id = gd.get_or_create_folder(service, "sessions", major_folder_id)
+        sessions_folder_id = get_or_create_folder(service, "sessions", major_folder_id)
         return sessions_folder_id
     except Exception as e:
         log_error(f"Failed to get/create sessions folder", e)
         return ""
 
-def _load_index(force_refresh: bool = False) -> List[Dict[str, Any]]:
-    """
-    Load advising index. Uses session state cache to avoid repeated Drive calls.
-    Set force_refresh=True to force reload from Drive.
-    """
-    major = st.session_state.get("current_major", "DEFAULT")
-    cache_key = f"_advising_index_cache_{major}"
-    
-    # Use cached index if available (unless force refresh requested)
-    if not force_refresh and cache_key in st.session_state:
-        return st.session_state[cache_key]
-    
+def _load_index() -> List[Dict[str, Any]]:
     try:
-        gd = _get_drive_module()
-        service = gd.initialize_drive_service()
+        service = initialize_drive_service()
         
         # Try sessions subfolder first
         folder_id = _get_sessions_folder_id()
         if folder_id:
-            fid = gd.find_file_in_drive(service, _index_name(), folder_id)
+            fid = find_file_in_drive(service, _index_name(), folder_id)
             if fid:
-                payload = gd.download_file_from_drive(service, fid)
+                payload = download_file_from_drive(service, fid)
                 idx = json.loads(payload.decode("utf-8"))
-                result = idx if isinstance(idx, list) else []
-                # Update both cache AND advising_index for downstream functions
-                _save_index_local(result)
-                return result
+                return idx if isinstance(idx, list) else []
         
         # Fall back to major folder root (backward compatibility for legacy sessions)
         folder_id = _get_major_folder_id()
         if folder_id:
-            fid = gd.find_file_in_drive(service, _index_name(), folder_id)
+            fid = find_file_in_drive(service, _index_name(), folder_id)
             if fid:
-                payload = gd.download_file_from_drive(service, fid)
+                payload = download_file_from_drive(service, fid)
                 idx = json.loads(payload.decode("utf-8"))
                 log_info("Loaded legacy advising index from major folder root (consider migrating to sessions/)")
-                result = idx if isinstance(idx, list) else []
-                # Update both cache AND advising_index for downstream functions
-                _save_index_local(result)
-                return result
+                return idx if isinstance(idx, list) else []
         
-        # No index found - initialize empty
-        _save_index_local([])
         return []
     except Exception as e:
         log_error("Failed to load advising index", e)
-        return st.session_state.get(cache_key, [])
+        return []
 
 def _save_index_local(index_items: List[Dict[str, Any]]) -> None:
     """Save index to session state immediately (local-first)."""
     st.session_state.advising_index = index_items
-    # Also update the cache
-    major = st.session_state.get("current_major", "DEFAULT")
-    cache_key = f"_advising_index_cache_{major}"
-    st.session_state[cache_key] = index_items
 
 def _save_index(index_items: List[Dict[str, Any]]) -> None:
     """Save index to Drive asynchronously (background)."""
@@ -192,15 +151,14 @@ def _save_index(index_items: List[Dict[str, Any]]) -> None:
     
     # Background save to Drive (best effort)
     try:
-        gd = _get_drive_module()
-        service = gd.initialize_drive_service()
+        service = initialize_drive_service()
         folder_id = _get_sessions_folder_id()
         if not folder_id:
             return
         # Convert numpy types to native Python types before JSON serialization
         serializable_items = _convert_to_json_serializable(index_items)
         data = json.dumps(serializable_items, ensure_ascii=False, indent=2).encode("utf-8")
-        gd.sync_file_with_drive(service, data, _index_name(), "application/json", folder_id)
+        sync_file_with_drive(service, data, _index_name(), "application/json", folder_id)
         log_info(f"Index saved to Drive/sessions: {_index_name()}")
     except Exception as e:
         log_error("Failed to save advising index to Drive (local copy preserved)", e)
@@ -221,8 +179,7 @@ def _save_session_payload(session_id: str, snapshot: Dict[str, Any], meta: Dict[
     
     # Background save to Drive (best effort, non-blocking)
     try:
-        gd = _get_drive_module()
-        service = gd.initialize_drive_service()
+        service = initialize_drive_service()
         folder_id = _get_sessions_folder_id()
         if not folder_id:
             log_info(f"Session saved locally only (no Drive folder configured): {session_id}")
@@ -230,73 +187,10 @@ def _save_session_payload(session_id: str, snapshot: Dict[str, Any], meta: Dict[
         # Convert numpy types to native Python types before JSON serialization
         payload = _convert_to_json_serializable({"meta": meta, "snapshot": snapshot})
         data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
-        gd.sync_file_with_drive(service, data, _session_filename(session_id), "application/json", folder_id)
+        sync_file_with_drive(service, data, _session_filename(session_id), "application/json", folder_id)
         log_info(f"Session payload synced to Drive/sessions: {_session_filename(session_id)}")
     except Exception as e:
         log_error(f"Failed to sync session to Drive (local copy preserved): {session_id}", e)
-
-def _delete_session_from_drive(session_id: str) -> bool:
-    """Delete a session file from Drive. Returns True if successful."""
-    try:
-        gd = _get_drive_module()
-        service = gd.initialize_drive_service()
-        
-        # Try sessions subfolder first
-        folder_id = _get_sessions_folder_id()
-        if folder_id:
-            fid = gd.find_file_in_drive(service, _session_filename(session_id), folder_id)
-            if fid:
-                gd.delete_file_from_drive(service, fid)
-                log_info(f"Deleted session from Drive: {session_id}")
-                return True
-        
-        # Try major folder root (backward compatibility)
-        folder_id = _get_major_folder_id()
-        if folder_id:
-            fid = gd.find_file_in_drive(service, _session_filename(session_id), folder_id)
-            if fid:
-                gd.delete_file_from_drive(service, fid)
-                log_info(f"Deleted legacy session from Drive: {session_id}")
-                return True
-        
-        return False
-    except Exception as e:
-        log_error(f"Failed to delete session from Drive: {session_id}", e)
-        return False
-
-
-def _delete_sessions(session_ids: List[str]) -> int:
-    """Delete multiple sessions from both index and Drive. Returns count deleted."""
-    if not session_ids:
-        return 0
-    
-    deleted_count = 0
-    
-    # Remove from index
-    if "advising_index" not in st.session_state:
-        st.session_state.advising_index = _load_index()
-    
-    original_count = len(st.session_state.advising_index)
-    st.session_state.advising_index = [
-        r for r in st.session_state.advising_index 
-        if str(r.get("id", "")) not in session_ids
-    ]
-    deleted_count = original_count - len(st.session_state.advising_index)
-    
-    # Save updated index
-    _save_index(st.session_state.advising_index)
-    
-    # Remove from local cache
-    if "advising_sessions_cache" in st.session_state:
-        for sid in session_ids:
-            st.session_state.advising_sessions_cache.pop(sid, None)
-    
-    # Delete from Drive (best effort)
-    for sid in session_ids:
-        _delete_session_from_drive(sid)
-    
-    return deleted_count
-
 
 def _load_session_payload_by_id(session_id: str) -> Optional[Dict[str, Any]]:
     # Try local cache first
@@ -307,15 +201,14 @@ def _load_session_payload_by_id(session_id: str) -> Optional[Dict[str, Any]]:
     
     # Fall back to Drive
     try:
-        gd = _get_drive_module()
-        service = gd.initialize_drive_service()
+        service = initialize_drive_service()
         
         # Try sessions subfolder first
         folder_id = _get_sessions_folder_id()
         if folder_id:
-            fid = gd.find_file_in_drive(service, _session_filename(session_id), folder_id)
+            fid = find_file_in_drive(service, _session_filename(session_id), folder_id)
             if fid:
-                data = gd.download_file_from_drive(service, fid)
+                data = download_file_from_drive(service, fid)
                 payload = json.loads(data.decode("utf-8"))
                 # Cache it locally for next time
                 _save_session_payload_local(session_id, payload.get("snapshot", {}), payload.get("meta", {}))
@@ -324,9 +217,9 @@ def _load_session_payload_by_id(session_id: str) -> Optional[Dict[str, Any]]:
         # Fall back to major folder root (backward compatibility for legacy sessions)
         folder_id = _get_major_folder_id()
         if folder_id:
-            fid = gd.find_file_in_drive(service, _session_filename(session_id), folder_id)
+            fid = find_file_in_drive(service, _session_filename(session_id), folder_id)
             if fid:
-                data = gd.download_file_from_drive(service, fid)
+                data = download_file_from_drive(service, fid)
                 payload = json.loads(data.decode("utf-8"))
                 log_info(f"Loaded legacy session {session_id} from major folder root")
                 # Cache it locally for next time
@@ -377,11 +270,10 @@ def _find_student_row(student_id: Union[int, str]) -> Optional[pd.Series]:
 def _snapshot_student_courses(student_row: pd.Series, advised: List[str], optional: List[str], repeat: List[str]) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     cdf = st.session_state.courses_df
-    mutual_pairs = get_mutual_concurrent_pairs(cdf)
     for _, info in cdf.iterrows():
         code = str(info["Course Code"])
         offered = "Yes" if is_course_offered(cdf, code) else "No"
-        status, justification = check_eligibility(student_row, code, advised, cdf, registered_courses=[], mutual_pairs=mutual_pairs)
+        status, justification = check_eligibility(student_row, code, advised, cdf)
 
         # Action column should ONLY show advisor selections
         if code in repeat:
@@ -428,17 +320,6 @@ def _build_single_student_snapshot(student_id: Union[int, str]) -> Dict[str, Any
     optional = [str(x) for x in sel.get("optional", [])]
     repeat = [str(x) for x in sel.get("repeat", [])]
     note = str(sel.get("note", "") or "")
-    
-    # Get bypasses for this student
-    major = st.session_state.get("current_major", "")
-    bypasses_key = f"bypasses_{major}"
-    all_bypasses = st.session_state.get(bypasses_key, {})
-    student_bypasses = (
-        all_bypasses.get(student_id)
-        or all_bypasses.get(str(student_id))
-        or (all_bypasses.get(int(student_id)) if str(student_id).isdigit() else None)
-        or {}
-    )
 
     credits_completed = float(srow.get("# of Credits Completed", 0) or 0)
     credits_registered = float(srow.get("# Registered", 0) or 0)
@@ -456,7 +337,6 @@ def _build_single_student_snapshot(student_id: Union[int, str]) -> Dict[str, Any
             "optional": optional,
             "repeat": repeat,
             "note": note,
-            "bypasses": student_bypasses,
             "courses": _snapshot_student_courses(srow, advised, optional, repeat),
         }],
     }
@@ -601,417 +481,12 @@ def _load_session_and_apply(student_id: Union[int, str]) -> bool:
     st.session_state.advising_selections[student_id] = {
         "advised": student_data.get("advised", []),
         "optional": student_data.get("optional", []),
-        "repeat": student_data.get("repeat", []),
+        "repeat": student_data.get("repeat", []),  # Support new repeat field
         "note": student_data.get("note", ""),
     }
     
-    # Apply bypasses (backward compatible - old sessions won't have this field)
-    student_bypasses = student_data.get("bypasses", {})
-    if student_bypasses:
-        major = st.session_state.get("current_major", "")
-        bypasses_key = f"bypasses_{major}"
-        if bypasses_key not in st.session_state:
-            st.session_state[bypasses_key] = {}
-        st.session_state[bypasses_key][student_id] = student_bypasses
-    
     log_info(f"Auto-loaded most recent session for student {student_id}")
     return True
-
-
-def load_all_sessions_for_period(period_id: Optional[str] = None) -> int:
-    """
-    Load all saved advising sessions for the current (or specified) period
-    and apply them to advising_selections.
-    
-    Returns the number of sessions loaded.
-    """
-    if "advising_index" not in st.session_state:
-        st.session_state.advising_index = _load_index()
-    
-    index = st.session_state.advising_index or []
-    
-    if period_id is None:
-        current_period = get_current_period()
-        period_id = current_period.get("period_id", "")
-    
-    period_sessions = [
-        r for r in index 
-        if r.get("period_id", "") == period_id
-    ]
-    
-    if not period_sessions:
-        return 0
-    
-    students_with_sessions = {}
-    for session in period_sessions:
-        student_id = session.get("student_id")
-        if not student_id:
-            continue
-        created_at = session.get("created_at", "")
-        if student_id not in students_with_sessions or created_at > students_with_sessions[student_id].get("created_at", ""):
-            students_with_sessions[student_id] = session
-    
-    if "advising_selections" not in st.session_state:
-        st.session_state.advising_selections = {}
-    
-    major = st.session_state.get("current_major", "")
-    bypasses_key = f"bypasses_{major}"
-    if bypasses_key not in st.session_state:
-        st.session_state[bypasses_key] = {}
-    
-    loaded_count = 0
-    for student_id, session_meta in students_with_sessions.items():
-        try:
-            norm_id = int(student_id)
-        except (ValueError, TypeError):
-            norm_id = str(student_id)
-        
-        if norm_id in st.session_state.advising_selections:
-            continue
-        if str(norm_id) in st.session_state.advising_selections:
-            continue
-        
-        session_id = session_meta.get("id")
-        if not session_id:
-            continue
-        
-        payload = _load_session_payload_by_id(session_id)
-        if not payload:
-            continue
-        
-        snapshot = payload.get("snapshot", {})
-        students = snapshot.get("students", [])
-        
-        if not students:
-            continue
-        
-        student_data = students[0]
-        
-        st.session_state.advising_selections[norm_id] = {
-            "advised": student_data.get("advised", []),
-            "optional": student_data.get("optional", []),
-            "repeat": student_data.get("repeat", []),
-            "note": student_data.get("note", ""),
-        }
-        
-        student_bypasses = student_data.get("bypasses", {})
-        if student_bypasses:
-            st.session_state[bypasses_key][norm_id] = student_bypasses
-        
-        loaded_count += 1
-    
-    if loaded_count > 0:
-        log_info(f"Loaded {loaded_count} advising sessions for period {period_id}")
-    
-    return loaded_count
-
-
-# ---------- bulk restore helpers ----------
-
-def get_students_with_saved_sessions(period_id: Optional[str] = None) -> List[Dict[str, Any]]:
-    """
-    Get list of students who have saved sessions in the current period.
-    Returns list of dicts with student_id, student_name, session_count, latest_session info.
-    """
-    if "advising_index" not in st.session_state:
-        st.session_state.advising_index = _load_index()
-    
-    index = st.session_state.advising_index or []
-    
-    if period_id is None:
-        current_period = get_current_period()
-        period_id = current_period.get("period_id", "")
-    
-    # Filter sessions for current period
-    period_sessions = [r for r in index if r.get("period_id", "") == period_id]
-    
-    # Group by student
-    students_info: Dict[str, Dict[str, Any]] = {}
-    for session in period_sessions:
-        student_id = session.get("student_id")
-        if not student_id:
-            continue
-        
-        sid_str = str(student_id)
-        if sid_str not in students_info:
-            students_info[sid_str] = {
-                "student_id": student_id,
-                "student_name": session.get("student_name", ""),
-                "session_count": 0,
-                "latest_session_id": None,
-                "latest_created_at": "",
-            }
-        
-        students_info[sid_str]["session_count"] += 1
-        created_at = session.get("created_at", "")
-        if created_at > students_info[sid_str]["latest_created_at"]:
-            students_info[sid_str]["latest_created_at"] = created_at
-            students_info[sid_str]["latest_session_id"] = session.get("id")
-    
-    return list(students_info.values())
-
-
-def bulk_restore_sessions(student_ids: List[Union[int, str]], force: bool = False) -> Dict[str, Any]:
-    """
-    Restore most recent saved sessions for multiple students at once.
-    
-    Args:
-        student_ids: List of student IDs to restore
-        force: If True, overwrite existing advising_selections. If False, skip already loaded.
-    
-    Returns:
-        Dict with 'restored', 'skipped', 'failed' counts and 'details' list
-    """
-    result = {
-        "restored": 0,
-        "skipped": 0,
-        "failed": 0,
-        "details": []
-    }
-    
-    if "advising_selections" not in st.session_state:
-        st.session_state.advising_selections = {}
-    
-    major = st.session_state.get("current_major", "")
-    bypasses_key = f"bypasses_{major}"
-    if bypasses_key not in st.session_state:
-        st.session_state[bypasses_key] = {}
-    
-    for student_id in student_ids:
-        try:
-            # Normalize ID
-            try:
-                norm_id = int(student_id)
-            except (ValueError, TypeError):
-                norm_id = str(student_id)
-            
-            # Check if already loaded (unless force=True)
-            if not force:
-                if norm_id in st.session_state.advising_selections:
-                    existing = st.session_state.advising_selections[norm_id]
-                    if existing.get("advised") or existing.get("optional") or existing.get("note"):
-                        result["skipped"] += 1
-                        result["details"].append({
-                            "student_id": student_id,
-                            "status": "skipped",
-                            "reason": "Already has active session"
-                        })
-                        continue
-            
-            # Find and load latest session
-            latest_session = _find_latest_session_for_student(student_id)
-            if not latest_session:
-                result["failed"] += 1
-                result["details"].append({
-                    "student_id": student_id,
-                    "status": "failed",
-                    "reason": "No saved session found"
-                })
-                continue
-            
-            session_id = latest_session.get("id")
-            payload = _load_session_payload_by_id(session_id)
-            if not payload:
-                result["failed"] += 1
-                result["details"].append({
-                    "student_id": student_id,
-                    "status": "failed",
-                    "reason": "Could not load session payload"
-                })
-                continue
-            
-            snapshot = payload.get("snapshot", {})
-            students = snapshot.get("students", [])
-            if not students:
-                result["failed"] += 1
-                result["details"].append({
-                    "student_id": student_id,
-                    "status": "failed",
-                    "reason": "Session has no student data"
-                })
-                continue
-            
-            student_data = students[0]
-            
-            # Apply to advising_selections
-            st.session_state.advising_selections[norm_id] = {
-                "advised": student_data.get("advised", []),
-                "optional": student_data.get("optional", []),
-                "repeat": student_data.get("repeat", []),
-                "note": student_data.get("note", ""),
-            }
-            
-            # Apply bypasses
-            student_bypasses = student_data.get("bypasses", {})
-            if student_bypasses:
-                st.session_state[bypasses_key][norm_id] = student_bypasses
-            
-            result["restored"] += 1
-            result["details"].append({
-                "student_id": student_id,
-                "student_name": latest_session.get("student_name", ""),
-                "status": "restored",
-                "session_date": latest_session.get("created_at", "")[:16]
-            })
-            
-        except Exception as e:
-            result["failed"] += 1
-            result["details"].append({
-                "student_id": student_id,
-                "status": "failed",
-                "reason": str(e)
-            })
-    
-    if result["restored"] > 0:
-        log_info(f"Bulk restored {result['restored']} sessions")
-        # Invalidate caches that depend on advising data
-        if "_conflict_insights_cache" in st.session_state:
-            del st.session_state["_conflict_insights_cache"]
-        
-        # Sync to per-major bucket so it persists across reruns
-        major = st.session_state.get("current_major", "")
-        if major and "majors" in st.session_state:
-            if major in st.session_state.majors:
-                st.session_state.majors[major]["advising_selections"] = st.session_state.advising_selections.copy()
-    
-    return result
-
-
-def bulk_restore_panel():
-    """
-    UI panel for bulk restoring saved sessions.
-    Shows students with saved sessions and allows selecting multiple to restore.
-    """
-    st.markdown("---")
-    st.subheader("Restore Saved Sessions")
-    st.caption("Restore advising sessions from saved archive to make them active and editable.")
-    
-    # Get students with saved sessions
-    students_with_sessions = get_students_with_saved_sessions()
-    
-    if not students_with_sessions:
-        st.info("No saved sessions found for the current advising period.")
-        return
-    
-    # Get current advising_selections to identify what's already loaded
-    current_selections = st.session_state.get("advising_selections", {})
-    
-    # Build display data
-    display_data = []
-    for s in students_with_sessions:
-        sid = s["student_id"]
-        
-        # Check if already has active session
-        sel = current_selections.get(sid) or current_selections.get(str(sid)) or {}
-        has_active = bool(sel.get("advised") or sel.get("optional") or sel.get("note"))
-        
-        display_data.append({
-            "student_id": sid,
-            "student_name": s["student_name"],
-            "session_count": s["session_count"],
-            "latest_date": s["latest_created_at"][:16].replace("T", " ") if s["latest_created_at"] else "",
-            "has_active": has_active,
-            "status": "Active" if has_active else "Not Loaded"
-        })
-    
-    # Sort by status (not loaded first), then name
-    display_data.sort(key=lambda x: (x["has_active"], x["student_name"]))
-    
-    # Summary stats
-    not_loaded_count = sum(1 for d in display_data if not d["has_active"])
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.metric("Total with Saved Sessions", len(display_data))
-    with c2:
-        st.metric("Not Loaded", not_loaded_count)
-    with c3:
-        st.metric("Already Active", len(display_data) - not_loaded_count)
-    
-    # Create dataframe for selection
-    df = pd.DataFrame(display_data)
-    df = df.rename(columns={
-        "student_id": "ID",
-        "student_name": "Name", 
-        "session_count": "Saved Sessions",
-        "latest_date": "Latest Save",
-        "status": "Status"
-    })
-    
-    # Multi-select using checkboxes
-    st.markdown("**Select students to restore:**")
-    
-    # Quick actions
-    col1, col2, col3 = st.columns([1, 1, 2])
-    with col1:
-        if st.button("Select All Not Loaded", key="bulk_select_all"):
-            st.session_state["_bulk_restore_selection"] = [
-                str(d["student_id"]) for d in display_data if not d["has_active"]
-            ]
-            st.rerun()
-    with col2:
-        if st.button("Clear Selection", key="bulk_clear_selection"):
-            st.session_state["_bulk_restore_selection"] = []
-            st.rerun()
-    
-    # Initialize selection state
-    if "_bulk_restore_selection" not in st.session_state:
-        st.session_state["_bulk_restore_selection"] = []
-    
-    # Display as a data editor with selection column
-    df_display = df[["ID", "Name", "Saved Sessions", "Latest Save", "Status"]].copy()
-    df_display.insert(0, "Select", [str(d["student_id"]) in st.session_state["_bulk_restore_selection"] for d in display_data])
-    
-    edited_df = st.data_editor(
-        df_display,
-        column_config={
-            "Select": st.column_config.CheckboxColumn("Select", default=False),
-            "ID": st.column_config.NumberColumn("ID", format="%d"),
-        },
-        disabled=["ID", "Name", "Saved Sessions", "Latest Save", "Status"],
-        hide_index=True,
-        key="bulk_restore_editor",
-        width="stretch"
-    )
-    
-    # Update selection from editor
-    selected_ids = []
-    for i, row in edited_df.iterrows():
-        if row["Select"]:
-            selected_ids.append(str(display_data[i]["student_id"]))
-    
-    st.session_state["_bulk_restore_selection"] = selected_ids
-    
-    # Restore options
-    st.markdown(f"**{len(selected_ids)} student(s) selected**")
-    
-    force_overwrite = st.checkbox(
-        "Force overwrite existing active sessions", 
-        value=False,
-        help="If checked, will overwrite any existing advising data. Otherwise, skips students who already have active sessions."
-    )
-    
-    # Restore button
-    if st.button("Restore Selected Sessions", type="primary", disabled=len(selected_ids) == 0, key="bulk_restore_btn"):
-        with st.spinner(f"Restoring {len(selected_ids)} sessions..."):
-            result = bulk_restore_sessions(selected_ids, force=force_overwrite)
-        
-        # Show results
-        if result["restored"] > 0:
-            st.success(f"Successfully restored {result['restored']} session(s)")
-        if result["skipped"] > 0:
-            st.info(f"Skipped {result['skipped']} session(s) (already have active data)")
-        if result["failed"] > 0:
-            st.warning(f"Failed to restore {result['failed']} session(s)")
-        
-        # Show details in expander
-        if result["details"]:
-            with st.expander("View Details"):
-                details_df = pd.DataFrame(result["details"])
-                st.dataframe(details_df, hide_index=True, width="stretch")
-        
-        # Clear selection and refresh
-        st.session_state["_bulk_restore_selection"] = []
-        st.rerun()
 
 
 # ---------- panel UI ----------
@@ -1127,7 +602,7 @@ def advising_history_panel():
             if not df.empty:
                 preferred = ["Course Code","Type","Requisites","Offered","Eligibility Status","Justification","Action"]
                 cols = [c for c in preferred if c in df.columns] + [c for c in df.columns if c not in preferred]
-                st.dataframe(style_df(df[cols]), width="stretch")
+                st.dataframe(style_df(df[cols]), width='stretch')
             else:
                 st.info("No course rows stored in this snapshot.")
         else:

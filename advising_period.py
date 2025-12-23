@@ -6,12 +6,14 @@ from typing import Dict, Any, List, Optional, Literal, TypedDict
 from datetime import datetime
 import streamlit as st
 
+from google_drive import (
+    initialize_drive_service,
+    find_file_in_drive,
+    download_file_from_drive,
+    sync_file_with_drive,
+    get_major_folder_id,
+)
 from utils import log_info, log_error
-
-def _get_drive_module():
-    """Lazy loader for google_drive module to avoid import-time side effects."""
-    import google_drive as gd
-    return gd
 
 __all__ = [
     "get_current_period",
@@ -98,8 +100,7 @@ def _get_major_folder_id() -> str:
     """Get major-specific folder ID."""
     import os
     try:
-        gd = _get_drive_module()
-        service = gd.initialize_drive_service()
+        service = initialize_drive_service()
         major = st.session_state.get("current_major", "DEFAULT")
         
         root_folder_id = ""
@@ -115,7 +116,7 @@ def _get_major_folder_id() -> str:
         if not root_folder_id:
             return ""
         
-        return gd.get_major_folder_id(service, major, root_folder_id)
+        return get_major_folder_id(service, major, root_folder_id)
     except Exception:
         return ""
 
@@ -159,25 +160,24 @@ def load_period_from_drive() -> Optional[Dict[str, Any]]:
         major = st.session_state.get("current_major", "DEFAULT")
         log_info(f"Attempting to load period from Drive for major {major}")
         
-        gd = _get_drive_module()
-        service = gd.initialize_drive_service()
+        service = initialize_drive_service()
         if not service:
             log_info("load_period_from_drive: Drive service not initialized")
             return None
         
-        folder_id = _get_major_folder_id_internal()
+        folder_id = _get_major_folder_id()
         
         if not folder_id:
             log_info("load_period_from_drive: no folder_id found")
             return None
         
         log_info(f"Looking for {PERIOD_FILENAME} in folder_id: {folder_id}")
-        file_id = gd.find_file_in_drive(service, PERIOD_FILENAME, folder_id)
+        file_id = find_file_in_drive(service, PERIOD_FILENAME, folder_id)
         if not file_id:
             log_info(f"{PERIOD_FILENAME} not found in Drive")
             return None
         
-        payload = gd.download_file_from_drive(service, file_id)
+        payload = download_file_from_drive(service, file_id)
         period = json.loads(payload.decode("utf-8"))
         
         log_info(f"✓ Successfully loaded period from Drive: {period.get('period_id', 'unknown')}")
@@ -195,13 +195,12 @@ def save_period_to_drive(period: Dict[str, Any]) -> bool:
         major = st.session_state.get("current_major", "DEFAULT")
         log_info(f"Attempting to save period to Drive for major {major}: {period.get('period_id', 'unknown')}")
         
-        gd = _get_drive_module()
-        service = gd.initialize_drive_service()
+        service = initialize_drive_service()
         if not service:
             log_error("save_period_to_drive: Drive service not initialized", Exception("No service"))
             return False
         
-        folder_id = _get_major_folder_id_internal()
+        folder_id = _get_major_folder_id()
         
         if not folder_id:
             log_error("save_period_to_drive: no folder_id", Exception("No folder ID"))
@@ -209,7 +208,7 @@ def save_period_to_drive(period: Dict[str, Any]) -> bool:
         
         log_info(f"Saving to folder_id: {folder_id}")
         payload = json.dumps(period, indent=2).encode("utf-8")
-        gd.sync_file_with_drive(service, payload, PERIOD_FILENAME, "application/json", folder_id)
+        sync_file_with_drive(service, payload, PERIOD_FILENAME, "application/json", folder_id)
         
         log_info(f"✓ Successfully saved period to Drive: {period.get('period_id', 'unknown')}")
         return True
@@ -355,9 +354,8 @@ def start_new_period(semester: str, year: int, advisor_name: str) -> tuple[Dict[
 def _archive_period_to_history(period: Dict[str, Any]) -> None:
     """Archive a period to the history file in Drive."""
     try:
-        gd = _get_drive_module()
-        service = gd.initialize_drive_service()
-        folder_id = _get_major_folder_id_internal()
+        service = initialize_drive_service()
+        folder_id = _get_major_folder_id()
         major = st.session_state.get("current_major", "DEFAULT")
 
         if not folder_id:
@@ -365,10 +363,10 @@ def _archive_period_to_history(period: Dict[str, Any]) -> None:
 
         # Load existing history
         history = []
-        file_id = gd.find_file_in_drive(service, PERIODS_HISTORY_FILENAME, folder_id)
+        file_id = find_file_in_drive(service, PERIODS_HISTORY_FILENAME, folder_id)
         if file_id:
             try:
-                payload = gd.download_file_from_drive(service, file_id)
+                payload = download_file_from_drive(service, file_id)
                 history = json.loads(payload.decode("utf-8"))
                 if not isinstance(history, list):
                     history = []
@@ -384,7 +382,7 @@ def _archive_period_to_history(period: Dict[str, Any]) -> None:
         
         # Save updated history
         payload = json.dumps(history, indent=2).encode("utf-8")
-        gd.sync_file_with_drive(service, payload, PERIODS_HISTORY_FILENAME, "application/json", folder_id)
+        sync_file_with_drive(service, payload, PERIODS_HISTORY_FILENAME, "application/json", folder_id)
 
         if "period_history_cache" not in st.session_state:
             st.session_state.period_history_cache = {}
@@ -416,40 +414,40 @@ def _merge_period_entries(existing: Dict[str, Any], new_entry: Dict[str, Any]) -
     return merged
 
 
-def get_all_periods(force_refresh: bool = False) -> List[Dict[str, Any]]:
+def get_all_periods() -> List[Dict[str, Any]]:
     """
     Get all periods (current + history) for the current major.
     Returns list sorted by creation date (newest first).
-    Uses cache to avoid repeated Drive calls. Set force_refresh=True to reload from Drive.
     """
+
     major = st.session_state.get("current_major", "DEFAULT")
 
     if "period_history_cache" not in st.session_state:
         st.session_state.period_history_cache = {}
 
     cached_history: List[Dict[str, Any]] = st.session_state.period_history_cache.get(major, [])
-    
-    # Use cache if available (unless force refresh)
-    if not force_refresh and cached_history:
-        history = cached_history
-    else:
-        history = []
-        try:
-            gd = _get_drive_module()
-            service = gd.initialize_drive_service()
-            folder_id = _get_major_folder_id_internal()
+    history: List[Dict[str, Any]] = []
+    history_loaded = False
 
-            if service and folder_id:
-                file_id = gd.find_file_in_drive(service, PERIODS_HISTORY_FILENAME, folder_id)
-                if file_id:
-                    payload = gd.download_file_from_drive(service, file_id)
-                    history_payload = json.loads(payload.decode("utf-8"))
-                    if isinstance(history_payload, list):
-                        history = history_payload
-                        st.session_state.period_history_cache[major] = history
-        except Exception as e:
-            log_error(f"Failed to load period history", e)
-            history = cached_history
+    try:
+        service = initialize_drive_service()
+        folder_id = _get_major_folder_id()
+
+        if service and folder_id:
+            file_id = find_file_in_drive(service, PERIODS_HISTORY_FILENAME, folder_id)
+            if file_id:
+                payload = download_file_from_drive(service, file_id)
+                history_payload = json.loads(payload.decode("utf-8"))
+                if isinstance(history_payload, list):
+                    history = history_payload
+                    history_loaded = True
+    except Exception as e:
+        log_error(f"Failed to load period history", e)
+
+    if history_loaded:
+        st.session_state.period_history_cache[major] = history
+    else:
+        history = cached_history
 
     combined_periods: List[Dict[str, Any]] = []
 
@@ -458,11 +456,6 @@ def get_all_periods(force_refresh: bool = False) -> List[Dict[str, Any]]:
         combined_periods.append(current)
 
     combined_periods.extend(history)
-    
-    # Reconstruct missing periods from advising sessions
-    # This recovers periods that have session data but are missing from history
-    reconstructed = _reconstruct_periods_from_sessions()
-    combined_periods.extend(reconstructed)
 
     unique_periods: Dict[str, Dict[str, Any]] = {}
     order: List[str] = []

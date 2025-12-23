@@ -1,35 +1,67 @@
-# app.py - Advising Dashboard with Modern UI
+# app.py
 
 import os
+import importlib
+from io import BytesIO
+
 import pandas as pd
 import streamlit as st
+
+from data_upload import upload_data
+from eligibility_view import student_eligibility_view
+from full_student_view import full_student_view
+from course_planning_view import course_planning_view
+from visual_theme import apply_visual_theme
+from google_drive import (
+    download_file_from_drive,
+    initialize_drive_service,
+    find_file_in_drive,
+    get_major_folder_id,
+    GoogleAuthError,
+)
+from utils import log_info, log_error, load_progress_excel
+from advising_history import _load_session_and_apply
+from advising_period import get_current_period, start_new_period, get_all_periods
 from datetime import datetime
 
-from visual_theme import apply_visual_theme
-from utils import log_info, log_error, load_progress_excel
 
-def _get_drive_module():
-    """Lazy loader for google_drive module to avoid import-time side effects."""
-    import google_drive as gd
-    return gd
+def _default_period_for_today(today: datetime | None = None) -> tuple[str, int]:
+    """Return the default semester and year based on the current date."""
+    today = today or datetime.now()
+    month = today.month
+    year = today.year
 
-st.set_page_config(
-    page_title="Advising Dashboard",
-    page_icon="🎓",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+    if month == 1:
+        # January belongs to the Fall term of the prior calendar year
+        return "Fall", year - 1
+    if 2 <= month <= 6:
+        return "Spring", year
+    if 7 <= month <= 9:
+        return "Summer", year
+    # October-December (and any remaining months) map to Fall of the current year
+    return "Fall", year
 
+st.set_page_config(page_title="Advising Dashboard", layout="wide")
+
+# Apply visual theme and accessibility improvements
 apply_visual_theme()
 
-MAJORS = ["PBHL", "SPTH-New", "SPTH-Old", "NURS"]
+# ---------- Header / Logo ----------
+if os.path.exists("pu_logo.png"):
+    st.image("pu_logo.png", width=160)
+st.title("Advising Dashboard")
 
+# ---------- Majors ----------
+MAJORS = ["PBHL", "SPTH-New", "SPTH-Old"]
+
+# Per-major buckets persisted in session_state
 if "majors" not in st.session_state:
     st.session_state.majors = {
         m: {
             "courses_df": pd.DataFrame(),
             "progress_df": pd.DataFrame(),
             "advising_selections": {},
+            # advising_sessions are handled by advising_history; bucket is kept in sync there
         }
         for m in MAJORS
     }

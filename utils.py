@@ -5,38 +5,6 @@ import logging
 from io import BytesIO
 from typing import List, Tuple, Dict, Any
 
-# Import eligibility functions from standalone module to prevent circular imports
-from eligibility_utils import (
-    check_course_completed,
-    check_course_registered,
-    get_student_standing,
-    parse_requirements,
-    is_course_offered,
-    build_requisites_str,
-    get_corequisite_and_concurrent_courses,
-    get_mutual_concurrent_pairs,
-    check_eligibility,
-)
-
-# Re-export for backward compatibility
-__all__ = [
-    "check_course_completed",
-    "check_course_registered", 
-    "get_student_standing",
-    "parse_requirements",
-    "is_course_offered",
-    "build_requisites_str",
-    "get_corequisite_and_concurrent_courses",
-    "get_mutual_concurrent_pairs",
-    "check_eligibility",
-    "style_df",
-    "load_progress_excel",
-    "log_info",
-    "log_error",
-    "calculate_course_curriculum_years",
-    "calculate_student_curriculum_year",
-]
-
 # ---------------- Logging ----------------
 
 logging.basicConfig(
@@ -58,6 +26,162 @@ def log_error(message: str, error: Exception | str) -> None:
         logger.error(f"{message}: {error}", exc_info=isinstance(error, Exception))
     except Exception:
         pass
+
+
+# ------------- Progress-cell normalization -------------
+
+def _norm_cell(val: Any) -> str:
+    """
+    Normalize a progress cell to one of:
+      - 'c'  -> completed
+      - 'cr' -> currently registered (BLANK / NaN)
+      - 'nc' -> not completed
+    Any unexpected token is treated as 'nc'.
+    """
+    # IMPORTANT: in Excel -> pandas, blanks usually arrive as NaN
+    if val is None or (isinstance(val, float) and pd.isna(val)) or pd.isna(val):
+        return "cr"
+    s = str(val).strip().lower()
+    if s == "":
+        return "cr"
+    if s == "c":
+        return "c"
+    if s in {"cr", "reg"}:  # accept legacy 'reg' tokens for compatibility
+        return "cr"
+    if s == "nc":
+        return "nc"
+    return "nc"
+
+def check_course_completed(row: pd.Series, course_code: str) -> bool:
+    return _norm_cell(row.get(course_code)) == "c"
+
+def check_course_registered(row: pd.Series, course_code: str) -> bool:
+    return _norm_cell(row.get(course_code)) == "cr"
+
+
+# ------------- Standing -------------------
+
+def get_student_standing(total_credits_completed: float | int) -> str:
+    """Preserves original app's buckets."""
+    try:
+        tc = float(total_credits_completed)
+    except Exception:
+        tc = 0.0
+    if tc >= 60:
+        return "Senior"
+    if tc >= 30:
+        return "Junior"
+    return "Sophomore"
+
+
+# ------------- Courses-table helpers -------------------
+
+def parse_requirements(req_str: str) -> List[str]:
+    if pd.isna(req_str) or req_str is None:
+        return []
+    s = str(req_str).strip()
+    if not s or s.upper() == "N/A":
+        return []
+    parts = [p.strip() for chunk in s.replace(" and ", ",").split(",") for p in chunk.split(";")]
+    return [p for p in parts if p]
+
+def is_course_offered(courses_df: pd.DataFrame, course_code: str) -> bool:
+    if courses_df.empty:
+        return False
+    row = courses_df.loc[courses_df["Course Code"] == course_code]
+    if row.empty:
+        return False
+    return str(row["Offered"].iloc[0]).strip().lower() == "yes"
+
+def build_requisites_str(course_info: pd.Series | Dict[str, Any]) -> str:
+    pieces = []
+    for key, prefix in [("Prerequisite", "Prereq"), ("Concurrent", "Conc"), ("Corequisite", "Coreq")]:
+        value = course_info.get(key, "")
+        if pd.isna(value) or str(value).strip() in ("", "N/A"):
+            continue
+        pieces.append(f"{prefix}: {str(value).strip()}")
+    return "; ".join(pieces) if pieces else "None"
+
+
+# ------------- Eligibility -----------------------------
+
+def _standing_satisfies(req: str, standing: str) -> bool:
+    req_l = req.strip().lower()
+    if "senior" in req_l:
+        return standing == "Senior"
+    if "junior" in req_l:
+        return standing in ("Junior", "Senior")
+    if "sophomore" in req_l:
+        return standing in ("Sophomore", "Junior", "Senior")
+    return False
+
+def check_eligibility(
+    student_row: pd.Series,
+    course_code: str,
+    advised_courses: List[str],
+    courses_df: pd.DataFrame,
+) -> Tuple[str, str]:
+    """
+    Returns (status, justification).
+    status in {'Eligible','Not Eligible','Completed','Registered'}
+
+    As agreed: *currently registered* satisfies requisites and is **noted**.
+    """
+    # Completed / Registered short-circuit
+    if check_course_completed(student_row, course_code):
+        return "Completed", "Already completed."
+    if check_course_registered(student_row, course_code):
+        return "Registered", "Already registered for this course."
+
+    # Locate course metadata
+    course_row = courses_df.loc[courses_df["Course Code"] == course_code]
+    if course_row.empty:
+        return "Not Eligible", "Course not found in courses table."
+
+    standing = get_student_standing(
+        float(student_row.get("# of Credits Completed", 0)) + float(student_row.get("# Registered", 0))
+    )
+    reasons: List[str] = []
+    notes: List[str] = []
+
+    # Offered?
+    if not is_course_offered(courses_df, course_code):
+        reasons.append("Course not offered.")
+
+    def _satisfies(token: str) -> bool:
+        tok = token.strip()
+        # Standing clauses
+        if "standing" in tok.lower():
+            return _standing_satisfies(tok, standing)
+        # Course tokens: completed OR registered OR advised
+        comp = check_course_completed(student_row, tok)
+        reg = check_course_registered(student_row, tok)
+        adv = tok in (advised_courses or [])
+        if reg:
+            notes.append(f"Requirement '{tok}' satisfied by current registration.")
+        return comp or reg or adv
+
+    # Apply to all requirement columns
+    for col, label in [
+        ("Prerequisite", "Prerequisite"),
+        ("Concurrent", "Concurrent requirement"),
+        ("Corequisite", "Corequisite"),
+    ]:
+        reqs = parse_requirements(course_row[col].iloc[0] if col in course_row.columns else "")
+        for r in reqs:
+            if not _satisfies(r):
+                reasons.append(f"{label} '{r}' not satisfied.")
+
+    if reasons:
+        just = "; ".join(reasons)
+        if notes:
+            just += " " + " ".join(notes)
+        return "Not Eligible", just
+
+    justification = "All requirements met."
+    if notes:
+        justification += " " + " ".join(notes)
+    return "Eligible", justification
 
 
 # ------------- Styling for Streamlit tables --------------
@@ -97,13 +221,6 @@ def _coalesce(a: pd.Series | None, b: pd.Series | None):
     if a is None:
         return b
     if b is None:
-        return a
-    # Filter out empty/null entries before combine_first to avoid FutureWarning
-    a_filtered = a.dropna() if hasattr(a, 'dropna') else a
-    b_filtered = b.dropna() if hasattr(b, 'dropna') else b
-    if len(a_filtered) == 0:
-        return b
-    if len(b_filtered) == 0:
         return a
     return a.combine_first(b)
 
@@ -167,146 +284,3 @@ def load_progress_excel(content: bytes | BytesIO | str) -> pd.DataFrame:
             merged.drop(columns=[f"{col}_int"], inplace=True, errors="ignore")
 
     return merged
-
-
-# ------------- Curriculum Year Calculation -------------------
-
-def calculate_course_curriculum_years(courses_df: pd.DataFrame) -> Dict[str, int]:
-    """
-    Analyzes prerequisite chains to assign a curriculum year to each course.
-    
-    Curriculum Year 1: Courses with no prerequisites
-    Curriculum Year 2: Courses whose prerequisites are all in Year 1
-    Curriculum Year 3: Courses whose prerequisites include Year 2 courses
-    And so on...
-    
-    Returns a dict mapping course_code -> curriculum_year (1, 2, 3, etc.)
-    """
-    course_years = {}
-    
-    # Build prerequisite map and standing requirements
-    prereq_map = {}
-    standing_requirements = {}
-    
-    for _, course_row in courses_df.iterrows():
-        course_code = course_row["Course Code"]
-        all_prereqs = parse_requirements(course_row.get("Prerequisite", ""))
-        
-        # Separate course prerequisites from standing requirements
-        course_prereqs = []
-        standing_req = None
-        
-        for p in all_prereqs:
-            if "standing" in p.lower():
-                standing_req = p
-            else:
-                course_prereqs.append(p)
-        
-        prereq_map[course_code] = course_prereqs
-        standing_requirements[course_code] = standing_req
-    
-    # Recursively calculate curriculum year for each course
-    def get_course_year(course_code: str, visited=None) -> int:
-        if visited is None:
-            visited = set()
-        
-        # Already calculated
-        if course_code in course_years:
-            return course_years[course_code]
-        
-        # Circular dependency detection
-        if course_code in visited:
-            return 1  # Default to Year 1 for circular dependencies
-        
-        visited.add(course_code)
-        
-        # Get prerequisites for this course
-        prereqs = prereq_map.get(course_code, [])
-        standing_req = standing_requirements.get(course_code)
-        
-        # Calculate base year from prerequisite courses
-        max_prereq_year = 0
-        for prereq_code in prereqs:
-            if prereq_code in prereq_map:  # Only consider courses in our table
-                prereq_year = get_course_year(prereq_code, visited.copy())
-                max_prereq_year = max(max_prereq_year, prereq_year)
-        
-        # Determine minimum year based on standing requirement
-        # Junior standing (30 credits) typically achievable by Year 2
-        # Senior standing (60 credits) typically achievable by Year 3
-        standing_year = 1
-        if standing_req:
-            if "senior" in standing_req.lower():
-                standing_year = 3
-            elif "junior" in standing_req.lower():
-                standing_year = 2
-        
-        # The course year is the maximum of prerequisite-based year and standing-based year
-        course_year = max(max_prereq_year + 1, standing_year)
-        course_years[course_code] = course_year
-        return course_year
-    
-    # Calculate year for all courses
-    for course_code in prereq_map.keys():
-        get_course_year(course_code)
-    
-    return course_years
-
-
-def calculate_student_curriculum_year(student_row: pd.Series, courses_df: pd.DataFrame, course_curriculum_years: Dict[str, int] = None) -> int:
-    """
-    Determines which curriculum year a student is in based on their completed/registered courses.
-    
-    A student is in Curriculum Year N if they have completed (or are registered for) 
-    all prerequisite chains needed to take Year N courses, but have not yet completed 
-    the prerequisites for Year N+1.
-    
-    Args:
-        student_row: Student's progress data
-        courses_df: Courses table
-        course_curriculum_years: Pre-calculated course years (optional, will calculate if not provided)
-    
-    Returns:
-        Curriculum year (1, 2, 3, etc.)
-    """
-    if course_curriculum_years is None:
-        course_curriculum_years = calculate_course_curriculum_years(courses_df)
-    
-    # Get all courses the student has completed or is registered for
-    completed_or_registered = []
-    for course_code in courses_df["Course Code"]:
-        if check_course_completed(student_row, course_code) or check_course_registered(student_row, course_code):
-            completed_or_registered.append(course_code)
-    
-    if not completed_or_registered:
-        # No courses completed or registered -> Year 1
-        return 1
-    
-    # Find the highest curriculum year of courses they've completed/registered
-    max_year_completed = max(
-        (course_curriculum_years.get(course, 1) for course in completed_or_registered),
-        default=1
-    )
-    
-    # Check if they can progress to the next year
-    # They can progress if they've completed all Year N prerequisites needed for Year N+1
-    next_year = max_year_completed + 1
-    can_take_next_year = False
-    
-    for course_code, year in course_curriculum_years.items():
-        if year == next_year:
-            # Check if student is eligible for any Year N+1 course
-            is_eligible_status, _ = check_eligibility(
-                student_row,
-                course_code,
-                [],
-                courses_df,
-                ignore_offered=True
-            )
-            if is_eligible_status == "Eligible":
-                can_take_next_year = True
-                break
-    
-    # If they can take Year N+1 courses, they're in Year N+1
-    # Otherwise they're in Year N
-    return next_year if can_take_next_year else max_year_completed
