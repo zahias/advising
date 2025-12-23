@@ -8,206 +8,278 @@ import streamlit as st
 
 def apply_visual_theme():
     """
-    Apply custom CSS for a premium, modern, and accessible design system.
-    Includes Glassmorphism, Google Fonts, and specialized component styling.
+    Apply custom CSS for accessibility, mobile responsiveness, and visual improvements.
     """
     st.markdown(
         """
         <style>
-        /* ========== GOOGLE FONTS ========== */
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap');
-
-        /* ========== ROOT VARIABLES ========== */
-        :root {
-            /* Core Brand Colors */
-            --primary-color: #4F46E5;       /* Indigo 600 */
-            --primary-hover: #4338CA;       /* Indigo 700 */
-            --secondary-color: #EC4899;     /* Pink 500 */
-            --accent-color: #8B5CF6;        /* Violet 500 */
+        /* ========== Accessibility Improvements ========== */
+        
+        /* High contrast text for better readability */
+        body {
+            color: #1a1a1a;
+        }
+        
+        /* Improved link contrast (WCAG AA compliant) */
+        a {
+            color: #0051a5;
+            text-decoration: underline;
+        }
+        
+        a:hover {
+            color: #003d7a;
+        }
+        
+        /* Focus indicators for keyboard navigation */
+        button:focus, 
+        input:focus, 
+        select:focus, 
+        textarea:focus {
+            outline: 3px solid #4A90E2 !important;
+            outline-offset: 2px;
+        }
+        
+        /* ========== Mobile Responsiveness ========== */
+        
+        /* Responsive columns - stack on mobile */
+        @media (max-width: 768px) {
+            .row-widget.stHorizontalBlock {
+                flex-direction: column !important;
+            }
             
-            /* Neutral Colors */
-            --bg-color: #F8FAFC;           /* Slate 50 */
-            --surface-color: #FFFFFF;       /* White */
-            --text-heading: #1E293B;        /* Slate 800 */
-            --text-body: #334155;           /* Slate 700 */
-            --text-muted: #64748B;          /* Slate 500 */
-            --border-color: #E2E8F0;        /* Slate 200 */
+            /* Make tables scrollable on mobile */
+            .dataframe-container {
+                overflow-x: auto;
+            }
             
-            /* Feedback Colors */
-            --success-bg: #DCFCE7; --success-text: #166534;
-            --warning-bg: #FEF9C3; --warning-text: #854D0E;
-            --error-bg: #FEE2E2;   --error-text: #991B1B;
-            --info-bg: #E0F2FE;    --info-text: #075985;
-            
-            /* Glassmorphism Variables */
-            --glass-bg: rgba(255, 255, 255, 0.7);
-            --glass-border: rgba(255, 255, 255, 0.5);
-            --glass-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-            --glass-blur: blur(12px);
-        }
-
-        /* ========== GLOBAL STYLES ========== */
-        
-        /* Typography */
-        html, body, [class*="css"] {
-            font-family: 'Inter', sans-serif;
-            color: var(--text-body);
-            background-color: var(--bg-color);
+            /* Larger touch targets on mobile */
+            button {
+                min-height: 44px !important;
+                min-width: 44px !important;
+            }
         }
         
-        h1, h2, h3, h4, h5, h6 {
-            font-family: 'Outfit', sans-serif;
-            color: var(--text-heading);
-            font-weight: 700;
-            letter-spacing: -0.02em;
+        /* ========== Visual Polish ========== */
+        
+        /* Smoother transitions */
+        button, input, select, textarea {
+            transition: all 0.2s ease-in-out;
         }
         
-        h1 { font-size: 2.25rem !important; }
-        h2 { font-size: 1.8rem !important; margin-top: 1.5rem !important; }
-        h3 { font-size: 1.4rem !important; color: var(--primary-color) !important; }
-        
-        /* Global Background Texture (Subtle Mesh Gradient) */
-        .stApp {
-            background: 
-                radial-gradient(at 0% 0%, rgba(79, 70, 229, 0.03) 0px, transparent 50%),
-                radial-gradient(at 100% 0%, rgba(236, 72, 153, 0.03) 0px, transparent 50%),
-                var(--bg-color);
-        }
-
-        /* ========== COMPONENT STYLING ========== */
-
-        /* Buttons (Polished & Modern) */
+        /* Better button styling */
         button[kind="primary"] {
-            background: linear-gradient(135deg, var(--primary-color), var(--accent-color)) !important;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
             border: none !important;
-            border-radius: 8px !important;
-            color: white !important;
-            font-weight: 500 !important;
-            padding: 0.5rem 1rem !important;
-            transition: all 0.2s ease !important;
-            box-shadow: 0 2px 4px rgba(79, 70, 229, 0.2) !important;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
         }
-
+        
         button[kind="primary"]:hover {
-            opacity: 0.9;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
             transform: translateY(-1px);
-            box-shadow: 0 4px 6px rgba(79, 70, 229, 0.3) !important;
         }
-
+        
         button[kind="secondary"] {
+            border: 2px solid #667eea !important;
             background: white !important;
-            border: 1px solid var(--border-color) !important;
-            border-radius: 8px !important;
-            color: var(--text-body) !important;
-            font-weight: 500 !important;
+            color: #667eea !important;
         }
-
+        
         button[kind="secondary"]:hover {
-            background: #F1F5F9 !important; /* Slate 100 */
-            border-color: var(--primary-color) !important;
-            color: var(--primary-color) !important;
-        }
-
-        /* Inputs & Selects */
-        .stTextInput input, .stSelectbox div[data-baseweb="select"] > div {
-            border-radius: 8px !important;
-            border: 1px solid var(--border-color);
-            background-color: white !important;
-            transition: border-color 0.2s ease, box-shadow 0.2s ease;
-        }
-
-        .stTextInput input:focus, .stSelectbox div[data-baseweb="select"] > div:focus-within {
-            border-color: var(--primary-color) !important;
-            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1) !important;
-        }
-
-        /* Sidebar Styling */
-        [data-testid="stSidebar"] {
-            background-color: white !important;
-            border-right: 1px solid var(--border-color);
+            background: #f0f2ff !important;
         }
         
-        [data-testid="stSidebar"] .block-container {
-            padding-top: 2rem;
-        }
-
-        /* ========== GLASSMORPHISM CARDS ========== */
-        
-        /* Helper class strictly for custom HTML cards */
-        .glass-card {
-            background: var(--glass-bg);
-            backdrop-filter: var(--glass-blur);
-            -webkit-backdrop-filter: var(--glass-blur);
-            border: 1px solid var(--glass-border);
-            border-radius: 16px;
-            padding: 1.5rem;
-            box-shadow: var(--glass-shadow);
+        /* Improved card/container styling */
+        .stExpander {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
             margin-bottom: 1rem;
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         }
         
-        .glass-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-            border-color: var(--primary-color);
-        }
-
-        .card-header {
-            font-family: 'Outfit', sans-serif;
-            font-size: 1.1rem;
-            font-weight: 600;
-            color: var(--text-heading);
-            margin-bottom: 0.5rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .card-sub {
-            font-size: 0.875rem;
-            color: var(--text-muted);
-        }
-
-        /* ========== METRIC CARDS ========== */
-        [data-testid="stMetric"] {
-            background: white;
-            padding: 1rem;
-            border-radius: 12px;
-            border: 1px solid var(--border-color);
-            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        /* Better metrics display */
+        [data-testid="stMetricValue"] {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #667eea;
         }
         
         [data-testid="stMetricLabel"] {
-            font-size: 0.875rem !important;
-            color: var(--text-muted) !important;
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: #666;
         }
         
-        [data-testid="stMetricValue"] {
-            font-family: 'Outfit', sans-serif !important;
-            font-weight: 700 !important;
-            color: var(--primary-color) !important;
+        /* Improved form styling */
+        .stForm {
+            background: #f8f9fa;
+            padding: 1.5rem;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
         }
-
-        /* ========== DATAFRAME STYLING ========== */
+        
+        /* Better multiselect styling */
+        .stMultiSelect > div {
+            border-radius: 6px;
+        }
+        
+        /* Improved table styling */
         .dataframe {
-            border: 1px solid var(--border-color) !important;
-            border-radius: 8px !important;
-            font-family: 'Inter', sans-serif !important;
+            border-collapse: separate;
+            border-spacing: 0;
+            border-radius: 8px;
+            overflow: hidden;
         }
         
         .dataframe thead th {
-            background-color: #F8FAFC !important;
-            color: var(--text-body) !important;
-            font-weight: 600 !important;
-            border-bottom: 2px solid var(--border-color) !important;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-weight: 600;
+            padding: 12px;
+            text-align: left;
         }
-
-        /* ========== UTILITIES ========== */
-        .w-full { width: 100%; }
-        .text-center { text-align: center; }
-        .mb-2 { margin-bottom: 0.5rem; }
-        .mt-4 { margin-top: 1rem; }
         
+        .dataframe tbody tr:hover {
+            background: #f0f2ff;
+        }
+        
+        /* Improved alert/notification styling */
+        .stSuccess {
+            background: #d4edda;
+            border-left: 4px solid #28a745;
+            border-radius: 4px;
+        }
+        
+        .stWarning {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            border-radius: 4px;
+        }
+        
+        .stError {
+            background: #f8d7da;
+            border-left: 4px solid #dc3545;
+            border-radius: 4px;
+        }
+        
+        .stInfo {
+            background: #d1ecf1;
+            border-left: 4px solid #0dcaf0;
+            border-radius: 4px;
+        }
+        
+        /* ========== Tooltips and Help Text ========== */
+        
+        /* Better tooltip visibility */
+        [data-testid="stTooltipIcon"] {
+            color: #667eea;
+        }
+        
+        .stTooltipContent {
+            background: #333;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+        }
+        
+        /* ========== Status Badges ========== */
+        
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+        
+        .status-success {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status-warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .status-error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .status-info {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+        
+        /* ========== Loading States ========== */
+        
+        .stSpinner > div {
+            border-color: #667eea #667eea transparent transparent;
+        }
+        
+        /* ========== Sidebar Improvements ========== */
+        
+        [data-testid="stSidebar"] {
+            background: linear-gradient(180deg, #f8f9fa 0%, #ffffff 100%);
+        }
+        
+        [data-testid="stSidebar"] .stExpander {
+            background: white;
+        }
+        
+        /* ========== Typography Scale ========== */
+        
+        h1 {
+            font-weight: 700;
+            color: #1a1a1a;
+            letter-spacing: -0.5px;
+        }
+        
+        h2 {
+            font-weight: 600;
+            color: #333;
+            margin-top: 2rem;
+        }
+        
+        h3 {
+            font-weight: 600;
+            color: #667eea;
+            margin-top: 1.5rem;
+        }
+        
+        /* ========== Print Styles ========== */
+        
+        @media print {
+            .stSidebar {
+                display: none !important;
+            }
+            
+            button {
+                display: none !important;
+            }
+            
+            .dataframe {
+                page-break-inside: avoid;
+            }
+        }
+        
+        /* ========== Reduced Motion (Accessibility) ========== */
+        
+        @media (prefers-reduced-motion: reduce) {
+            * {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+        
+        /* ========== Dark Mode Support (if enabled) ========== */
+        
+        @media (prefers-color-scheme: dark) {
+            /* Only apply if user prefers dark mode */
+            /* These would override if Streamlit's dark mode is enabled */
+        }
         </style>
         """,
         unsafe_allow_html=True
@@ -216,13 +288,17 @@ def apply_visual_theme():
 
 def render_help_tooltip(text: str, help_text: str):
     """
-    Render text with an accessible tooltip using the new theme.
+    Render text with an accessible tooltip.
+    
+    Args:
+        text: Main text to display
+        help_text: Tooltip/help text
     """
     st.markdown(
         f"""
-        <div style="display: inline-flex; align-items: center; gap: 0.5rem; color: var(--text-body);">
+        <div style="display: inline-flex; align-items: center; gap: 0.5rem;">
             <span>{text}</span>
-            <span title="{help_text}" style="cursor: help; color: var(--primary-color); opacity: 0.8;">ⓘ</span>
+            <span title="{help_text}" style="cursor: help; color: #667eea;">ⓘ</span>
         </div>
         """,
         unsafe_allow_html=True
@@ -231,55 +307,14 @@ def render_help_tooltip(text: str, help_text: str):
 
 def render_status_badge(label: str, status: str = "info"):
     """
-    Render a status badge with the new design system colors.
-    Status: success, warning, error, info
-    """
-    colors = {
-        "success": ("var(--success-bg)", "var(--success-text)"),
-        "warning": ("var(--warning-bg)", "var(--warning-text)"),
-        "error":   ("var(--error-bg)",   "var(--error-text)"),
-        "info":    ("var(--info-bg)",    "var(--info-text)"),
-    }
-    bg, fg = colors.get(status, ("var(--bg-color)", "var(--text-body)"))
+    Render a status badge with color coding.
     
-    st.markdown(
-        f"""
-        <span style="
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 999px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            background-color: {bg};
-            color: {fg};
-        ">
-        {label}
-        </span>
-        """,
-        unsafe_allow_html=True
-    )
-
-def render_glass_card(title: str = "", subtitle: str = "", content: str = ""):
+    Args:
+        label: Badge text
+        status: Badge type (success, warning, error, info)
     """
-    Render a custom HTML glass card. 
-    NOTE: For complex interactive content, use st.container() inside a styled div is reduced in functionality.
-    This helper is best for static information cards.
-    """
-    header_html = ""
-    if title:
-        header_html += f'<div class="card-header">{title}'
-        if subtitle:
-            header_html += f'<span class="card-sub">{subtitle}</span>'
-        header_html += '</div>'
-    
+    status_class = f"status-{status}"
     st.markdown(
-        f"""
-        <div class="glass-card">
-            {header_html}
-            <div>{content}</div>
-        </div>
-        """,
+        f'<span class="status-badge {status_class}">{label}</span>',
         unsafe_allow_html=True
     )

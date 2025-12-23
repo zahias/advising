@@ -15,12 +15,14 @@ from typing import Dict, List, Optional, Any
 import pandas as pd
 import streamlit as st
 
+from google_drive import (
+    initialize_drive_service,
+    find_file_in_drive,
+    download_file_from_drive,
+    sync_file_with_drive,
+    get_major_folder_id,
+)
 from utils import log_info, log_error
-
-def _get_drive_module():
-    """Lazy loader for google_drive module to avoid import-time side effects."""
-    import google_drive as gd
-    return gd
 
 
 # ----------------- Email Roster Management -----------------
@@ -30,11 +32,10 @@ def _get_email_roster_filename() -> str:
     return "email_roster.json"
 
 
-def _get_major_folder_id_internal() -> str:
+def _get_major_folder_id() -> str:
     """Get major-specific folder ID for email roster storage."""
     try:
-        gd = _get_drive_module()
-        service = gd.initialize_drive_service()
+        service = initialize_drive_service()
         major = st.session_state.get("current_major", "DEFAULT")
         
         # Get root folder ID
@@ -52,7 +53,7 @@ def _get_major_folder_id_internal() -> str:
             return ""
         
         # Get or create major-specific folder
-        return gd.get_major_folder_id(service, major, root_folder_id)
+        return get_major_folder_id(service, major, root_folder_id)
     except Exception:
         return ""
 
@@ -75,19 +76,18 @@ def load_email_roster() -> Dict[str, str]:
     
     # Try loading from Drive
     try:
-        gd = _get_drive_module()
-        service = gd.initialize_drive_service()
-        folder_id = _get_major_folder_id_internal()
+        service = initialize_drive_service()
+        folder_id = _get_major_folder_id()
         if not folder_id:
             st.session_state.email_rosters[major] = {}
             return {}
         
-        fid = gd.find_file_in_drive(service, _get_email_roster_filename(), folder_id)
+        fid = find_file_in_drive(service, _get_email_roster_filename(), folder_id)
         if not fid:
             st.session_state.email_rosters[major] = {}
             return {}
         
-        data = gd.download_file_from_drive(service, fid)
+        data = download_file_from_drive(service, fid)
         roster = json.loads(data.decode("utf-8"))
         
         # Cache in session state (per major)
@@ -117,15 +117,14 @@ def save_email_roster(roster: Dict[str, str]) -> None:
     
     # Background save to Drive (best effort)
     try:
-        gd = _get_drive_module()
-        service = gd.initialize_drive_service()
-        folder_id = _get_major_folder_id_internal()
+        service = initialize_drive_service()
+        folder_id = _get_major_folder_id()
         if not folder_id:
             log_info(f"Email roster saved locally only for {major} (no Drive folder configured)")
             return
         
         data = json.dumps(roster, ensure_ascii=False, indent=2).encode("utf-8")
-        gd.sync_file_with_drive(service, data, _get_email_roster_filename(), "application/json", folder_id)
+        sync_file_with_drive(service, data, _get_email_roster_filename(), "application/json", folder_id)
         log_info(f"Email roster synced to Drive for {major} ({len(roster)} emails)")
     except Exception as e:
         log_error(f"Failed to sync email roster to Drive for {major} (local copy preserved)", e)
