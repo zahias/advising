@@ -8,14 +8,19 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-from google_drive import initialize_drive_service, sync_file_with_drive, GoogleAuthError, get_major_folder_id
 from utils import log_info, log_error, load_progress_excel
+
+def _get_drive_module():
+    """Lazy loader for google_drive module to avoid import-time side effects."""
+    import google_drive as gd
+    return gd
 
 
 def _drive_service_or_none():
     try:
-        return initialize_drive_service()
-    except GoogleAuthError as e:
+        gd = _get_drive_module()
+        return gd.initialize_drive_service()
+    except Exception as e:
         # Clear message once in the sidebar; app still works locally
         st.sidebar.warning(
             "Google Drive sync unavailable: " + str(e) +
@@ -62,11 +67,12 @@ def _sync_to_major_folder(
         return
     
     # Get or create major-specific folder
-    major_folder_id = get_major_folder_id(service, major, root_folder_id)
+    gd = _get_drive_module()
+    major_folder_id = gd.get_major_folder_id(service, major, root_folder_id)
     
     # Sync file (replaces if exists)
     filename = f"{base_name}.xlsx"
-    sync_file_with_drive(
+    gd.sync_file_with_drive(
         service=service,
         file_content=content,
         drive_file_name=filename,
@@ -105,6 +111,19 @@ def upload_data():
         else:
             st.info("Upload Excel file with course information")
         
+        # Template download button
+        try:
+            with open("templates/courses_table_template.xlsx", "rb") as f:
+                st.download_button(
+                    label="📥 Download Template",
+                    data=f.read(),
+                    file_name="courses_table_template.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    help="Download blank template with example data and proper formatting"
+                )
+        except:
+            pass  # Template file not found, skip download button
+        
         courses_file = st.file_uploader(
             "Select Courses Table (Excel)",
             type=["xlsx"],
@@ -125,6 +144,9 @@ def upload_data():
                 else:
                     st.session_state.courses_df = df
                     st.session_state.majors[current_major]["courses_df"] = df
+                    # Clear cached co-requisite/concurrent courses list when new courses table is uploaded
+                    if "coreq_concurrent_courses" in st.session_state:
+                        del st.session_state.coreq_concurrent_courses
                     st.success(f"✅ Loaded {len(df)} courses")
                     log_info(f"Courses table uploaded via sidebar ({current_major}).")
 
@@ -154,6 +176,19 @@ def upload_data():
             st.info("Upload Excel file with student progress data")
             if not courses_loaded:
                 st.warning("⚠️ Upload courses table first")
+        
+        # Template download button
+        try:
+            with open("templates/progress_report_template.xlsx", "rb") as f:
+                st.download_button(
+                    label="📥 Download Template",
+                    data=f.read(),
+                    file_name="progress_report_template.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    help="Download blank template with example student data and proper formatting"
+                )
+        except:
+            pass  # Template file not found, skip download button
         
         progress_file = st.file_uploader(
             "Select Progress Report (Excel)",
@@ -251,6 +286,19 @@ def upload_data():
             st.success(f"✅ {len(roster)} student emails on file")
         else:
             st.info("Optional: Upload student email addresses for emailing advising sheets")
+        
+        # Template download button
+        try:
+            with open("templates/email_roster_template.csv", "rb") as f:
+                st.download_button(
+                    label="📥 Download Template",
+                    data=f.read(),
+                    file_name="email_roster_template.csv",
+                    mime="text/csv",
+                    help="Download blank template for student email addresses"
+                )
+        except:
+            pass  # Template file not found, skip download button
         
         email_file = st.file_uploader(
             "Select Email Roster (Excel/CSV)",
