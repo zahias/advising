@@ -8,12 +8,13 @@ from utils import (
     check_course_registered,
     check_eligibility,
     get_student_standing,
-    style_df,          # kept (used elsewhere in app)
+    style_df,
     log_info,
     log_error
 )
 from google_drive import sync_file_with_drive, initialize_drive_service
 from reporting import add_summary_sheet, apply_full_report_formatting, apply_individual_compact_formatting
+from visual_theme import render_glass_card, render_status_badge, render_help_tooltip
 
 # -----------------------------
 # Color map (aligned with Advising table)
@@ -65,6 +66,7 @@ def full_student_view():
 def _render_all_students():
     progress_df_original = st.session_state.progress_df.copy().set_index("ID")
     df = st.session_state.progress_df.copy()
+    
     # Compute derived columns
     df["Total Credits Completed"] = df.get("# of Credits Completed", 0).fillna(0).astype(float) + \
                                     df.get("# Registered", 0).fillna(0).astype(float)
@@ -73,8 +75,26 @@ def _render_all_students():
         lambda sid: "Advised" if st.session_state.advising_selections.get(int(sid), {}).get("advised") else "Not Advised"
     )
 
+    # --- Summary Metrics ---
+    total_students = len(df)
+    advised_count = len(df[df["Advising Status"] == "Advised"])
+    probation_count = len(df[df["Standing"].str.contains("Probation", case=False, na=False)])
+    
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Total Students", total_students)
+    m2.metric("Advised", advised_count, delta=f"{round(advised_count/total_students*100)}%" if total_students else None)
+    m3.metric("Pending", total_students - advised_count)
+    if probation_count > 0:
+        m4.metric("At Risk", probation_count, delta_color="inverse")
+    else:
+        m4.metric("At Risk", 0, delta_color="normal")
+        
+    st.markdown("---")
+
     available_courses = st.session_state.courses_df["Course Code"].tolist()
-    selected_courses = st.multiselect("Select course columns", options=available_courses, default=available_courses)
+    
+    with st.expander("🛠️ Table Configuration"):
+        selected_courses = st.multiselect("Select course columns", options=available_courses, default=available_courses)
 
     # Build compact status codes (includes Optional = 'o' and Repeat = 'ar')
     def status_code(row_original, row_id, course):
@@ -99,6 +119,9 @@ def _render_all_students():
         return "na" if stt == "Eligible" else "ne"
 
     for c in selected_courses:
+        if c in df.columns: # optimization
+            continue
+            
         df[c] = df.apply(lambda r: status_code(
             progress_df_original.loc[r["ID"]],
             r["ID"],
@@ -108,12 +131,17 @@ def _render_all_students():
     display_cols = ["ID", "NAME", "Total Credits Completed", "Standing", "Advising Status"] + selected_courses
 
     # Show table (color-coded)
-    st.write("*Legend:* c=Completed, r=Registered, a=Advised, ar=Advised-Repeat, o=Optional, na=Eligible not chosen, ne=Not Eligible")
+    render_glass_card(
+        title="Student Rosters",
+        content="Overview of all eligible students and their course statuses."
+    )
+    
+    st.caption("Legend: c=Completed, r=Registered, a=Advised, ar=Advised-Repeat, o=Optional, na=Eligible not chosen, ne=Not Eligible")
     styled = _style_codes(df[display_cols], selected_courses)
-    st.dataframe(styled, width='stretch', height=600)
+    st.dataframe(styled, width=None, height=600, use_container_width=True)
 
     # Export full advising report with summary + COLORS in Excel
-    if st.button("Download Full Advising Report"):
+    if st.button("Download Full Advising Report", type="primary"):
         output = BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             df[display_cols].to_excel(writer, index=False, sheet_name="Full Report")
@@ -130,17 +158,46 @@ def _render_all_students():
 def _render_individual_student():
     students_df = st.session_state.progress_df.copy()
     students_df["DISPLAY"] = students_df["NAME"].astype(str) + " — " + students_df["ID"].astype(str)
-    choice = st.selectbox("Select a student", students_df["DISPLAY"].tolist(), key="full_single_select")
+    
+    # Student Selector in a card
+    with st.container():
+        choice = st.selectbox("Select a student to view details", students_df["DISPLAY"].tolist(), key="full_single_select")
+    
     sid = int(students_df.loc[students_df["DISPLAY"] == choice, "ID"].iloc[0])
     row_original = st.session_state.progress_df.loc[st.session_state.progress_df["ID"] == sid].iloc[0]
     row = students_df.loc[students_df["ID"] == sid].iloc[0]
 
-    # IMPORTANT: do NOT overwrite st.session_state["current_student_id"] here.
-    # Eligibility view is the single source of truth for the "current student"
-    # used by autosave and the sessions panel.
+    # Student Profile Card
+    st.markdown("### Profile Overview")
+    
+    # Calculate standing color
+    standing = get_student_standing(float(row.get("# of Credits Completed", 0) or 0))
+    status_type = "error" if "Probation" in standing else "success" if "Senior" in standing else "info"
+    
+    col_profile, col_stats = st.columns([2, 1])
+    
+    with col_profile:
+        render_glass_card(
+            title=row["NAME"],
+            subtitle=f"ID: {sid}",
+            content=f"""
+            <div style="display: flex; gap: 1rem; align-items: center; margin-top: 0.5rem;">
+                <div><b>Major:</b> {st.session_state.get('current_major', 'Unknown')}</div>
+                <div><b>Email:</b> {row.get('EMAIL', 'N/A')}</div>
+            </div>
+            """
+        )
+        
+    with col_stats:
+        render_status_badge(standing, status=status_type)
+        st.markdown(f"**Credits Completed:** {row.get('# of Credits Completed', 0)}")
+        st.markdown(f"**GPA:** {row.get('GPA', 'N/A')}")
+
+    st.markdown("### Course Status")
 
     available_courses = st.session_state.courses_df["Course Code"].tolist()
-    selected_courses = st.multiselect("Select Courses", options=available_courses, default=available_courses, key="indiv_courses")
+    with st.expander("Filter Courses", expanded=False):
+        selected_courses = st.multiselect("Select Courses", options=available_courses, default=available_courses, key="indiv_courses")
 
     # Build status codes for this student (includes Optional = 'o' and Repeat = 'ar')
     data = {"ID": [sid], "NAME": [row["NAME"]]}
@@ -165,14 +222,16 @@ def _render_individual_student():
             data[c] = ["na" if stt == "Eligible" else "ne"]
 
     indiv_df = pd.DataFrame(data)
-    st.write("*Legend:* c=Completed, r=Registered, a=Advised, ar=Advised-Repeat, o=Optional, na=Eligible not chosen, ne=Not Eligible")
+    st.caption("Legend: c=Completed, r=Registered, a=Advised, ar=Advised-Repeat, o=Optional, na=Eligible not chosen, ne=Not Eligible")
     styled = _style_codes(indiv_df, selected_courses)
-    st.dataframe(styled, width='stretch')
+    st.dataframe(styled, width=None, use_container_width=True)
 
-    # Download colored sheet for this student (compact codes)
+    # Actions Area
+    render_glass_card(title="Actions", content="Export reports or email the student.")
+    
     col1, col2 = st.columns([1, 1])
     with col1:
-        if st.button("Download Individual Report"):
+        if st.button("Download Individual Report", use_container_width=True):
             output = BytesIO()
             with pd.ExcelWriter(output, engine="openpyxl") as writer:
                 indiv_df.to_excel(writer, index=False, sheet_name="Student")
@@ -186,7 +245,7 @@ def _render_individual_student():
     
     with col2:
         # Email advising sheet to student
-        if st.button("📧 Email Advising Sheet", key=f"email_indiv_{sid}"):
+        if st.button("📧 Email Advising Sheet", key=f"email_indiv_{sid}", use_container_width=True):
             from email_manager import get_student_email, send_advising_email
             
             student_email = get_student_email(str(sid))
@@ -216,6 +275,8 @@ def _render_individual_student():
                     st.error(f"❌ {message}")
 
     # Download sheets for all advised students into one workbook + sync to Drive (unchanged)
+    st.markdown("---")
+    st.subheader("Global Export")
     if st.button("Download All Advised Students Reports"):
         all_sel = [(int(k), v) for k, v in st.session_state.advising_selections.items() if v.get("advised")]
         if not all_sel:
