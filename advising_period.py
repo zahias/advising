@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Literal, TypedDict
 from datetime import datetime
 import streamlit as st
 
@@ -21,11 +21,79 @@ __all__ = [
     "get_all_periods",
     "load_period_from_drive",
     "save_period_to_drive",
+    "set_current_period",
+    "update_period",
+    "validate_period",
+    "VALID_SEMESTERS",
+    "PeriodValidationError",
 ]
+
+# Type definitions
+Semester = Literal["Fall", "Spring", "Summer"]
+VALID_SEMESTERS: tuple[str, ...] = ("Fall", "Spring", "Summer")
+
+
+class PeriodDict(TypedDict, total=False):
+    """Type definition for period dictionary structure."""
+    period_id: str
+    semester: str
+    year: int
+    advisor_name: str
+    created_at: str
+    archived_at: str  # Optional, only present for archived periods
 
 
 PERIOD_FILENAME = "current_period.json"
 PERIODS_HISTORY_FILENAME = "periods_history.json"
+
+
+class PeriodValidationError(ValueError):
+    """Raised when period validation fails."""
+    pass
+
+
+def validate_period(period: Dict[str, Any], require_advisor: bool = False) -> bool:
+    """
+    Validate that a period dictionary has required fields.
+    
+    Args:
+        period: Period dictionary to validate
+        require_advisor: If True, advisor_name must be non-empty
+        
+    Returns:
+        True if valid
+        
+    Raises:
+        PeriodValidationError: If validation fails
+    """
+    if not isinstance(period, dict):
+        raise PeriodValidationError("Period must be a dictionary")
+    
+    if "period_id" not in period or not period.get("period_id"):
+        raise PeriodValidationError("Period must have a period_id")
+    
+    if "semester" not in period:
+        raise PeriodValidationError("Period must have a semester")
+    
+    semester = period["semester"]
+    if semester not in VALID_SEMESTERS:
+        raise PeriodValidationError(
+            f"Invalid semester '{semester}'. Must be one of: {', '.join(VALID_SEMESTERS)}"
+        )
+    
+    if "year" not in period:
+        raise PeriodValidationError("Period must have a year")
+    
+    year = period["year"]
+    if not isinstance(year, int) or year < 2020 or year > 2099:
+        raise PeriodValidationError(f"Invalid year: {year}. Must be between 2020 and 2099")
+    
+    if require_advisor:
+        advisor_name = period.get("advisor_name", "").strip()
+        if not advisor_name:
+            raise PeriodValidationError("Period must have a non-empty advisor_name")
+    
+    return True
 
 
 def _get_major_folder_id() -> str:
@@ -156,11 +224,17 @@ def set_current_period(period: Dict[str, Any]) -> bool:
     Set an existing period as the current period.
     
     Args:
-        period: Period dict to set as current
+        period: Period dict to set as current (validated)
     
     Returns:
         True if successful, False otherwise
+        
+    Raises:
+        PeriodValidationError: If period is invalid
     """
+    # Validate period structure
+    validate_period(period, require_advisor=False)
+    
     major = st.session_state.get("current_major", "DEFAULT")
     
     # Save to session state
@@ -175,18 +249,76 @@ def set_current_period(period: Dict[str, Any]) -> bool:
     return success
 
 
+def update_period(period_updates: Dict[str, Any]) -> tuple[Dict[str, Any], bool]:
+    """
+    Update the current period's metadata.
+    
+    Args:
+        period_updates: Dictionary with fields to update (semester, year, advisor_name, etc.)
+                       Note: period_id and created_at cannot be updated
+    
+    Returns:
+        Tuple of (updated period dict, drive_saved flag)
+        
+    Raises:
+        PeriodValidationError: If updates result in an invalid period
+    """
+    major = st.session_state.get("current_major", "DEFAULT")
+    current_period = get_current_period()
+    
+    # Create updated period
+    updated_period = current_period.copy()
+    
+    # Allow updating these fields
+    updatable_fields = ["semester", "year", "advisor_name"]
+    for field in updatable_fields:
+        if field in period_updates:
+            updated_period[field] = period_updates[field]
+    
+    # Validate updated period
+    validate_period(updated_period, require_advisor=False)
+    
+    # Update session state
+    if "current_periods" not in st.session_state:
+        st.session_state.current_periods = {}
+    st.session_state.current_periods[major] = updated_period
+    
+    # Save to Drive
+    drive_saved = save_period_to_drive(updated_period)
+    
+    log_info(f"Updated period: {updated_period.get('period_id', 'unknown')}")
+    return updated_period, drive_saved
+
+
 def start_new_period(semester: str, year: int, advisor_name: str) -> tuple[Dict[str, Any], bool]:
     """
     Start a new advising period. Archives current period to history.
     
     Args:
-        semester: Fall, Spring, or Summer
-        year: Year of the period
-        advisor_name: Name of the advisor
+        semester: Fall, Spring, or Summer (validated)
+        year: Year of the period (2020-2099)
+        advisor_name: Name of the advisor (must be non-empty)
     
     Returns:
         Tuple of (new period dict, drive_saved flag)
+        
+    Raises:
+        PeriodValidationError: If semester, year, or advisor_name is invalid
     """
+    # Validate inputs
+    semester = semester.strip()
+    if semester not in VALID_SEMESTERS:
+        raise PeriodValidationError(
+            f"Invalid semester '{semester}'. Must be one of: {', '.join(VALID_SEMESTERS)}"
+        )
+    
+    if not isinstance(year, int) or year < 2020 or year > 2099:
+        raise PeriodValidationError(f"Invalid year: {year}. Must be between 2020 and 2099")
+    
+    advisor_name = advisor_name.strip()
+    if not advisor_name:
+        raise PeriodValidationError("advisor_name cannot be empty")
+    
     major = st.session_state.get("current_major", "DEFAULT")
     
     # Get current period to archive
@@ -197,13 +329,16 @@ def start_new_period(semester: str, year: int, advisor_name: str) -> tuple[Dict[
     
     # Create new period
     period_id = f"{semester}_{year}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    new_period = {
+    new_period: Dict[str, Any] = {
         "period_id": period_id,
         "semester": semester,
         "year": year,
         "advisor_name": advisor_name,
         "created_at": datetime.now().isoformat(),
     }
+    
+    # Validate the new period
+    validate_period(new_period, require_advisor=True)
     
     # Save to session state and Drive
     if "current_periods" not in st.session_state:
