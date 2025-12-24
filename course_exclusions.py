@@ -6,14 +6,12 @@ import json
 from typing import Dict, List
 
 import streamlit as st
-from google_drive import (
-    initialize_drive_service,
-    find_file_in_drive,
-    download_file_from_drive,
-    sync_file_with_drive,
-    get_major_folder_id,
-)
 from utils import log_error, log_info
+
+def _get_drive_module():
+    """Lazy loader for google_drive module to avoid import-time side effects."""
+    import google_drive as gd
+    return gd
 
 
 def _filename() -> str:
@@ -24,7 +22,8 @@ def _load_from_drive() -> Dict[str, List[str]]:
     """Fetch exclusions map from Drive; returns {} if not found / any issue."""
     import os
     try:
-        service = initialize_drive_service()
+        gd = _get_drive_module()
+        service = gd.initialize_drive_service()
         major = st.session_state.get("current_major", "DEFAULT")
         
         # Safe access to root folder_id
@@ -42,12 +41,12 @@ def _load_from_drive() -> Dict[str, List[str]]:
             return {}
         
         # Get major-specific folder
-        major_folder_id = get_major_folder_id(service, major, root_folder_id)
+        major_folder_id = gd.get_major_folder_id(service, major, root_folder_id)
         
-        file_id = find_file_in_drive(service, _filename(), major_folder_id)
+        file_id = gd.find_file_in_drive(service, _filename(), major_folder_id)
         if not file_id:
             return {}
-        payload = download_file_from_drive(service, file_id)
+        payload = gd.download_file_from_drive(service, file_id)
         try:
             data = json.loads(payload.decode("utf-8"))
             # Normalize to {str(student_id): [codes...]}
@@ -72,7 +71,8 @@ def _save_to_drive(ex_map: Dict[str, List[str]]) -> None:
     """
     import os
     try:
-        service = initialize_drive_service()
+        gd = _get_drive_module()
+        service = gd.initialize_drive_service()
         major = st.session_state.get("current_major", "DEFAULT")
         
         # Safe access to root folder_id
@@ -91,10 +91,10 @@ def _save_to_drive(ex_map: Dict[str, List[str]]) -> None:
             return
         
         # Get major-specific folder
-        major_folder_id = get_major_folder_id(service, major, root_folder_id)
+        major_folder_id = gd.get_major_folder_id(service, major, root_folder_id)
         
         data_bytes = json.dumps(ex_map, ensure_ascii=False, indent=2).encode("utf-8")
-        sync_file_with_drive(
+        gd.sync_file_with_drive(
             service=service,
             file_content=data_bytes,
             drive_file_name=_filename(),

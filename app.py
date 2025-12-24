@@ -1,491 +1,381 @@
-# app.py
+# app.py - Advising Dashboard with Modern UI
 
 import os
-import importlib
-from io import BytesIO
-
 import pandas as pd
 import streamlit as st
-
-from data_upload import upload_data
-from eligibility_view import student_eligibility_view
-from full_student_view import full_student_view
-from course_planning_view import course_planning_view
-from visual_theme import apply_visual_theme
-from google_drive import (
-    download_file_from_drive,
-    initialize_drive_service,
-    find_file_in_drive,
-    get_major_folder_id,
-    GoogleAuthError,
-)
-from utils import log_info, log_error, load_progress_excel
-from advising_history import _load_session_and_apply
-from advising_period import get_current_period, start_new_period, get_all_periods
 from datetime import datetime
 
+from visual_theme import apply_visual_theme
+from utils import log_info, log_error, load_progress_excel
 
-def _default_period_for_today(today: datetime | None = None) -> tuple[str, int]:
-    """Return the default semester and year based on the current date."""
-    today = today or datetime.now()
-    month = today.month
-    year = today.year
+def _get_drive_module():
+    """Lazy loader for google_drive module to avoid import-time side effects."""
+    import google_drive as gd
+    return gd
 
-    if month == 1:
-        # January belongs to the Fall term of the prior calendar year
-        return "Fall", year - 1
-    if 2 <= month <= 6:
-        return "Spring", year
-    if 7 <= month <= 9:
-        return "Summer", year
-    # October-December (and any remaining months) map to Fall of the current year
-    return "Fall", year
+st.set_page_config(
+    page_title="Advising Dashboard",
+    page_icon="🎓",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
 
-st.set_page_config(page_title="Advising Dashboard", layout="wide")
-
-# Apply visual theme and accessibility improvements
-# Apply visual theme and accessibility improvements
 apply_visual_theme()
 
-# ---------- Header / Logo ----------
-# Custom Header with Logo and Title aligned
-if os.path.exists("pu_logo.png"):
-    import base64
-    with open("pu_logo.png", "rb") as f:
-        data = base64.b64encode(f.read()).decode("utf-8")
-    
-    st.markdown(
-        f"""
-        <div class="header-container">
-            <img src="data:image/png;base64,{data}" width="80" style="border-radius: 8px;">
-            <div>
-                <h1 style="margin:0; font-size: 2rem;">Advising Dashboard</h1>
-                <p style="margin:0; color: var(--text-muted);">Phoenix University Academic Advising</p>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-else:
-    st.title("Advising Dashboard")
+MAJORS = ["PBHL", "SPTH-New", "SPTH-Old", "NURS"]
 
-# ---------- Majors ----------
-MAJORS = ["PBHL", "SPTH-New", "SPTH-Old"]
-
-# Per-major buckets persisted in session_state
 if "majors" not in st.session_state:
     st.session_state.majors = {
         m: {
             "courses_df": pd.DataFrame(),
             "progress_df": pd.DataFrame(),
             "advising_selections": {},
-            # advising_sessions are handled by advising_history; bucket is kept in sync there
         }
         for m in MAJORS
     }
 
-# Choose major up-front
-selected_major = st.selectbox("Major", MAJORS, key="current_major")
-
-# ---------- Period Selection Gate ----------
-# Check if period has been selected for this major
-period_selected_key = f"period_selected_{selected_major}"
-if period_selected_key not in st.session_state:
-    st.session_state[period_selected_key] = False
-
-# Get current period to check if one exists
-current_period = get_current_period()
-all_periods = get_all_periods()
-
-# If period not yet selected, show selection interface
-if not st.session_state[period_selected_key]:
-    st.markdown('<div class="nice-card">', unsafe_allow_html=True)
-    st.markdown("## 📅 Select Advising Period")
-    st.markdown("Before accessing the advising dashboard, please select an advising period.")
-    
-    # Create two columns for the two options
-    col_new, col_existing = st.columns(2)
-
-    with col_new:
-        st.markdown("### 🆕 Start New Period")
-        with st.form("period_selection_new"):
-            default_semester, default_year = _default_period_for_today()
-            semester_options = ["Fall", "Spring", "Summer"]
-            if "period_select_semester" not in st.session_state or st.session_state["period_select_semester"] not in semester_options:
-                st.session_state["period_select_semester"] = default_semester
-            if "period_select_year" not in st.session_state:
-                st.session_state["period_select_year"] = default_year
-            semester_index = semester_options.index(st.session_state["period_select_semester"])
-            semester = st.selectbox(
-                "Semester",
-                semester_options,
-                index=semester_index,
-                key="period_select_semester",
-            )
-            year = st.number_input(
-                "Year",
-                min_value=2020,
-                max_value=2099,
-                value=st.session_state["period_select_year"],
-                step=1,
-                key="period_select_year",
-            )
-            advisor_name = st.text_input("Advisor Name", key="period_select_advisor")
-            
-            if st.form_submit_button("Start New Period", use_container_width=True, type="primary"):
-                if not advisor_name:
-                    st.error("Please enter advisor name")
-                else:
-                    # Clear all selections when starting new period
-                    st.session_state.advising_selections = {}
-                    st.session_state.majors[selected_major]["advising_selections"] = {}
-                    for key in list(st.session_state.keys()):
-                        if isinstance(key, str) and key.startswith("_autoloaded_"):
-                            del st.session_state[key]
-                    if "current_student_id" in st.session_state:
-                        del st.session_state["current_student_id"]
-                    
-                    # Start new period
-                    with st.spinner("Creating new period and saving to Drive..."):
-                        new_period, drive_saved = start_new_period(semester, int(year), advisor_name)
-
-                    st.session_state[period_selected_key] = True
-                    if drive_saved:
-                        st.success(f"✅ Started new period: {semester} {year} (saved to Drive)")
-                    else:
-                        st.warning(
-                            f"⚠️ Started new period: {semester} {year} (WARNING: Not saved to Drive - period may not persist)"
-                        )
-                        st.info("Check your Google Drive connection and try again.")
-                    st.rerun()
-    
-    with col_existing:
-        st.markdown("### 📂 Use Existing Period")
-        
-        # Filter out default periods (those with empty advisor_name)
-        real_periods = [p for p in all_periods if p.get('advisor_name', '').strip()]
-        
-        if real_periods:
-            # Create dropdown of all real periods (excluding defaults)
-            period_options = []
-            period_map = {}
-            for p in real_periods:
-                label = f"{p.get('semester', '')} {p.get('year', '')} — {p.get('advisor_name', 'Unknown')}"
-                period_options.append(label)
-                period_map[label] = p
-            
-            with st.form("period_selection_existing"):
-                selected_period_label = st.selectbox("Select Period", period_options, key="period_select_existing")
-                
-                if st.form_submit_button("Use This Period", use_container_width=True):
-                    selected_period = period_map[selected_period_label]
-                    
-                    # If selecting a different period than current, we need to switch to it
-                    if selected_period.get("period_id") != current_period.get("period_id"):
-                        # Set as current period
-                        from advising_period import set_current_period
-                        set_current_period(selected_period)
-                        
-                        # Clear selections
-                        st.session_state.advising_selections = {}
-                        st.session_state.majors[selected_major]["advising_selections"] = {}
-                        for key in list(st.session_state.keys()):
-                            if isinstance(key, str) and key.startswith("_autoloaded_"):
-                                del st.session_state[key]
-                        if "current_student_id" in st.session_state:
-                            del st.session_state["current_student_id"]
-                    
-                    st.session_state[period_selected_key] = True
-                    st.success(f"✅ Using period: {selected_period_label}")
-                    st.rerun()
-        else:
-            st.info("No existing periods found. Please start a new period.")
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-    st.stop()  # Stop execution here until period is selected
-
-# ---------- Current Advising Period Display ----------
-st.markdown(f"**Current Advising Period:** {current_period.get('semester', '')} {current_period.get('year', '')} — Advisor: {current_period.get('advisor_name', 'Not set')}")
-
-# Utility buttons for advising selections
-with st.sidebar.expander("⚙️ Advising Utilities"):
-    st.markdown("### Advising Period Management")
-    
-    # Add button to change period
-    if st.button("🔄 Change Advising Period", help="Switch to a different advising period", use_container_width=True):
-        st.session_state[period_selected_key] = False
-        st.rerun()
-    
-    # Start New Period
-    with st.form("new_period_form"):
-        st.markdown("**Start New Advising Period**")
-        col_sem, col_year, col_advisor = st.columns(3)
-
-        with col_sem:
-            default_semester, default_year = _default_period_for_today()
-            semester_options = ["Fall", "Spring", "Summer"]
-            if "new_period_semester" not in st.session_state or st.session_state["new_period_semester"] not in semester_options:
-                st.session_state["new_period_semester"] = default_semester
-            semester_index = semester_options.index(st.session_state["new_period_semester"])
-            semester = st.selectbox(
-                "Semester",
-                semester_options,
-                index=semester_index,
-                key="new_period_semester",
-            )
-
-        with col_year:
-            if "new_period_year" not in st.session_state:
-                st.session_state["new_period_year"] = default_year
-            year = st.number_input(
-                "Year",
-                min_value=2020,
-                max_value=2099,
-                value=st.session_state["new_period_year"],
-                step=1,
-                key="new_period_year",
-            )
-        
-        with col_advisor:
-            advisor_name = st.text_input("Advisor Name", key="new_period_advisor")
-        
-        if st.form_submit_button("🆕 Start New Period", use_container_width=True, type="primary"):
-            if not advisor_name:
-                st.error("Please enter advisor name")
-            else:
-                # Clear all selections when starting new period
-                st.session_state.advising_selections = {}
-                st.session_state.majors[selected_major]["advising_selections"] = {}
-                for key in list(st.session_state.keys()):
-                    if isinstance(key, str) and key.startswith("_autoloaded_"):
-                        del st.session_state[key]
-                if "current_student_id" in st.session_state:
-                    del st.session_state["current_student_id"]
-                
-                # Start new period
-                new_period, drive_saved = start_new_period(semester, int(year), advisor_name)
-                if drive_saved:
-                    st.success(f"✅ Started new period: {semester} {year}")
-                else:
-                    st.warning(
-                        f"⚠️ Started new period: {semester} {year} (Drive sync failed — working offline, period cached only)"
-                    )
-                st.rerun()
-    
-    st.markdown("---")
-    st.markdown("### Session Management")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if st.button("🗑️ Clear All Selections", help="Clear current advising selections for all students (does not affect saved sessions)", use_container_width=True):
-            # Clear advising selections for all students in current major
-            st.session_state.advising_selections = {}
-            # Clear the per-major bucket so it persists across reruns
-            st.session_state.majors[selected_major]["advising_selections"] = {}
-            # Clear all autoload flags and student search state
-            for key in list(st.session_state.keys()):
-                if isinstance(key, str):
-                    if key.startswith("_autoloaded_"):
-                        del st.session_state[key]
-                    # Clear student search selections and queries to return to search view
-                    elif key.startswith("student_search_") or key.startswith("student_select_") or key.startswith("student_selectbox_"):
-                        del st.session_state[key]
-            # Clear the current student ID to deselect any loaded student
-            if "current_student_id" in st.session_state:
-                del st.session_state["current_student_id"]
-            st.success(f"✅ Cleared all advising selections for {selected_major}")
-            st.rerun()
-    
-    with col2:
-        if st.button("📥 Restore Latest Sessions", help="Load most recent advising session for all students from current period", use_container_width=True):
-            # Get all unique student IDs from progress report
-            if not st.session_state.progress_df.empty and "ID" in st.session_state.progress_df.columns:
-                student_ids = st.session_state.progress_df["ID"].unique()
-                loaded_count = 0
-                for sid in student_ids:
-                    # Clear autoload flag so it will load
-                    if f"_autoloaded_{sid}" in st.session_state:
-                        del st.session_state[f"_autoloaded_{sid}"]
-                    # Load session
-                    if _load_session_and_apply(sid):
-                        loaded_count += 1
-                # Sync the restored selections to the per-major bucket
-                st.session_state.majors[selected_major]["advising_selections"] = st.session_state.advising_selections.copy()
-                st.success(f"✅ Restored latest sessions for {loaded_count} students in {current_period.get('semester', '')} {current_period.get('year', '')}")
-                st.rerun()
-            else:
-                st.warning("No students found in progress report. Upload progress report first.")
-    
-    st.markdown("---")
-    st.markdown("### View Previous Periods")
-    
-    all_periods = get_all_periods()
-    if len(all_periods) > 1:
-        # Create dropdown of periods (excluding current)
-        period_options = []
-        period_map = {}
-        for p in all_periods:
-            if p.get("period_id") != current_period.get("period_id"):
-                label = f"{p.get('semester', '')} {p.get('year', '')} — {p.get('advisor_name', 'Unknown')}"
-                period_options.append(label)
-                period_map[label] = p
-        
-        if period_options:
-            selected_period_label = st.selectbox("Select Previous Period", ["Select a period..."] + period_options, key="view_previous_period")
-            
-            if selected_period_label != "Select a period...":
-                selected_period = period_map[selected_period_label]
-                st.info(f"📅 Viewing: {selected_period_label}")
-                st.caption(f"Created: {selected_period.get('created_at', 'Unknown')}")
-                st.caption("Note: View archived sessions for this period in the Advising History tab.")
-        else:
-            st.info("No previous periods found. Start a new period to archive the current one.")
-    else:
-        st.info("No previous periods found. Start a new period to archive the current one.")
-
-# Helpers to map between the current major bucket and the global aliases used elsewhere
-def _sync_globals_from_bucket():
-    bucket = st.session_state.majors[selected_major]
+def _sync_globals_from_bucket(major: str):
+    """Sync global session state from major bucket."""
+    bucket = st.session_state.majors.get(major, {})
     st.session_state.courses_df = bucket.get("courses_df", pd.DataFrame())
     st.session_state.progress_df = bucket.get("progress_df", pd.DataFrame())
     st.session_state.advising_selections = bucket.get("advising_selections", {})
 
-def _sync_bucket_from_globals():
-    bucket = st.session_state.majors[selected_major]
+def _sync_bucket_from_globals(major: str):
+    """Sync major bucket from global session state."""
+    if major not in st.session_state.majors:
+        st.session_state.majors[major] = {}
+    bucket = st.session_state.majors[major]
     bucket["courses_df"] = st.session_state.get("courses_df", pd.DataFrame())
     bucket["progress_df"] = st.session_state.get("progress_df", pd.DataFrame())
     bucket["advising_selections"] = st.session_state.get("advising_selections", {})
 
-# Initialize aliases on each run (so switching majors swaps the active data)
-_sync_globals_from_bucket()
+def _default_period_for_today() -> tuple:
+    """Return default semester and year based on current date."""
+    today = datetime.now()
+    month = today.month
+    year = today.year
+    if month == 1:
+        return "Fall", year - 1
+    if 2 <= month <= 6:
+        return "Spring", year
+    if 7 <= month <= 9:
+        return "Summer", year
+    return "Fall", year
 
-# ---------- Google Drive bootstrap (optional) ----------
-service = None
-try:
-    service = initialize_drive_service()
-except GoogleAuthError as e:  # <-- show precise auth cause
-    st.sidebar.warning("Google Drive not configured or unreachable. You can still upload files locally.")
-    st.sidebar.error(str(e))
-    log_error("initialize_drive_service failed", e)
-except Exception as e:
-    st.sidebar.warning("Google Drive not configured or unreachable. You can still upload files locally.")
-    log_error("initialize_drive_service failed", e)
-
-@st.cache_data(ttl=600)
-def _load_file_from_major_folder(filename: str, major: str, root_folder_id: str) -> bytes | None:
+def _count_advised_from_index(progress_ids = None) -> int:
+    """Count students with saved sessions from the advising index (fast, no payload download).
+    
+    Args:
+        progress_ids: Optional set of student IDs from progress report to filter against.
+                     Only counts students that are in this set if provided.
     """
-    Load a file from the major-specific folder. 
-    Looks in {ROOT_FOLDER}/{MAJOR}/{filename}
-    """
     try:
-        if not service or not root_folder_id:
-            return None
-        major_folder_id = get_major_folder_id(service, major, root_folder_id)
-        file_id = find_file_in_drive(service, filename, major_folder_id)
-        if file_id:
-            return download_file_from_drive(service, file_id)
-        return None
-    except Exception as e:
-        log_error(f"Drive download failed for {filename} in {major}/", e)
-        return None
+        from advising_period import get_current_period
+        from advising_history import _load_index
+        
+        # _load_index() has internal per-major caching via _advising_index_cache_{major}
+        # So this is fast after first call for each major
+        index = _load_index()
+        if not index:
+            return 0
+        
+        current_period = get_current_period()
+        period_id = current_period.get("period_id", "")
+        if not period_id:
+            return 0
+        
+        # Count unique students with sessions in this period
+        students_with_sessions = set()
+        for entry in index:
+            if entry.get("period_id") == period_id:
+                sid = entry.get("student_id")
+                if sid:
+                    # Normalize to int for comparison
+                    try:
+                        norm_sid = int(sid)
+                    except (ValueError, TypeError):
+                        norm_sid = sid
+                    
+                    # Filter to students in progress report if provided
+                    if progress_ids is None or norm_sid in progress_ids:
+                        students_with_sessions.add(norm_sid)
+        
+        return len(students_with_sessions)
+    except Exception:
+        return 0
 
-# ---------- Auto-load per-major files from major-specific folders ----------
-# Use a session state key to track if we've already loaded for this major
-load_key = f"_loaded_{selected_major}"
-if load_key not in st.session_state:
-    st.session_state[load_key] = False
-
-if not st.session_state[load_key] and st.session_state.courses_df.empty:
-    # Get root folder ID
-    root_folder_id = ""
-    try:
-        if "google" in st.secrets:
-            root_folder_id = st.secrets["google"].get("folder_id", "")
-    except:
-        pass
+def _render_header():
+    """Render the persistent header with major/period selection."""
+    from advising_period import get_current_period
     
-    if not root_folder_id:
-        root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
+    header_cols = st.columns([1, 2, 3, 2])
     
-    if root_folder_id and service:
-        # Load from {MAJOR}/courses_table.xlsx
-        courses_bytes = _load_file_from_major_folder("courses_table.xlsx", selected_major, root_folder_id)
-        if courses_bytes:
-            try:
-                st.session_state.courses_df = pd.read_excel(BytesIO(courses_bytes))
-                
-                # Invalidate course planning cache since data changed
-                st.session_state.course_analysis_cache = None
-                st.session_state.course_analysis_prereq = None
-                
-                st.success(f"✅ Courses table loaded from Drive: {selected_major}/courses_table.xlsx")
-                log_info(f"Courses table loaded from Drive ({selected_major}).")
-            except Exception as e:
-                st.error(f"❌ Error loading courses table: {e}")
-                log_error("Error loading courses table (Drive)", e)
-
-if not st.session_state[load_key] and st.session_state.progress_df.empty:
-    # Get root folder ID (same logic as above)
-    root_folder_id = ""
-    try:
-        if "google" in st.secrets:
-            root_folder_id = st.secrets["google"].get("folder_id", "")
-    except:
-        pass
+    with header_cols[0]:
+        if os.path.exists("pu_logo.png"):
+            st.image("pu_logo.png", width=80)
     
-    if not root_folder_id:
-        root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
+    with header_cols[1]:
+        major_options = ["Select major..."] + MAJORS
+        current = st.session_state.get("current_major", "Select major...")
+        if current not in major_options:
+            current = "Select major..."
+        
+        selected_major = st.selectbox(
+            "Major",
+            major_options,
+            index=major_options.index(current),
+            key="header_major_select",
+            label_visibility="collapsed"
+        )
+        
+        if selected_major != st.session_state.get("current_major"):
+            st.session_state["current_major"] = selected_major
+            if selected_major in MAJORS:
+                _sync_globals_from_bucket(selected_major)
+            st.rerun()
     
-    if root_folder_id and service:
-        # Load from {MAJOR}/progress_report.xlsx
-        prog_bytes = _load_file_from_major_folder("progress_report.xlsx", selected_major, root_folder_id)
-        if prog_bytes:
-            try:
-                st.session_state.progress_df = load_progress_excel(prog_bytes)
-                
-                # Invalidate course planning cache since data changed
-                st.session_state.course_analysis_cache = None
-                st.session_state.course_analysis_prereq = None
-                
-                st.success(f"✅ Progress report loaded from Drive: {selected_major}/progress_report.xlsx")
-                log_info(f"Progress report loaded & merged from Drive ({selected_major}).")
-                st.session_state[load_key] = True
-            except Exception as e:
-                st.error(f"❌ Error loading progress report: {e}")
-                log_error("Error loading progress report (Drive)", e)
-
-# ---------- Sidebar Uploads (always available, per-major) ----------
-upload_data()             # writes back to the current major's bucket and (optionally) Drive
-_sync_bucket_from_globals()
-
-
-# ---------- Safe loader for Advising Sessions panel ----------
-def _render_advising_panel_safely():
-    try:
-        mod = importlib.import_module("advising_history")
-        mod = importlib.reload(mod)
-        panel = getattr(mod, "advising_history_panel", None)
-        if callable(panel):
-            panel()  # panel is already per-major aware
+    with header_cols[2]:
+        if st.session_state.get("current_major") in MAJORS:
+            current_period = get_current_period()
+            period_text = f"📅 {current_period.get('semester', 'No period')} {current_period.get('year', '')} — {current_period.get('advisor_name', 'Not set')}"
+            st.markdown(f"**{period_text}**")
         else:
-            st.warning("Advising Sessions panel not found. The rest of the dashboard is available.")
+            st.markdown("*Select a major to begin*")
+    
+    with header_cols[3]:
+        if st.session_state.get("current_major") in MAJORS:
+            progress_df = st.session_state.get("progress_df", pd.DataFrame())
+            
+            if not progress_df.empty:
+                total = len(progress_df)
+                # Get student IDs from progress report for filtering
+                progress_ids = set()
+                for _, row in progress_df.iterrows():
+                    try:
+                        progress_ids.add(int(row.get("ID", 0)))
+                    except (ValueError, TypeError):
+                        pass
+                
+                # Count students with saved sessions (from index, filtered to current roster)
+                advised = _count_advised_from_index(progress_ids)
+                    
+                pct = int(advised / total * 100) if total > 0 else 0
+                st.markdown(f"**Progress:** {advised}/{total} ({pct}%)")
+
+def _render_navigation():
+    """Render the main navigation tabs."""
+    
+    nav_options = ["Home", "Setup", "Workspace", "Insights", "Settings"]
+    
+    if "nav_selection" not in st.session_state:
+        st.session_state["nav_selection"] = "Home"
+    
+    cols = st.columns(len(nav_options))
+    
+    for i, option in enumerate(nav_options):
+        with cols[i]:
+            is_active = st.session_state.get("nav_selection") == option
+            btn_type = "primary" if is_active else "secondary"
+            
+            icons = {"Home": "🏠", "Setup": "⚙️", "Workspace": "👤", "Insights": "📊", "Settings": "🔧"}
+            
+            if st.button(
+                f"{icons.get(option, '')} {option}",
+                key=f"nav_{option}",
+                type=btn_type
+            ):
+                st.session_state["nav_selection"] = option
+                st.rerun()
+    
+    return st.session_state.get("nav_selection", "Home")
+
+def _render_period_gate():
+    """Render period selection gate for first-time setup."""
+    from advising_period import get_current_period, start_new_period, get_all_periods, set_current_period
+    
+    current_period = get_current_period()
+    all_periods = get_all_periods()
+    major = st.session_state.get("current_major", "")
+    
+    if current_period.get("advisor_name", "").strip():
+        return True
+    
+    st.markdown("## Welcome! Let's set up your advising period.")
+    st.markdown("Before you begin, please select or create an advising period.")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### Create New Period")
+        
+        with st.form("new_period_gate"):
+            default_semester, default_year = _default_period_for_today()
+            
+            semester = st.selectbox("Semester", ["Fall", "Spring", "Summer"],
+                                   index=["Fall", "Spring", "Summer"].index(default_semester))
+            year = st.number_input("Year", min_value=2020, max_value=2099, value=default_year)
+            advisor = st.text_input("Your Name")
+            
+            if st.form_submit_button("Start Period", type="primary"):
+                if not advisor:
+                    st.error("Please enter your name")
+                else:
+                    st.session_state.advising_selections = {}
+                    st.session_state.majors[major]["advising_selections"] = {}
+                    
+                    new_period, saved = start_new_period(semester, int(year), advisor)
+                    st.success(f"Created: {semester} {year}")
+                    st.rerun()
+    
+    with col2:
+        st.markdown("### Use Existing Period")
+        
+        real_periods = [p for p in all_periods if p.get("advisor_name", "").strip()]
+        
+        if real_periods:
+            period_options = []
+            period_map = {}
+            for p in real_periods:
+                label = f"{p.get('semester', '')} {p.get('year', '')} — {p.get('advisor_name', '')}"
+                period_options.append(label)
+                period_map[label] = p
+            
+            selected = st.selectbox("Select Period", period_options)
+            
+            if st.button("Use This Period"):
+                selected_period = period_map[selected]
+                set_current_period(selected_period)
+                st.session_state.advising_selections = {}
+                st.session_state.majors[major]["advising_selections"] = {}
+                st.success(f"Using: {selected}")
+                st.rerun()
+        else:
+            st.info("No existing periods. Create a new one to get started.")
+    
+    return False
+
+def _auto_load_from_drive(major: str):
+    """Auto-load data files from Google Drive for the selected major."""
+    from io import BytesIO
+    
+    load_key = f"_loaded_{major}"
+    if st.session_state.get(load_key):
+        return
+    
+    if not st.session_state.courses_df.empty and not st.session_state.progress_df.empty:
+        st.session_state[load_key] = True
+        return
+    
+    root_folder_id = ""
+    try:
+        if "google" in st.secrets:
+            root_folder_id = st.secrets["google"].get("folder_id", "")
+    except:
+        pass
+    if not root_folder_id:
+        root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
+    
+    if not root_folder_id:
+        return
+    
+    try:
+        gd = _get_drive_module()
+        service = gd.initialize_drive_service()
+        if not service:
+            return
+        
+        major_folder_id = gd.get_major_folder_id(service, major, root_folder_id)
+        
+        if st.session_state.courses_df.empty:
+            file_id = gd.find_file_in_drive(service, "courses_table.xlsx", major_folder_id)
+            if file_id:
+                data = gd.download_file_from_drive(service, file_id)
+                if data:
+                    st.session_state.courses_df = pd.read_excel(BytesIO(data))
+                    st.session_state.majors[major]["courses_df"] = st.session_state.courses_df
+                    log_info(f"Loaded courses from Drive for {major}")
+        
+        if st.session_state.progress_df.empty:
+            file_id = gd.find_file_in_drive(service, "progress_report.xlsx", major_folder_id)
+            if file_id:
+                data = gd.download_file_from_drive(service, file_id)
+                if data:
+                    st.session_state.progress_df = load_progress_excel(data)
+                    st.session_state.majors[major]["progress_df"] = st.session_state.progress_df
+                    log_info(f"Loaded progress from Drive for {major}")
+        
+        st.session_state[load_key] = True
     except Exception as e:
-        st.error("Advising Sessions panel failed to load. The rest of the dashboard is available.")
-        st.exception(e)
-        log_error("Advising Sessions panel error", e)
+        log_error(f"Auto-load from Drive failed for {major}", e)
 
-# ---------- Main ----------
-if not st.session_state.progress_df.empty and not st.session_state.courses_df.empty:
-    tab1, tab2, tab3 = st.tabs(["Student Eligibility View", "Full Student View", "Course Planning"])
-    with tab1:
-        student_eligibility_view()
-    with tab2:
-        full_student_view()
-    with tab3:
-        course_planning_view()
 
-    # Advising Sessions (per major)
-    _render_advising_panel_safely()
-else:
-    st.info(f"📝 Please upload both the progress report and courses table for **{selected_major}** to continue.")
+def main():
+    """Main application entry point."""
+    
+    _render_header()
+    
+    st.markdown("---")
+    
+    selected_major = st.session_state.get("current_major", "Select major...")
+    
+    if selected_major not in MAJORS:
+        st.markdown("## 🎓 Advising Dashboard")
+        st.info("👆 Please select a major from the dropdown above to get started.")
+        
+        st.markdown("### Quick Start")
+        st.markdown("""
+        1. **Select a major** from the dropdown above
+        2. **Set up your advising period** (semester, year, your name)  
+        3. **Upload data files** (courses table and progress report)
+        4. **Start advising** students in the Workspace
+        """)
+        return
+    
+    _sync_globals_from_bucket(selected_major)
+    
+    # Check if we need to load from Drive (bucket is empty)
+    bucket = st.session_state.majors.get(selected_major, {})
+    needs_loading = (
+        bucket.get("courses_df", pd.DataFrame()).empty or 
+        bucket.get("progress_df", pd.DataFrame()).empty
+    )
+    
+    if needs_loading:
+        with st.spinner("Loading data..."):
+            _auto_load_from_drive(selected_major)
+    
+    if not _render_period_gate():
+        return
+    
+    # Session index is loaded on-demand by _count_advised_from_index() in header
+    # Full sessions load on-demand when student is selected
+    
+    active_nav = _render_navigation()
+    
+    st.markdown("---")
+    
+    if active_nav == "Home":
+        from pages.home import render_home
+        render_home()
+    
+    elif active_nav == "Setup":
+        from pages.setup import render_setup
+        render_setup()
+    
+    elif active_nav == "Workspace":
+        from pages.workspace import render_workspace
+        render_workspace()
+    
+    elif active_nav == "Insights":
+        from pages.insights import render_insights
+        render_insights()
+    
+    elif active_nav == "Settings":
+        from pages.settings import render_settings
+        render_settings()
+    
+    _sync_bucket_from_globals(selected_major)
+
+if __name__ == "__main__":
+    main()

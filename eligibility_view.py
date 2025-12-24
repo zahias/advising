@@ -14,6 +14,7 @@ from utils import (
     build_requisites_str,
     style_df,
     get_student_standing,
+    get_mutual_concurrent_pairs,
     log_info,
     log_error,
 )
@@ -83,6 +84,9 @@ def student_eligibility_view():
     row = pdf.loc[pdf["ID"] == norm_sid]
     if row.empty:
         row = pdf.loc[pdf["ID"].astype(str) == str(norm_sid)]
+    if row.empty:
+        st.error(f"Student ID {norm_sid} not found in progress report. Please verify the ID or re-upload the progress report.")
+        return
     student_row = row.iloc[0]
 
     hidden_for_student = set(map(str, get_for_student(norm_sid)))
@@ -91,6 +95,21 @@ def student_eligibility_view():
     if f"_autoloaded_{norm_sid}" not in st.session_state:
         _load_session_and_apply(norm_sid)
         st.session_state[f"_autoloaded_{norm_sid}"] = True
+
+    # Initialize bypasses for this major if needed
+    major = st.session_state.get("current_major", "")
+    bypasses_key = f"bypasses_{major}"
+    if bypasses_key not in st.session_state:
+        st.session_state[bypasses_key] = {}
+    
+    # Get bypasses for this student
+    all_bypasses = st.session_state[bypasses_key]
+    student_bypasses = (
+        all_bypasses.get(norm_sid)
+        or all_bypasses.get(str(norm_sid))
+        or (all_bypasses.get(int(norm_sid)) if str(norm_sid).isdigit() else None)
+        or {}
+    )
 
     # per-student advising slot
     sels = st.session_state.advising_selections
@@ -109,18 +128,16 @@ def student_eligibility_view():
     if "repeat" not in slot:
         slot["repeat"] = []
 
-    # header stats with new card styling
-    st.markdown('<div class="nice-card">', unsafe_allow_html=True)
-    st.markdown(f"### 🎓 {student_row['NAME']}")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
+    # header stats
     cr_comp = float(student_row.get("# of Credits Completed", 0) or 0)
     cr_reg = float(student_row.get("# Registered", 0) or 0)
     cr_remaining = float(student_row.get("# Remaining", 0) or 0)
     total_credits = cr_comp + cr_reg
     standing = get_student_standing(total_credits)
 
+    st.markdown(f"### {student_row['NAME']}")
+    
+    col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         st.metric("Total Credits", f"{int(total_credits)} / {int(cr_remaining)} rem")
     with col2:
@@ -137,24 +154,33 @@ def student_eligibility_view():
         optional_count = len(optional_list)
         optional_credits = _sum_credits(optional_list)
         st.metric("Optional Courses", f"{optional_count} ({optional_credits} cr)")
-    
-    st.markdown('</div>', unsafe_allow_html=True) # End stats card
+    with col5:
+        pass  # Empty column for spacing
 
     # ---------- Eligibility map (skip hidden) ----------
     status_dict: Dict[str, str] = {}
     justification_dict: Dict[str, str] = {}
-    current_advised_for_checks = list(slot.get("advised", []))
+    # Include both advised AND optional courses for concurrent/corequisite checks
+    # Guard against None values from legacy sessions
+    advised_list = slot.get("advised") or []
+    optional_for_checks = slot.get("optional") or []
+    current_advised_for_checks = list(advised_list) + list(optional_for_checks)
+    
+    # Compute mutual concurrent/corequisite pairs once for the courses table
+    mutual_pairs = get_mutual_concurrent_pairs(st.session_state.courses_df)
+    
     for course_code in st.session_state.courses_df["Course Code"]:
         code = str(course_code)
         if code in hidden_for_student:
             continue
         status, justification = check_eligibility(
-            student_row, code, current_advised_for_checks, st.session_state.courses_df
+            student_row, code, current_advised_for_checks, st.session_state.courses_df, 
+            registered_courses=[], mutual_pairs=mutual_pairs, bypass_map=student_bypasses
         )
         status_dict[code] = status
         justification_dict[code] = justification
 
-    # ---------- Build display rows ----------
+    # ---------- Build display rows (screen Action shows Advised / Optional / Advised-Repeat) ----------
     rows = []
     for _, info in st.session_state.courses_df.iterrows():
         code = str(info["Course Code"])
@@ -184,24 +210,16 @@ def student_eligibility_view():
     req_df = display_df[display_df["Type"].astype(str).str.lower() == "required"].copy()
     int_df = display_df[display_df["Type"].astype(str).str.lower() == "intensive"].copy()
 
+    st.markdown("---")
     st.markdown("### Course Eligibility")
-    
-    # Use tabs for simpler view
-    tab_req, tab_int = st.tabs(["Required Courses", "Intensive Courses"])
-    
-    with tab_req:
-        if not req_df.empty:
-            st.dataframe(style_df(req_df), width=None, use_container_width=True)
-        else:
-            st.info("No required courses valid for display.")
-            
-    with tab_int:
-        if not int_df.empty:
-            st.dataframe(style_df(int_df), width=None, use_container_width=True)
-        else:
-            st.info("No intensive courses valid for display.")
+    if not req_df.empty:
+        st.markdown("**Required Courses**")
+        st.dataframe(style_df(req_df), width="stretch")
+    if not int_df.empty:
+        st.markdown("**Intensive Courses**")
+        st.dataframe(style_df(int_df), width="stretch")
 
-    # ---------- Selection options ----------
+    # ---------- Selection options (eligible + offered, not hidden/completed/registered) ----------
     offered_yes = {
         str(c) for c in st.session_state.courses_df.loc[
             st.session_state.courses_df["Offered"].astype(str).str.lower() == "yes",
@@ -218,14 +236,15 @@ def student_eligibility_view():
                 continue
             if check_course_completed(student_row, c) or check_course_registered(student_row, c):
                 continue
-            if status_dict.get(c) == "Eligible":
+            status = status_dict.get(c, "")
+            if status in ("Eligible", "Eligible (Bypass)"):
                 opts.append(c)
         return sorted(opts)
 
     eligible_opts = _eligible_options()
     optset = set(eligible_opts)
 
-    # Options for repeat
+    # Options for repeat: completed or registered courses
     def _repeat_options() -> List[str]:
         opts: List[str] = []
         for c in map(str, st.session_state.courses_df["Course Code"].tolist()):
@@ -241,57 +260,110 @@ def student_eligibility_view():
     default_repeat = [c for c in (slot.get("repeat", []) or []) if c in repeat_opts]
     default_optional = [c for c in (slot.get("optional", []) or []) if c in optset]
 
-    # ---------- Save form (Advising Card) ----------
+    # ---------- Save form (explicit autosave for *this* student) ----------
+    st.markdown("---")
     st.markdown("### Advising Recommendations")
     
-    st.markdown('<div class="nice-card">', unsafe_allow_html=True)
-    with st.form(key=f"advise_form_{norm_sid}"):
-        col_adv, col_rep, col_opt = st.columns(3)
+    def _persist_student_selections(
+        advised_selection: List[str],
+        repeat_selection: List[str],
+        optional_selection: List[str],
+        note_value: str,
+    ) -> None:
+        # Enforce mutual exclusivity: remove any courses from optional that are in advised
+        advised_set = set(advised_selection)
+        clean_optional = [c for c in optional_selection if c not in advised_set]
         
-        with col_adv:
-            advised_selection = st.multiselect(
-                "Advised (Eligible)", options=eligible_opts, default=default_advised, key=f"advised_ms_{norm_sid}"
-            )
-        with col_rep:
-            repeat_selection = st.multiselect(
-                "Repeat (Prev. Taken)", options=repeat_opts, default=default_repeat, key=f"repeat_ms_{norm_sid}",
-                help="Select courses that the student should repeat"
-            )
-        with col_opt:
-            optional_selection = st.multiselect(
-                "Optional",
-                options=eligible_opts,
-                default=default_optional,
-                key=f"optional_ms_{norm_sid}",
-                help="Additional courses to suggest"
-            )
-            
-        note_input = st.text_area(
-            "Advisor Note (optional)", value=slot.get("note", ""), key=f"note_{norm_sid}", height=100
+        st.session_state.advising_selections[norm_sid] = {
+            "advised": list(advised_selection),
+            "repeat": list(repeat_selection),
+            "optional": clean_optional,
+            "note": note_value,
+        }
+
+    def _build_student_download_bytes(
+        advised_selection: List[str],
+        repeat_selection: List[str],
+        optional_selection: List[str],
+        note_value: str,
+    ) -> bytes:
+        export_df = display_df.copy()
+        for col in ("Type", "Requisites"):
+            if col in export_df.columns:
+                export_df.drop(columns=[col], inplace=True)
+
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            export_df.to_excel(writer, index=False, sheet_name="Advising")
+
+        current_period = get_current_period()
+        period_info = (
+            f"Advising Period: {current_period.get('semester', '')} {current_period.get('year', '')} — "
+            f"Advisor: {current_period.get('advisor_name', '')}"
         )
 
-        st.markdown("---")
-        
-        # Consolidated Action Bar
-        col_actions = st.columns([1, 1, 1, 3]) # Spacing to keep buttons left-aligned or centered? Let's spread evenly for now
-        
-        with col_actions[0]:
-            submitted = st.form_submit_button("💾 Save", use_container_width=True, type="primary")
-        
-        with col_actions[1]:
-            email_clicked = st.form_submit_button("✉️ Email", use_container_width=True)
-        
-        with col_actions[2]:
-            download_clicked = st.form_submit_button("📥 Download", use_container_width=True)
-        
-        if submitted or email_clicked or download_clicked:
-            # Save selections exactly as the user selected them
-            st.session_state.advising_selections[norm_sid] = {
-                "advised": list(advised_selection),
-                "repeat": list(repeat_selection),
-                "optional": list(optional_selection),
-                "note": note_input,
-            }
+        apply_excel_formatting(
+            output=output,
+            student_name=str(student_row["NAME"]),
+            student_id=norm_sid,
+            credits_completed=int(cr_comp),
+            standing=standing,
+            note=note_value,
+            advised_credits=_sum_credits(advised_selection),
+            optional_credits=_sum_credits(optional_selection),
+            period_info=period_info,
+        )
+
+        output.seek(0)
+        return output.getvalue()
+
+    # Remove mutual exclusivity - advised courses shouldn't appear in optional options
+    # We handle this dynamically: options for optional exclude current advised, and vice versa
+    advised_key = f"advised_ms_{norm_sid}"
+    optional_key = f"optional_ms_{norm_sid}"
+    
+    # Get current selections from session state (for real-time mutual exclusivity)
+    current_advised_sel = set(st.session_state.get(advised_key, default_advised))
+    current_optional_sel = set(st.session_state.get(optional_key, default_optional))
+    
+    # Filter options: optional can't include advised, advised can't include optional
+    optional_opts = [c for c in eligible_opts if c not in current_advised_sel]
+    advised_opts_filtered = [c for c in eligible_opts if c not in current_optional_sel]
+    
+    with st.form(key=f"advise_form_{norm_sid}"):
+        advised_selection = st.multiselect(
+            "Advised Courses (Eligible, Not Yet Taken)", 
+            options=advised_opts_filtered, 
+            default=[c for c in default_advised if c in advised_opts_filtered], 
+            key=advised_key,
+            help="Primary course recommendations for this student"
+        )
+        optional_selection = st.multiselect(
+            "Optional Courses",
+            options=optional_opts,
+            default=[c for c in default_optional if c in optional_opts],
+            key=optional_key,
+            help="Additional optional courses (cannot overlap with Advised)"
+        )
+        repeat_selection = st.multiselect(
+            "Repeat Courses (Completed or Registered)", options=repeat_opts, default=default_repeat, key=f"repeat_ms_{norm_sid}",
+            help="Select courses that the student should repeat to improve GPA"
+        )
+        note_input = st.text_area(
+            "Advisor Note (optional)", value=slot.get("note", ""), key=f"note_{norm_sid}"
+        )
+
+        # Two buttons side by side
+        btn_col1, btn_col2 = st.columns(2)
+
+        with btn_col1:
+            submitted = st.form_submit_button("💾 Save Selections", width="stretch", type="primary")
+
+        with btn_col2:
+            email_clicked = st.form_submit_button("✉️ Email Student", width="stretch")
+
+        if submitted or email_clicked:
+            _persist_student_selections(advised_selection, repeat_selection, optional_selection, note_input)
 
             if submitted:
                 # EXPLICIT autosave for this student
@@ -303,11 +375,11 @@ def student_eligibility_view():
                 else:
                     show_action_feedback("save", False, "Check logs for details")
                 st.rerun()
-            
+
             elif email_clicked:
                 # Email student
                 from email_manager import get_student_email, send_advising_email
-                
+
                 student_email = get_student_email(str(norm_sid))
                 if not student_email:
                     show_notification(
@@ -320,7 +392,7 @@ def student_eligibility_view():
                     # Get period info for email
                     current_period = get_current_period()
                     period_info = f"{current_period.get('semester', '')} {current_period.get('year', '')} — Advisor: {current_period.get('advisor_name', '')}"
-                    
+
                     success, message = send_advising_email(
                         to_email=student_email,
                         student_name=str(student_row["NAME"]),
@@ -333,19 +405,107 @@ def student_eligibility_view():
                         remaining_credits=int(cr_remaining),
                         period_info=period_info,
                     )
-                    
+
                     if success:
                         show_action_feedback("email", True, f"Sent to {student_email}")
                         log_info(f"Advising email sent to {student_email} for student {norm_sid}")
                     else:
                         show_action_feedback("email", False, message)
                     st.rerun()
+
+    # ---------- Download Report ----------
+    current_advised = slot.get("advised", []) or []
+    current_repeat = slot.get("repeat", []) or []
+    current_optional = slot.get("optional", []) or []
+    current_note = slot.get("note", "")
+    
+    st.download_button(
+        "📥 Download Current Advising Report",
+        data=_build_student_download_bytes(
+            current_advised,
+            current_repeat,
+            current_optional,
+            current_note,
+        ),
+        file_name=f"Advising_{norm_sid}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        type="secondary",
+        width="stretch",
+        key=f"download_advising_{norm_sid}",
+    )
+
+    # ---------- Requisite Bypass Manager ----------
+    with st.expander("🔓 Requisite Bypasses", expanded=len(student_bypasses) > 0):
+        st.markdown("Grant a bypass to allow a student to register for a course without meeting prerequisites.")
+        
+        # Get courses that are "Not Eligible" (excluding hidden/completed/registered)
+        not_eligible_courses = [
+            code for code, status in status_dict.items()
+            if status == "Not Eligible" and code not in hidden_for_student
+        ]
+        
+        # Show existing bypasses
+        if student_bypasses:
+            st.markdown("**Active Bypasses:**")
+            for course_code, bypass_info in list(student_bypasses.items()):
+                col1, col2, col3 = st.columns([3, 5, 2])
+                with col1:
+                    st.markdown(f"**{course_code}**")
+                with col2:
+                    bypass_note = bypass_info.get("note", "")
+                    bypass_advisor = bypass_info.get("advisor", "")
+                    display_text = f"By {bypass_advisor}" if bypass_advisor else ""
+                    if bypass_note:
+                        display_text += f": {bypass_note}" if display_text else bypass_note
+                    st.caption(display_text or "No note")
+                with col3:
+                    if st.button("Remove", key=f"remove_bypass_{norm_sid}_{course_code}", type="secondary"):
+                        del student_bypasses[course_code]
+                        st.session_state[bypasses_key][norm_sid] = student_bypasses
+                        save_session_for_student(norm_sid)
+                        show_action_feedback("save", True, f"Bypass removed for {course_code}")
+                        st.rerun()
+            st.markdown("---")
+        
+        # Add new bypass
+        if not_eligible_courses:
+            st.markdown("**Grant New Bypass:**")
+            bypass_course = st.selectbox(
+                "Course to bypass",
+                options=not_eligible_courses,
+                key=f"bypass_course_{norm_sid}",
+                help="Select a course that is currently 'Not Eligible'"
+            )
             
-            elif download_clicked:
-                # Generate download
-                st.session_state[f"_download_trigger_{norm_sid}"] = True
+            # Show why it's not eligible
+            if bypass_course:
+                reason = justification_dict.get(bypass_course, "")
+                if reason:
+                    st.caption(f"Currently not eligible: {reason}")
+            
+            bypass_note = st.text_input(
+                "Bypass reason (optional)",
+                key=f"bypass_note_{norm_sid}",
+                placeholder="e.g., Department chair approved, Transfer credit pending"
+            )
+            
+            current_period = get_current_period()
+            advisor_name = current_period.get("advisor_name", "")
+            
+            if st.button("Grant Bypass", key=f"grant_bypass_{norm_sid}", type="primary"):
+                from datetime import datetime
+                student_bypasses[bypass_course] = {
+                    "note": bypass_note,
+                    "advisor": advisor_name,
+                    "timestamp": datetime.now().isoformat()
+                }
+                st.session_state[bypasses_key][norm_sid] = student_bypasses
+                save_session_for_student(norm_sid)
+                show_action_feedback("save", True, f"Bypass granted for {bypass_course}")
                 st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True) # End form card
+        else:
+            if not student_bypasses:
+                st.info("No courses currently need a bypass. All courses are either eligible, completed, or registered.")
 
     # ---------- Hidden courses manager ----------
     with st.expander("🚫 Manage Hidden Courses"):
@@ -362,39 +522,3 @@ def student_eligibility_view():
             set_for_student(norm_sid, new_hidden)
             show_action_feedback("save", True, "Hidden courses updated")
             st.rerun()
-
-    # ---------- Download Report (triggered by form button) ----------
-    if st.session_state.get(f"_download_trigger_{norm_sid}", False):
-        export_df = display_df.copy()
-        for col in ("Type", "Requisites"):
-            if col in export_df.columns:
-                export_df.drop(columns=[col], inplace=True)
-
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            export_df.to_excel(writer, index=False, sheet_name="Advising")
-
-        # Get period info for report header
-        current_period = get_current_period()
-        period_info = f"Advising Period: {current_period.get('semester', '')} {current_period.get('year', '')} — Advisor: {current_period.get('advisor_name', '')}"
-        
-        apply_excel_formatting(
-            output=output,
-            student_name=str(student_row["NAME"]),
-            student_id=norm_sid,
-            credits_completed=int(cr_comp),
-            standing=standing,
-            note=st.session_state.advising_selections[norm_sid].get("note", ""),
-            advised_credits=_sum_credits(st.session_state.advising_selections[norm_sid].get("advised", [])),
-            optional_credits=_sum_credits(st.session_state.advising_selections[norm_sid].get("optional", [])),
-            period_info=period_info,
-        )
-        st.download_button(
-            "Download Excel",
-            data=output.getvalue(),
-            file_name=f"Advising_{norm_sid}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            width='stretch',
-        )
-        # Clear the trigger
-        del st.session_state[f"_download_trigger_{norm_sid}"]

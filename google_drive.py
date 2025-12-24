@@ -2,6 +2,7 @@
 # Google Drive helpers with robust token refresh + update-or-create sync.
 # Scope-agnostic refresh (avoids invalid_scope) and corrected files().list query.
 # Added helpers: list_files_with_prefix, download_file_by_name, delete_file_by_name.
+# REFACTORED: All Google API imports are lazy-loaded to prevent segfaults on Streamlit Cloud.
 
 from __future__ import annotations
 
@@ -9,14 +10,52 @@ import io
 from typing import Optional, List, Dict
 
 import streamlit as st
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
-from googleapiclient.errors import HttpError
-from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
-
 
 GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token"
+
+_google_libs_cache = {}
+
+def _lazy_import_google_libs():
+    """
+    Lazy import Google libraries only when actually needed.
+    This prevents segmentation faults on Streamlit Cloud during module load.
+    Returns a dict with the imported modules/classes, or raises ImportError.
+    """
+    global _google_libs_cache
+    
+    if _google_libs_cache:
+        return _google_libs_cache
+    
+    try:
+        from googleapiclient.discovery import build
+        from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
+        from googleapiclient.errors import HttpError
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import Request
+        
+        _google_libs_cache = {
+            'build': build,
+            'MediaIoBaseUpload': MediaIoBaseUpload,
+            'MediaIoBaseDownload': MediaIoBaseDownload,
+            'HttpError': HttpError,
+            'Credentials': Credentials,
+            'Request': Request,
+            'available': True,
+        }
+        return _google_libs_cache
+    except ImportError as e:
+        _google_libs_cache = {
+            'available': False,
+            'error': e,
+        }
+        return _google_libs_cache
+
+
+def is_drive_available() -> bool:
+    """Check if Google Drive libraries are available."""
+    libs = _lazy_import_google_libs()
+    return libs.get('available', False)
+
 
 class GoogleAuthError(Exception):
     """Raised when Google auth/refresh fails (e.g. invalid_grant, invalid_scope)."""
@@ -43,8 +82,17 @@ def _get_credentials_hash() -> str:
     return hashlib.md5(cred_string.encode()).hexdigest()
 
 
-def _build_credentials() -> Credentials:
+def _build_credentials():
     import os
+    
+    libs = _lazy_import_google_libs()
+    if not libs.get('available'):
+        raise GoogleAuthError(
+            f"Google Drive libraries not available: {libs.get('error')}"
+        )
+    
+    Credentials = libs['Credentials']
+    Request = libs['Request']
     
     s = _secrets()
     client_id = s.get("client_id") or os.getenv("GOOGLE_CLIENT_ID")
@@ -57,7 +105,6 @@ def _build_credentials() -> Credentials:
             "Please set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN in Replit Secrets."
         )
 
-    # Do NOT pin scopes here; let the refresh token carry the granted scopes.
     creds = Credentials(
         token=None,
         refresh_token=refresh_token,
@@ -66,7 +113,6 @@ def _build_credentials() -> Credentials:
         client_secret=client_secret,
     )
 
-    # Force refresh now; normalize common errors.
     try:
         creds.refresh(Request())
     except Exception as e:
@@ -90,6 +136,13 @@ def _build_credentials() -> Credentials:
 @st.cache_resource(ttl=3600)
 def _get_cached_drive_service(_cred_hash: str):
     """Cached Drive service - only recreates if credentials change or after 1 hour."""
+    libs = _lazy_import_google_libs()
+    if not libs.get('available'):
+        raise GoogleAuthError(
+            f"Google Drive libraries not available: {libs.get('error')}"
+        )
+    
+    build = libs['build']
     creds = _build_credentials()
     try:
         service = build("drive", "v3", credentials=creds, cache_discovery=False)
@@ -100,12 +153,26 @@ def _get_cached_drive_service(_cred_hash: str):
 
 def initialize_drive_service():
     """Return a cached authenticated Drive service or raise GoogleAuthError."""
+    if not is_drive_available():
+        libs = _lazy_import_google_libs()
+        raise GoogleAuthError(
+            f"Google Drive libraries not available: {libs.get('error')}"
+        )
     cred_hash = _get_credentials_hash()
     return _get_cached_drive_service(cred_hash)
 
 
+def _get_http_error_class():
+    """Get HttpError class for exception handling."""
+    libs = _lazy_import_google_libs()
+    if libs.get('available'):
+        return libs['HttpError']
+    return Exception
+
+
 def find_file_in_drive(service, filename: str, parent_folder_id: str) -> Optional[str]:
     """Return fileId for `filename` inside `parent_folder_id`, else None."""
+    HttpError = _get_http_error_class()
     try:
         query = f"name = '{filename}' and '{parent_folder_id}' in parents and trashed = false"
         resp = service.files().list(
@@ -126,8 +193,10 @@ def find_file_in_drive(service, filename: str, parent_folder_id: str) -> Optiona
 
 def download_file_from_drive(service, file_id: str) -> bytes:
     """Download file content by id."""
-    # Note: Removed caching here because Drive service object cannot be hashed.
-    # Caching is now handled at the application level for specific files.
+    libs = _lazy_import_google_libs()
+    HttpError = _get_http_error_class()
+    MediaIoBaseDownload = libs.get('MediaIoBaseDownload')
+    
     try:
         req = service.files().get_media(fileId=file_id)
         fh = io.BytesIO()
@@ -153,6 +222,10 @@ def sync_file_with_drive(
     """
     import time
     import ssl
+    
+    libs = _lazy_import_google_libs()
+    HttpError = _get_http_error_class()
+    MediaIoBaseUpload = libs.get('MediaIoBaseUpload')
     
     max_retries = 3
     retry_delay = 2
@@ -190,13 +263,12 @@ def sync_file_with_drive(
             raise RuntimeError(f"Drive sync failed: {e}")
 
 
-# ----------------- New small helpers -----------------
-
 def list_files_with_prefix(service, parent_folder_id: str, prefix: str, page_size: int = 100) -> List[Dict]:
     """
     List files in folder whose name contains `prefix`, newest first.
     Returns list of dicts with keys: id, name, modifiedTime.
     """
+    HttpError = _get_http_error_class()
     try:
         query = f"name contains '{prefix}' and '{parent_folder_id}' in parents and trashed = false"
         resp = service.files().list(
@@ -223,6 +295,7 @@ def download_file_by_name(service, parent_folder_id: str, filename: str) -> Opti
 
 def delete_file_by_name(service, parent_folder_id: str, filename: str) -> bool:
     """Delete a file by name if it exists. Returns True if deleted or not present."""
+    HttpError = _get_http_error_class()
     try:
         fid = find_file_in_drive(service, filename, parent_folder_id)
         if not fid:
@@ -233,8 +306,19 @@ def delete_file_by_name(service, parent_folder_id: str, filename: str) -> bool:
         return False
 
 
+def delete_file_from_drive(service, file_id: str) -> bool:
+    """Delete a file by its file ID. Returns True if deleted successfully."""
+    HttpError = _get_http_error_class()
+    try:
+        service.files().delete(fileId=file_id).execute()
+        return True
+    except HttpError:
+        return False
+
+
 def find_folder_by_name(service, folder_name: str, parent_folder_id: str) -> Optional[str]:
     """Find a folder by name inside parent_folder_id. Returns folder ID or None."""
+    HttpError = _get_http_error_class()
     try:
         query = f"name = '{folder_name}' and '{parent_folder_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
         resp = service.files().list(
@@ -255,6 +339,7 @@ def find_folder_by_name(service, folder_name: str, parent_folder_id: str) -> Opt
 
 def create_folder(service, folder_name: str, parent_folder_id: str) -> str:
     """Create a folder inside parent_folder_id. Returns the new folder ID."""
+    HttpError = _get_http_error_class()
     try:
         body = {
             "name": folder_name,
