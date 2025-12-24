@@ -29,6 +29,11 @@ def course_planning_view():
     if "selected_courses_to_offer" not in st.session_state:
         st.session_state.selected_courses_to_offer = []
     
+    # Initialize cache keys if needed
+    if "course_analysis_cache" not in st.session_state:
+        st.session_state.course_analysis_cache = None
+        st.session_state.course_analysis_prereq = None
+    
     if "course_planning_filters" not in st.session_state:
         st.session_state.course_planning_filters = {
             "search_text": "",
@@ -50,29 +55,30 @@ def course_planning_view():
         """
     )
     
-    # Run analysis
-    with st.spinner("Analyzing course eligibility across all students..."):
-        log_info("Running course eligibility analysis")
-        try:
-            analysis_df = analyze_course_eligibility_across_students(
-                st.session_state.courses_df,
-                st.session_state.progress_df,
-                st.session_state.selected_courses_to_offer
-            )
-            
-            prereq_analysis = analyze_prerequisite_chains(
-                st.session_state.courses_df,
-                st.session_state.progress_df
-            )
-        except Exception as e:
-            st.error(f"Error analyzing courses: {e}")
-            log_error("Course planning analysis failed", e)
-            return
+    # Lazy Loading Logic
+    has_cache = (
+        st.session_state.course_analysis_cache is not None 
+        and not st.session_state.course_analysis_cache.empty
+    )
     
-    if analysis_df.empty:
-        st.warning("No course data to analyze.")
+    if not has_cache:
+        st.info("Course analysis is a heavy operation. Click below to generate the report.")
+        if st.button("🚀 Generate Course Analysis", type="primary", use_container_width=True):
+            _run_analysis()
+            st.rerun()
         return
+
+    # If cached, show the dashboard
+    analysis_df = st.session_state.course_analysis_cache
+    prereq_analysis = st.session_state.course_analysis_prereq
     
+    # Option to refresh
+    col_refresh, _ = st.columns([1, 4])
+    with col_refresh:
+        if st.button("🔄 Refresh Analysis", help="Re-run analysis to capture latest data updates"):
+            _run_analysis()
+            st.rerun()
+
     # Summary Dashboard
     _render_summary_dashboard(analysis_df)
     
@@ -104,6 +110,31 @@ def course_planning_view():
         
         with tabs[3]:
             _render_export_options(analysis_df, prereq_analysis)
+
+
+def _run_analysis():
+    """Helper to run the heavy analysis and cache results."""
+    with st.spinner("Analyzing course eligibility across all students..."):
+        log_info("Running course eligibility analysis")
+        try:
+            analysis_df = analyze_course_eligibility_across_students(
+                st.session_state.courses_df,
+                st.session_state.progress_df,
+                st.session_state.selected_courses_to_offer
+            )
+            
+            prereq_analysis = analyze_prerequisite_chains(
+                st.session_state.courses_df,
+                st.session_state.progress_df
+            )
+            
+            # Cache the results
+            st.session_state.course_analysis_cache = analysis_df
+            st.session_state.course_analysis_prereq = prereq_analysis
+            
+        except Exception as e:
+            st.error(f"Error analyzing courses: {e}")
+            log_error("Course planning analysis failed", e)
 
 
 def _render_summary_dashboard(analysis_df: pd.DataFrame):

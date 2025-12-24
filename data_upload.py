@@ -125,6 +125,11 @@ def upload_data():
                 else:
                     st.session_state.courses_df = df
                     st.session_state.majors[current_major]["courses_df"] = df
+                    
+                    # Invalidate course planning cache since data changed
+                    st.session_state.course_analysis_cache = None
+                    st.session_state.course_analysis_prereq = None
+                    
                     st.success(f"✅ Loaded {len(df)} courses")
                     log_info(f"Courses table uploaded via sidebar ({current_major}).")
 
@@ -177,6 +182,11 @@ def upload_data():
                 else:
                     st.session_state.progress_df = df
                     st.session_state.majors[current_major]["progress_df"] = df
+                    
+                    # Invalidate course planning cache since data changed
+                    st.session_state.course_analysis_cache = None
+                    st.session_state.course_analysis_prereq = None
+                    
                     st.success(f"✅ Loaded {len(df)} students (Required + Intensive merged)")
                     log_info(f"Progress report uploaded and merged via sidebar ({current_major}).")
 

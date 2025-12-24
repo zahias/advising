@@ -395,6 +395,11 @@ if not st.session_state[load_key] and st.session_state.courses_df.empty:
         if courses_bytes:
             try:
                 st.session_state.courses_df = pd.read_excel(BytesIO(courses_bytes))
+                
+                # Invalidate course planning cache since data changed
+                st.session_state.course_analysis_cache = None
+                st.session_state.course_analysis_prereq = None
+                
                 st.success(f"✅ Courses table loaded from Drive: {selected_major}/courses_table.xlsx")
                 log_info(f"Courses table loaded from Drive ({selected_major}).")
             except Exception as e:
@@ -419,6 +424,11 @@ if not st.session_state[load_key] and st.session_state.progress_df.empty:
         if prog_bytes:
             try:
                 st.session_state.progress_df = load_progress_excel(prog_bytes)
+                
+                # Invalidate course planning cache since data changed
+                st.session_state.course_analysis_cache = None
+                st.session_state.course_analysis_prereq = None
+                
                 st.success(f"✅ Progress report loaded from Drive: {selected_major}/progress_report.xlsx")
                 log_info(f"Progress report loaded & merged from Drive ({selected_major}).")
                 st.session_state[load_key] = True
