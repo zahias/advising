@@ -133,7 +133,7 @@ class AdvisingDatabase:
 
 # ---------- Public API (Compatible with existing calls) ----------
 
-def load_all_sessions_for_period(period_id: Optional[str] = None) -> int:
+def load_all_sessions_for_period(period_id: Optional[str] = None, force_refresh: bool = False) -> int:
     """
     Load the monolithic DB file and populate advising_selections.
     Returns count of loaded students.
@@ -147,10 +147,16 @@ def load_all_sessions_for_period(period_id: Optional[str] = None) -> int:
     major = st.session_state.get("current_major", "")
     if not major or not period_id:
         return 0
-        
+    
+    # Check if we already have data loaded for this period to avoid re-downloading
+    # We use a tracking key to know WHICH period is currently loaded in advising_selections
+    current_loaded_key = st.session_state.get("_adv_selections_loaded_period")
+    
+    if not force_refresh and current_loaded_key == f"{major}_{period_id}":
+        # Already loaded, valid, and matching current context
+        return len(st.session_state.get("advising_selections", {}))
+
     # Check if we need to migrate legacy data first
-    # We do this by checking if DB exists. If not, check for index.
-    # This is a one-time check per session ideally.
     if f"_db_checked_{major}_{period_id}" not in st.session_state:
         _ensure_migration(major, period_id)
         st.session_state[f"_db_checked_{major}_{period_id}"] = True
@@ -158,9 +164,9 @@ def load_all_sessions_for_period(period_id: Optional[str] = None) -> int:
     # Load from DB
     sessions = AdvisingDatabase.load(major, period_id)
     
-    if "advising_selections" not in st.session_state:
-        st.session_state.advising_selections = {}
-        
+    # Always reset selections when loading a fresh period
+    st.session_state.advising_selections = {}
+    
     count = 0
     # Merge into session state
     for sid, data in sessions.items():
@@ -180,6 +186,9 @@ def load_all_sessions_for_period(period_id: Optional[str] = None) -> int:
             st.session_state[bypasses_key][norm_sid] = data["bypasses"]
             
         count += 1
+    
+    # Mark as loaded for this period
+    st.session_state["_adv_selections_loaded_period"] = f"{major}_{period_id}"
         
     return count
 
