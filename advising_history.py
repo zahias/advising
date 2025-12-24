@@ -275,124 +275,106 @@ def _load_session_and_apply(student_id: Union[int, str]) -> bool:
 def _ensure_migration(major: str, period_id: str):
     """
     Check if DB exists. If not, and we have legacy files, migrate them.
-    Handles errors gracefully to never block app startup.
     """
-    try:
-        existing_db = AdvisingDatabase.load(major, period_id)
-        if existing_db:
-            return # DB exists, we are good.
-    except Exception:
-        pass # If we can't load DB, try to migrate anyway
+    existing_db = AdvisingDatabase.load(major, period_id)
+    if existing_db:
+        return # DB exists, we are good.
 
     # No DB. Check for legacy index.
     log_info("Checking for legacy data to migrate...")
     
+    # We need to look for advising_index.json (legacy)
+    gd = _get_drive_module()
+    service = gd.initialize_drive_service()
+    
+    # Get major folder
+    root_folder_id = ""
     try:
-        # We need to look for advising_index.json (legacy)
-        gd = _get_drive_module()
-        service = gd.initialize_drive_service()
-        
-        # Get major folder
-        root_folder_id = ""
-        try:
-            if "google" in st.secrets:
-                root_folder_id = st.secrets["google"].get("folder_id", "")
-        except:
-            pass
-        import os
-        if not root_folder_id:
-            root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
+        if "google" in st.secrets:
+            root_folder_id = st.secrets["google"].get("folder_id", "")
+    except:
+        pass
+    import os
+    if not root_folder_id:
+        root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
 
-        if not root_folder_id:
-            return
+    if not root_folder_id:
+        return
 
-        major_folder_id = gd.get_major_folder_id(service, major, root_folder_id)
-        if not major_folder_id:
-            return
-        
-        # Using specific legacy filename for index
-        index_name = "advising_index.json"
-        
-        # Try finding in sessions subfolder first
-        sessions_folder_id = ""
-        try:
-            q = f"name = 'sessions' and '{major_folder_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-            res = service.files().list(q=q, spaces='drive', fields='files(id, name)').execute()
-            files = res.get('files', [])
-            if files:
-                sessions_folder_id = files[0].get('id')
-        except:
-            pass
+    major_folder_id = gd.get_major_folder_id(service, major, root_folder_id)
+    
+    # Using specific legacy filename for index
+    index_name = "advising_index.json"
+    
+    # Try finding in sessions subfolder first
+    sessions_folder_id = ""
+    try:
+        q = f"name = 'sessions' and '{major_folder_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+        res = service.files().list(q=q, spaces='drive', fields='files(id, name)').execute()
+        files = res.get('files', [])
+        if files:
+            sessions_folder_id = files[0].get('id')
+    except:
+        pass
 
-        search_folder_id = sessions_folder_id if sessions_folder_id else major_folder_id
+    search_folder_id = sessions_folder_id if sessions_folder_id else major_folder_id
+    
+    idx_id = gd.find_file_in_drive(service, index_name, search_folder_id)
+    if not idx_id:
+        return # No legacy data
         
-        try:
-            idx_id = gd.find_file_in_drive(service, index_name, search_folder_id)
-        except Exception:
-            idx_id = None
+    # Download index
+    content = gd.download_file_from_drive(service, idx_id)
+    index = json.loads(content.decode("utf-8"))
+    
+    # Filter for current period
+    period_sessions = [r for r in index if r.get("period_id", "") == period_id]
+    
+    if not period_sessions:
+        return
+        
+    log_info(f"Migrating {len(period_sessions)} legacy sessions to consolidated DB...")
+    
+    new_db = {}
+    
+    # Download each session payload
+    for item in period_sessions:
+        sid = item.get("id") # session file id (part of filename)
+        student_id = str(item.get("student_id"))
+        
+        filename = f"advising_session_{sid}.json"
+        
+        # Try download
+        fid = gd.find_file_in_drive(service, filename, search_folder_id)
+        if fid:
+            s_content = gd.download_file_from_drive(service, fid)
+            s_data = json.loads(s_content.decode("utf-8"))
             
-        if not idx_id:
-            return # No legacy data
-            
-        # Download index
-        content = gd.download_file_from_drive(service, idx_id)
-        index = json.loads(content.decode("utf-8"))
+            snapshot = s_data.get("snapshot", {})
+            students = snapshot.get("students", [])
+            if students:
+                stu = students[0]
+                new_db[student_id] = {
+                    "advised": stu.get("advised", []),
+                    "optional": stu.get("optional", []),
+                    "repeat": stu.get("repeat", []),
+                    "note": stu.get("note", ""),
+                    "bypasses": stu.get("bypasses", {}),
+                    "last_updated": item.get("created_at", _now_iso()),
+                    "advisor": item.get("advisor_name", "")
+                }
+    
+    # Save the new DB
+    AdvisingDatabase.save(major, period_id, new_db)
+    
+    # Rename legacy index?
+    try:
+        service.files().update(
+            fileId=idx_id,
+            body={"name": f"legacy_{index_name}"}
+        ).execute()
+        log_info("Renamed legacy index to prevent re-migration.")
+    except:
+        pass
         
-        # Filter for current period
-        period_sessions = [r for r in index if r.get("period_id", "") == period_id]
-        
-        if not period_sessions:
-            return
-            
-        log_info(f"Migrating {len(period_sessions)} legacy sessions to consolidated DB...")
-        
-        new_db = {}
-        
-        # Download each session payload
-        for item in period_sessions:
-            sid = item.get("id") # session file id (part of filename)
-            student_id = str(item.get("student_id"))
-            
-            filename = f"advising_session_{sid}.json"
-            
-            # Try download (wrapped in try-except for robustness)
-            try:
-                fid = gd.find_file_in_drive(service, filename, search_folder_id)
-                if fid:
-                    s_content = gd.download_file_from_drive(service, fid)
-                    s_data = json.loads(s_content.decode("utf-8"))
-                    
-                    snapshot = s_data.get("snapshot", {})
-                    students = snapshot.get("students", [])
-                    if students:
-                        stu = students[0]
-                        new_db[student_id] = {
-                            "advised": stu.get("advised", []),
-                            "optional": stu.get("optional", []),
-                            "repeat": stu.get("repeat", []),
-                            "note": stu.get("note", ""),
-                            "bypasses": stu.get("bypasses", {}),
-                            "last_updated": item.get("created_at", _now_iso()),
-                            "advisor": item.get("advisor_name", "")
-                        }
-            except Exception as e:
-                log_error(f"Failed to download session {sid}", e)
-                continue
-        
-        # Save the new DB if we got any data
-        if new_db:
-            AdvisingDatabase.save(major, period_id, new_db)
-        
-        # Optionally rename legacy index to prevent re-migration
-        try:
-            service.files().update(
-                fileId=idx_id,
-                body={"name": f"legacy_{index_name}"}
-            ).execute()
-            log_info("Renamed legacy index to prevent re-migration.")
-        except:
-            pass
-            
-        log_info("Migration complete.")
-    except Exception as e:
-        log_error("Migration failed, continuing without legacy data", e)
+    log_info("Migration complete.")
