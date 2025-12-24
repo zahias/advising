@@ -344,11 +344,6 @@ def main():
     if needs_loading:
         with st.spinner("Loading data..."):
             _auto_load_from_drive(selected_major)
-            
-    # Load Advising DB (Consolidated)
-    # This fills st.session_state.advising_selections
-    from advising_history import load_all_sessions_for_period
-    load_all_sessions_for_period() # Uses current period by default
     
     if not _render_period_gate():
         return
