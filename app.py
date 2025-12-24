@@ -44,12 +44,30 @@ def _default_period_for_today(today: datetime | None = None) -> tuple[str, int]:
 st.set_page_config(page_title="Advising Dashboard", layout="wide")
 
 # Apply visual theme and accessibility improvements
+# Apply visual theme and accessibility improvements
 apply_visual_theme()
 
 # ---------- Header / Logo ----------
+# Custom Header with Logo and Title aligned
 if os.path.exists("pu_logo.png"):
-    st.image("pu_logo.png", width=160)
-st.title("Advising Dashboard")
+    import base64
+    with open("pu_logo.png", "rb") as f:
+        data = base64.b64encode(f.read()).decode("utf-8")
+    
+    st.markdown(
+        f"""
+        <div class="header-container">
+            <img src="data:image/png;base64,{data}" width="80" style="border-radius: 8px;">
+            <div>
+                <h1 style="margin:0; font-size: 2rem;">Advising Dashboard</h1>
+                <p style="margin:0; color: var(--text-muted);">Phoenix University Academic Advising</p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+else:
+    st.title("Advising Dashboard")
 
 # ---------- Majors ----------
 MAJORS = ["PBHL", "SPTH-New", "SPTH-Old"]
@@ -81,10 +99,10 @@ all_periods = get_all_periods()
 
 # If period not yet selected, show selection interface
 if not st.session_state[period_selected_key]:
-    st.markdown("---")
+    st.markdown('<div class="nice-card">', unsafe_allow_html=True)
     st.markdown("## 📅 Select Advising Period")
     st.markdown("Before accessing the advising dashboard, please select an advising period.")
-
+    
     # Create two columns for the two options
     col_new, col_existing = st.columns(2)
 
@@ -183,13 +201,14 @@ if not st.session_state[period_selected_key]:
         else:
             st.info("No existing periods found. Please start a new period.")
     
+    st.markdown('</div>', unsafe_allow_html=True)
     st.stop()  # Stop execution here until period is selected
 
 # ---------- Current Advising Period Display ----------
 st.markdown(f"**Current Advising Period:** {current_period.get('semester', '')} {current_period.get('year', '')} — Advisor: {current_period.get('advisor_name', 'Not set')}")
 
 # Utility buttons for advising selections
-with st.expander("⚙️ Advising Utilities"):
+with st.sidebar.expander("⚙️ Advising Utilities"):
     st.markdown("### Advising Period Management")
     
     # Add button to change period

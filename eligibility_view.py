@@ -109,16 +109,18 @@ def student_eligibility_view():
     if "repeat" not in slot:
         slot["repeat"] = []
 
-    # header stats
+    # header stats with new card styling
+    st.markdown('<div class="nice-card">', unsafe_allow_html=True)
+    st.markdown(f"### 🎓 {student_row['NAME']}")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
     cr_comp = float(student_row.get("# of Credits Completed", 0) or 0)
     cr_reg = float(student_row.get("# Registered", 0) or 0)
     cr_remaining = float(student_row.get("# Remaining", 0) or 0)
     total_credits = cr_comp + cr_reg
     standing = get_student_standing(total_credits)
 
-    st.markdown(f"### {student_row['NAME']}")
-    
-    col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         st.metric("Total Credits", f"{int(total_credits)} / {int(cr_remaining)} rem")
     with col2:
@@ -135,8 +137,8 @@ def student_eligibility_view():
         optional_count = len(optional_list)
         optional_credits = _sum_credits(optional_list)
         st.metric("Optional Courses", f"{optional_count} ({optional_credits} cr)")
-    with col5:
-        pass  # Empty column for spacing
+    
+    st.markdown('</div>', unsafe_allow_html=True) # End stats card
 
     # ---------- Eligibility map (skip hidden) ----------
     status_dict: Dict[str, str] = {}
@@ -152,7 +154,7 @@ def student_eligibility_view():
         status_dict[code] = status
         justification_dict[code] = justification
 
-    # ---------- Build display rows (screen Action shows Advised / Optional / Advised-Repeat) ----------
+    # ---------- Build display rows ----------
     rows = []
     for _, info in st.session_state.courses_df.iterrows():
         code = str(info["Course Code"])
@@ -182,16 +184,24 @@ def student_eligibility_view():
     req_df = display_df[display_df["Type"].astype(str).str.lower() == "required"].copy()
     int_df = display_df[display_df["Type"].astype(str).str.lower() == "intensive"].copy()
 
-    st.markdown("---")
     st.markdown("### Course Eligibility")
-    if not req_df.empty:
-        st.markdown("**Required Courses**")
-        st.dataframe(style_df(req_df), width='stretch')
-    if not int_df.empty:
-        st.markdown("**Intensive Courses**")
-        st.dataframe(style_df(int_df), width='stretch')
+    
+    # Use tabs for simpler view
+    tab_req, tab_int = st.tabs(["Required Courses", "Intensive Courses"])
+    
+    with tab_req:
+        if not req_df.empty:
+            st.dataframe(style_df(req_df), width=None, use_container_width=True)
+        else:
+            st.info("No required courses valid for display.")
+            
+    with tab_int:
+        if not int_df.empty:
+            st.dataframe(style_df(int_df), width=None, use_container_width=True)
+        else:
+            st.info("No intensive courses valid for display.")
 
-    # ---------- Selection options (eligible + offered, not hidden/completed/registered) ----------
+    # ---------- Selection options ----------
     offered_yes = {
         str(c) for c in st.session_state.courses_df.loc[
             st.session_state.courses_df["Offered"].astype(str).str.lower() == "yes",
@@ -215,7 +225,7 @@ def student_eligibility_view():
     eligible_opts = _eligible_options()
     optset = set(eligible_opts)
 
-    # Options for repeat: completed or registered courses
+    # Options for repeat
     def _repeat_options() -> List[str]:
         opts: List[str] = []
         for c in map(str, st.session_state.courses_df["Course Code"].tolist()):
@@ -231,40 +241,48 @@ def student_eligibility_view():
     default_repeat = [c for c in (slot.get("repeat", []) or []) if c in repeat_opts]
     default_optional = [c for c in (slot.get("optional", []) or []) if c in optset]
 
-    # ---------- Save form (explicit autosave for *this* student) ----------
-    st.markdown("---")
+    # ---------- Save form (Advising Card) ----------
     st.markdown("### Advising Recommendations")
     
+    st.markdown('<div class="nice-card">', unsafe_allow_html=True)
     with st.form(key=f"advise_form_{norm_sid}"):
-        advised_selection = st.multiselect(
-            "Advised Courses (Eligible, Not Yet Taken)", options=eligible_opts, default=default_advised, key=f"advised_ms_{norm_sid}"
-        )
-        repeat_selection = st.multiselect(
-            "Repeat Courses (Completed or Registered)", options=repeat_opts, default=default_repeat, key=f"repeat_ms_{norm_sid}",
-            help="Select courses that the student should repeat"
-        )
-        optional_selection = st.multiselect(
-            "Optional Courses",
-            options=eligible_opts,
-            default=default_optional,
-            key=f"optional_ms_{norm_sid}",
-            help="Additional courses to suggest"
-        )
+        col_adv, col_rep, col_opt = st.columns(3)
+        
+        with col_adv:
+            advised_selection = st.multiselect(
+                "Advised (Eligible)", options=eligible_opts, default=default_advised, key=f"advised_ms_{norm_sid}"
+            )
+        with col_rep:
+            repeat_selection = st.multiselect(
+                "Repeat (Prev. Taken)", options=repeat_opts, default=default_repeat, key=f"repeat_ms_{norm_sid}",
+                help="Select courses that the student should repeat"
+            )
+        with col_opt:
+            optional_selection = st.multiselect(
+                "Optional",
+                options=eligible_opts,
+                default=default_optional,
+                key=f"optional_ms_{norm_sid}",
+                help="Additional courses to suggest"
+            )
+            
         note_input = st.text_area(
-            "Advisor Note (optional)", value=slot.get("note", ""), key=f"note_{norm_sid}"
+            "Advisor Note (optional)", value=slot.get("note", ""), key=f"note_{norm_sid}", height=100
         )
 
-        # Three buttons side by side
-        btn_col1, btn_col2, btn_col3 = st.columns(3)
+        st.markdown("---")
         
-        with btn_col1:
-            submitted = st.form_submit_button("💾 Save Selections", width='stretch', type="primary")
+        # Consolidated Action Bar
+        col_actions = st.columns([1, 1, 1, 3]) # Spacing to keep buttons left-aligned or centered? Let's spread evenly for now
         
-        with btn_col2:
-            email_clicked = st.form_submit_button("✉️ Email Student", width='stretch')
+        with col_actions[0]:
+            submitted = st.form_submit_button("💾 Save", use_container_width=True, type="primary")
         
-        with btn_col3:
-            download_clicked = st.form_submit_button("📥 Download Report", width='stretch')
+        with col_actions[1]:
+            email_clicked = st.form_submit_button("✉️ Email", use_container_width=True)
+        
+        with col_actions[2]:
+            download_clicked = st.form_submit_button("📥 Download", use_container_width=True)
         
         if submitted or email_clicked or download_clicked:
             # Save selections exactly as the user selected them
@@ -327,6 +345,7 @@ def student_eligibility_view():
                 # Generate download
                 st.session_state[f"_download_trigger_{norm_sid}"] = True
                 st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True) # End form card
 
     # ---------- Hidden courses manager ----------
     with st.expander("🚫 Manage Hidden Courses"):
