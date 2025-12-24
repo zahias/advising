@@ -49,6 +49,9 @@ def get_student_standing(total_credits_completed: float | int) -> str:
     return "Sophomore"
 
 
+import functools
+
+@functools.lru_cache(maxsize=1024)
 def parse_requirements(req_str: str) -> List[str]:
     if pd.isna(req_str) or req_str is None:
         return []

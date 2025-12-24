@@ -623,8 +623,12 @@ def load_all_sessions_for_period(period_id: Optional[str] = None) -> int:
     Load all saved advising sessions for the current (or specified) period
     and apply them to advising_selections.
     
+    Uses multi-threading to speed up Drive downloads.
+    
     Returns the number of sessions loaded.
     """
+    import concurrent.futures
+    
     if "advising_index" not in st.session_state:
         st.session_state.advising_index = _load_index()
     
@@ -642,12 +646,14 @@ def load_all_sessions_for_period(period_id: Optional[str] = None) -> int:
     if not period_sessions:
         return 0
     
+    # 1. Identify latest session for each student
     students_with_sessions = {}
     for session in period_sessions:
         student_id = session.get("student_id")
         if not student_id:
             continue
         created_at = session.get("created_at", "")
+        # Keep only the latest session per student
         if student_id not in students_with_sessions or created_at > students_with_sessions[student_id].get("created_at", ""):
             students_with_sessions[student_id] = session
     
@@ -659,49 +665,70 @@ def load_all_sessions_for_period(period_id: Optional[str] = None) -> int:
     if bypasses_key not in st.session_state:
         st.session_state[bypasses_key] = {}
     
-    loaded_count = 0
+    # 2. Filter out already loaded sessions
+    sessions_to_load = []
     for student_id, session_meta in students_with_sessions.items():
         try:
             norm_id = int(student_id)
         except (ValueError, TypeError):
             norm_id = str(student_id)
         
+        # Skip if already in memory
         if norm_id in st.session_state.advising_selections:
             continue
         if str(norm_id) in st.session_state.advising_selections:
             continue
-        
+            
         session_id = session_meta.get("id")
-        if not session_id:
-            continue
+        if session_id:
+            sessions_to_load.append((norm_id, session_id))
+    
+    if not sessions_to_load:
+        return 0
         
-        payload = _load_session_payload_by_id(session_id)
-        if not payload:
-            continue
+    # 3. Parallel Fetch
+    loaded_count = 0
+    
+    def _fetch_session(args):
+        nid, sid = args
+        return nid, _load_session_payload_by_id(sid)
+
+    # Use a safe number of workers to avoid overwhelming the system/API
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        future_to_id = {executor.submit(_fetch_session, item): item[0] for item in sessions_to_load}
         
-        snapshot = payload.get("snapshot", {})
-        students = snapshot.get("students", [])
-        
-        if not students:
-            continue
-        
-        student_data = students[0]
-        
-        st.session_state.advising_selections[norm_id] = {
-            "advised": student_data.get("advised", []),
-            "optional": student_data.get("optional", []),
-            "repeat": student_data.get("repeat", []),
-            "note": student_data.get("note", ""),
-        }
-        
-        student_bypasses = student_data.get("bypasses", {})
-        if student_bypasses:
-            st.session_state[bypasses_key][norm_id] = student_bypasses
-        
-        loaded_count += 1
+        for future in concurrent.futures.as_completed(future_to_id):
+            try:
+                norm_id_res, payload = future.result()
+                if not payload:
+                    continue
+                
+                snapshot = payload.get("snapshot", {})
+                students = snapshot.get("students", [])
+                
+                if not students:
+                    continue
+                
+                student_data = students[0]
+                
+                # Update Session State (safe to do here since we are in the main thread loop of results)
+                st.session_state.advising_selections[norm_id_res] = {
+                    "advised": student_data.get("advised", []),
+                    "optional": student_data.get("optional", []),
+                    "repeat": student_data.get("repeat", []),
+                    "note": student_data.get("note", ""),
+                }
+                
+                student_bypasses = student_data.get("bypasses", {})
+                if student_bypasses:
+                    st.session_state[bypasses_key][norm_id_res] = student_bypasses
+                
+                loaded_count += 1
+            except Exception as e:
+                log_error(f"Error fetching session payload in parallel", e)
     
     if loaded_count > 0:
-        log_info(f"Loaded {loaded_count} advising sessions for period {period_id}")
+        log_info(f"Loaded {loaded_count} advising sessions for period {period_id} (Parallel)")
     
     return loaded_count
 
