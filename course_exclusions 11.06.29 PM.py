@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 import json
-from typing import Dict, List
+from typing import Dict, List, Union
 
 import streamlit as st
 from utils import log_error, log_info
@@ -133,7 +133,7 @@ def _persist_to_bucket():
         st.session_state.majors[major]["course_exclusions"] = st.session_state.get("course_exclusions", {})
 
 
-def get_for_student(student_id: int | str) -> List[str]:
+def get_for_student(student_id: Union[int, str]) -> List[str]:
     """Return list of hidden course codes for a student (strings)."""
     ensure_loaded()
     sid = str(student_id)
@@ -141,7 +141,7 @@ def get_for_student(student_id: int | str) -> List[str]:
     return list(ex_map.get(sid, []))
 
 
-def set_for_student(student_id: int | str, course_codes: List[str]) -> None:
+def set_for_student(student_id: Union[int, str], course_codes: List[str]) -> None:
     """
     Replace the hidden list for a student and sync to Drive.
     Accepts list of strings (course codes).

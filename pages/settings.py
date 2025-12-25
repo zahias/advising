@@ -98,10 +98,10 @@ def _render_session_management():
             st.error(f"Error: {e}")
 
 def _render_exclusions():
-    """Render course exclusions management."""
+    """Render course exclusions management - intensive courses only with bulk student selection."""
     
     st.markdown("### Course Exclusions")
-    st.caption("Hide specific courses from individual students' eligibility views")
+    st.caption("Hide intensive courses from students' eligibility views (bulk or individual)")
     
     progress_df = st.session_state.get("progress_df", pd.DataFrame())
     courses_df = st.session_state.get("courses_df", pd.DataFrame())
@@ -117,31 +117,67 @@ def _render_exclusions():
     
     exclusions = st.session_state[exclusions_key]
     
+    # Filter to intensive courses only
+    intensive_courses = courses_df[courses_df["Type"].astype(str).str.lower() == "intensive"]["Course Code"].tolist()
+    
+    if not intensive_courses:
+        st.info("No intensive courses found in the curriculum.")
+        return
+    
     student_options = [f"{row['NAME']} ({row['ID']})" for _, row in progress_df.iterrows()]
-    course_options = courses_df["Course Code"].tolist()
+    
+    st.markdown("#### Add Exclusions")
     
     with st.form("add_exclusion"):
+        # Select intensive courses first
+        selected_courses = st.multiselect(
+            "Intensive Courses to Exclude", 
+            intensive_courses,
+            help="Select intensive courses to hide from selected students"
+        )
+        
+        st.markdown("**Select Students:**")
+        
         col1, col2 = st.columns(2)
-        
         with col1:
-            selected_student = st.selectbox("Student", student_options)
+            select_all = st.checkbox("Select All Students", key="select_all_students")
         
-        with col2:
-            selected_courses = st.multiselect("Courses to Exclude", course_options)
+        if select_all:
+            selected_students = student_options
+            st.caption(f"All {len(student_options)} students selected")
+        else:
+            selected_students = st.multiselect(
+                "Students",
+                student_options,
+                help="Select one or more students to apply exclusions"
+            )
         
-        if st.form_submit_button("Add Exclusion"):
-            if selected_student and selected_courses:
-                sid = selected_student.split("(")[-1].rstrip(")")
-                if sid not in exclusions:
-                    exclusions[sid] = []
-                exclusions[sid].extend(selected_courses)
-                exclusions[sid] = list(set(exclusions[sid]))
+        if st.form_submit_button("Add Exclusions", type="primary", help="Apply selected course exclusions to selected students"):
+            if selected_courses and selected_students:
+                from course_exclusions import set_for_student
+                added_count = 0
+                for student_label in selected_students:
+                    sid = student_label.split("(")[-1].rstrip(")")
+                    if sid not in exclusions:
+                        exclusions[sid] = []
+                    for course in selected_courses:
+                        if course not in exclusions[sid]:
+                            exclusions[sid].append(course)
+                            added_count += 1
+                    # Sync to course_exclusions module so workspace picks it up
+                    set_for_student(sid, exclusions[sid])
                 st.session_state[exclusions_key] = exclusions
-                st.success(f"Added exclusions for {selected_student}")
+                st.success(f"Added {added_count} exclusions across {len(selected_students)} students")
                 st.rerun()
+            else:
+                st.warning("Please select both courses and students")
     
     if exclusions:
         st.markdown("#### Current Exclusions")
+        
+        # Show summary
+        total_exclusions = sum(len(courses) for courses in exclusions.values())
+        st.caption(f"Total: {total_exclusions} exclusions across {len(exclusions)} students")
         
         for sid, courses in exclusions.items():
             if courses:
@@ -154,8 +190,10 @@ def _render_exclusions():
                         with col1:
                             st.write(course)
                         with col2:
-                            if st.button("Remove", key=f"remove_{sid}_{course}"):
+                            if st.button("Remove", key=f"remove_{sid}_{course}", help="Remove this exclusion"):
+                                from course_exclusions import set_for_student
                                 exclusions[sid].remove(course)
+                                set_for_student(sid, exclusions[sid])
                                 st.session_state[exclusions_key] = exclusions
                                 st.rerun()
 

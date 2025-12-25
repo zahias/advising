@@ -144,9 +144,9 @@ def _render_degree_plan_with_progress(courses_df, student_data):
     with col3:
         st.markdown("🔵 **Available**")
     with col4:
-        st.markdown("⚪ **Not Eligible**")
+        st.markdown("🟠 **Advised**")
     with col5:
-        st.markdown("🔴 **Failed/Repeat**")
+        st.markdown("⚪ **Not Eligible**")
     
     st.markdown("---")
     
@@ -254,18 +254,32 @@ def _get_student_course_statuses(student_data, courses_df):
         # Check if student has taken/is taking this course
         student_status = student_data.get(course_code, "")
         
+        # Check advising selections
+        sid = student_data.get("ID")
+        sels = st.session_state.get("advising_selections", {})
+        slot = sels.get(sid) or sels.get(str(sid)) or {}
+        
+        advised = slot.get("advised", [])
+        repeat = slot.get("repeat", [])
+        optional = slot.get("optional", [])
+        
         if pd.isna(student_status) or student_status == "":
-            # Not taken - check if eligible
-            status, _ = check_eligibility(
-                student_data,
-                course_code,
-                [],
-                courses_df,
-                registered_courses=[],
-                ignore_offered=True,
-                mutual_pairs=mutual_pairs
-            )
-            statuses[course_code] = 'available' if status == "Eligible" else 'not_eligible'
+            if course_code in advised or course_code in optional:
+                statuses[course_code] = 'advised'
+            elif course_code in repeat:
+                statuses[course_code] = 'advised_repeat'
+            else:
+                # Not taken - check if eligible
+                status, _ = check_eligibility(
+                    student_data,
+                    course_code,
+                    [],
+                    courses_df,
+                    registered_courses=[],
+                    ignore_offered=True,
+                    mutual_pairs=mutual_pairs
+                )
+                statuses[course_code] = 'available' if status == "Eligible" else 'not_eligible'
         elif student_status.lower() in ['c', 'completed', 'pass', 'p']:
             statuses[course_code] = 'completed'
         elif student_status.lower() in ['r', 'registered', 'current']:
@@ -273,8 +287,13 @@ def _get_student_course_statuses(student_data, courses_df):
         elif student_status.lower() in ['f', 'fail', 'failed']:
             statuses[course_code] = 'failed'
         else:
-            # Other status (advised, etc.) - treat as available
-            statuses[course_code] = 'available'
+            # Other status - check if advised
+            if course_code in advised or course_code in optional:
+                statuses[course_code] = 'advised'
+            elif course_code in repeat:
+                statuses[course_code] = 'advised_repeat'
+            else:
+                statuses[course_code] = 'available'
     
     return statuses
 
@@ -285,6 +304,8 @@ def _get_status_display(status):
     status_map = {
         'completed': ('🟢', 'green'),
         'registered': ('🟡', 'yellow'),
+        'advised': ('🟠', 'orange'),
+        'advised_repeat': ('☢️', 'orange'),
         'available': ('🔵', 'blue'),
         'not_eligible': ('⚪', 'gray'),
         'failed': ('🔴', 'red')

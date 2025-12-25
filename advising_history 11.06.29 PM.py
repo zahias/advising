@@ -500,9 +500,10 @@ def save_session_for_student(student_id: Union[int, str]) -> Optional[str]:
         # best-effort payload save to Drive
         _save_session_payload(sid, snapshot, meta)
 
-        # local index update so UI shows it immediately
-        if "advising_index" not in st.session_state:
-            st.session_state.advising_index = _load_index()
+        # FIX RACE CONDITION: Force reload index from Drive before appending
+        # This ensures we have the latest entries from other users
+        st.session_state.advising_index = _load_index(force_refresh=True)
+        
         st.session_state.advising_index.append({
             "id": sid,
             "title": title,
@@ -551,11 +552,13 @@ def _find_latest_session_for_student(student_id: Union[int, str], period_id: Opt
         current_period = get_current_period()
         period_id = current_period.get("period_id", "")
     
-    # Filter sessions for this student in the specified period
+    # Filter sessions for this student
+    # Include matches for period_id, and if period_id is provided, also include legacy sessions (empty period_id)
+    # as they represent historical data that should be visible unless explicitly overridden.
     student_sessions = [
         r for r in index 
         if str(r.get("student_id", "")) == str(student_id)
-        and r.get("period_id", "") == period_id
+        and (r.get("period_id", "") == period_id or not r.get("period_id"))
     ]
     
     if not student_sessions:
@@ -636,7 +639,7 @@ def load_all_sessions_for_period(period_id: Optional[str] = None) -> int:
     
     period_sessions = [
         r for r in index 
-        if r.get("period_id", "") == period_id
+        if (r.get("period_id", "") == period_id or not r.get("period_id"))
     ]
     
     if not period_sessions:

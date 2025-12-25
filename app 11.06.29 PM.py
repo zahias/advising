@@ -63,6 +63,48 @@ def _default_period_for_today() -> tuple:
         return "Summer", year
     return "Fall", year
 
+def _count_advised_from_index(progress_ids = None) -> int:
+    """Count students with saved sessions from the advising index (fast, no payload download).
+    
+    Args:
+        progress_ids: Optional set of student IDs from progress report to filter against.
+                     Only counts students that are in this set if provided.
+    """
+    try:
+        from advising_period import get_current_period
+        from advising_history import _load_index
+        
+        # _load_index() has internal per-major caching via _advising_index_cache_{major}
+        # So this is fast after first call for each major
+        index = _load_index()
+        if not index:
+            return 0
+        
+        current_period = get_current_period()
+        period_id = current_period.get("period_id", "")
+        if not period_id:
+            return 0
+        
+        # Count unique students with sessions in this period
+        students_with_sessions = set()
+        for entry in index:
+            if entry.get("period_id") == period_id:
+                sid = entry.get("student_id")
+                if sid:
+                    # Normalize to int for comparison
+                    try:
+                        norm_sid = int(sid)
+                    except (ValueError, TypeError):
+                        norm_sid = sid
+                    
+                    # Filter to students in progress report if provided
+                    if progress_ids is None or norm_sid in progress_ids:
+                        students_with_sessions.add(norm_sid)
+        
+        return len(students_with_sessions)
+    except Exception:
+        return 0
+
 def _render_header():
     """Render the persistent header with major/period selection."""
     from advising_period import get_current_period
@@ -104,15 +146,20 @@ def _render_header():
     with header_cols[3]:
         if st.session_state.get("current_major") in MAJORS:
             progress_df = st.session_state.get("progress_df", pd.DataFrame())
-            advising_selections = st.session_state.get("advising_selections", {})
             
             if not progress_df.empty:
                 total = len(progress_df)
-                advised = sum(
-                    1 for _, row in progress_df.iterrows()
-                    if (advising_selections.get(int(row.get("ID", 0))) or 
-                        advising_selections.get(str(int(row.get("ID", 0)))) or {}).get("advised")
-                )
+                # Get student IDs from progress report for filtering
+                progress_ids = set()
+                for _, row in progress_df.iterrows():
+                    try:
+                        progress_ids.add(int(row.get("ID", 0)))
+                    except (ValueError, TypeError):
+                        pass
+                
+                # Count students with saved sessions (from index, filtered to current roster)
+                advised = _count_advised_from_index(progress_ids)
+                    
                 pct = int(advised / total * 100) if total > 0 else 0
                 st.markdown(f"**Progress:** {advised}/{total} ({pct}%)")
 
@@ -174,9 +221,6 @@ def _render_period_gate():
                 if not advisor:
                     st.error("Please enter your name")
                 else:
-                    st.session_state.advising_selections = {}
-                    st.session_state.majors[major]["advising_selections"] = {}
-                    
                     new_period, saved = start_new_period(semester, int(year), advisor)
                     st.success(f"Created: {semester} {year}")
                     st.rerun()
@@ -199,8 +243,6 @@ def _render_period_gate():
             if st.button("Use This Period"):
                 selected_period = period_map[selected]
                 set_current_period(selected_period)
-                st.session_state.advising_selections = {}
-                st.session_state.majors[major]["advising_selections"] = {}
                 st.success(f"Using: {selected}")
                 st.rerun()
         else:
@@ -262,25 +304,6 @@ def _auto_load_from_drive(major: str):
     except Exception as e:
         log_error(f"Auto-load from Drive failed for {major}", e)
 
-def _auto_load_sessions(major: str):
-    """Auto-load saved advising sessions for the current period."""
-    from advising_history import load_all_sessions_for_period
-    
-    sessions_key = f"_sessions_loaded_{major}"
-    if st.session_state.get(sessions_key):
-        return
-    
-    if st.session_state.get("progress_df", pd.DataFrame()).empty:
-        return
-    
-    try:
-        loaded = load_all_sessions_for_period()
-        if loaded > 0:
-            st.session_state.majors[major]["advising_selections"] = st.session_state.get("advising_selections", {}).copy()
-            log_info(f"Auto-loaded {loaded} sessions for {major}")
-        st.session_state[sessions_key] = True
-    except Exception as e:
-        log_error(f"Auto-load sessions failed for {major}", e)
 
 def main():
     """Main application entry point."""
@@ -306,12 +329,22 @@ def main():
     
     _sync_globals_from_bucket(selected_major)
     
-    _auto_load_from_drive(selected_major)
+    # Check if we need to load from Drive (bucket is empty)
+    bucket = st.session_state.majors.get(selected_major, {})
+    needs_loading = (
+        bucket.get("courses_df", pd.DataFrame()).empty or 
+        bucket.get("progress_df", pd.DataFrame()).empty
+    )
+    
+    if needs_loading:
+        with st.spinner("Loading data..."):
+            _auto_load_from_drive(selected_major)
     
     if not _render_period_gate():
         return
     
-    _auto_load_sessions(selected_major)
+    # Session index is loaded on-demand by _count_advised_from_index() in header
+    # Full sessions load on-demand when student is selected
     
     active_nav = _render_navigation()
     

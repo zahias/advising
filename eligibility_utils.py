@@ -3,7 +3,7 @@
 # This prevents circular imports during module loading
 
 import pandas as pd
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Union
 
 
 def _norm_cell(val: Any) -> str:
@@ -36,7 +36,7 @@ def check_course_registered(row: pd.Series, course_code: str) -> bool:
     return _norm_cell(row.get(course_code)) == "cr"
 
 
-def get_student_standing(total_credits_completed: float | int) -> str:
+def get_student_standing(total_credits_completed: Union[float, int]) -> str:
     """Preserves original app's buckets."""
     try:
         tc = float(total_credits_completed)
@@ -68,7 +68,7 @@ def is_course_offered(courses_df: pd.DataFrame, course_code: str) -> bool:
     return str(row["Offered"].iloc[0]).strip().lower() == "yes"
 
 
-def build_requisites_str(course_info: pd.Series | Dict[str, Any]) -> str:
+def build_requisites_str(course_info: Union[pd.Series, Dict[str, Any]]) -> str:
     pieces = []
     for key, prefix in [("Prerequisite", "Prereq"), ("Concurrent", "Conc"), ("Corequisite", "Coreq")]:
         value = course_info.get(key, "")

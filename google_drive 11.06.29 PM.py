@@ -133,9 +133,8 @@ def _build_credentials():
     return creds
 
 
-@st.cache_resource(ttl=3600)
 def _get_cached_drive_service(_cred_hash: str):
-    """Cached Drive service - only recreates if credentials change or after 1 hour."""
+    """Internal helper to build a new Drive service."""
     libs = _lazy_import_google_libs()
     if not libs.get('available'):
         raise GoogleAuthError(
@@ -152,14 +151,23 @@ def _get_cached_drive_service(_cred_hash: str):
 
 
 def initialize_drive_service():
-    """Return a cached authenticated Drive service or raise GoogleAuthError."""
+    """
+    Return an authenticated Drive service. 
+    Isolated to st.session_state to ensure thread-safety (per-user connection).
+    """
     if not is_drive_available():
         libs = _lazy_import_google_libs()
         raise GoogleAuthError(
             f"Google Drive libraries not available: {libs.get('error')}"
         )
+    
     cred_hash = _get_credentials_hash()
-    return _get_cached_drive_service(cred_hash)
+    session_key = f"_drive_service_{cred_hash}"
+    
+    if session_key not in st.session_state:
+        st.session_state[session_key] = _get_cached_drive_service(cred_hash)
+        
+    return st.session_state[session_key]
 
 
 def _get_http_error_class():
