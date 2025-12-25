@@ -243,8 +243,16 @@ def _render_sync_settings():
     
     st.markdown("#### Drive Folder Configuration")
     
-    gd = _get_drive_module()
-    folder_id = gd.get_root_folder_id()
+    import os
+    
+    folder_id = ""
+    try:
+        if "google" in st.secrets:
+            folder_id = st.secrets["google"].get("folder_id", "")
+    except:
+        pass
+    if not folder_id:
+        folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
     
     if folder_id:
         st.text_input("Root Folder ID", value=folder_id, disabled=True)

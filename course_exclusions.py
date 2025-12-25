@@ -20,12 +20,22 @@ def _filename() -> str:
 
 def _load_from_drive() -> Dict[str, List[str]]:
     """Fetch exclusions map from Drive; returns {} if not found / any issue."""
+    import os
     try:
         gd = _get_drive_module()
         service = gd.initialize_drive_service()
         major = st.session_state.get("current_major", "DEFAULT")
         
-        root_folder_id = gd.get_root_folder_id()
+        # Safe access to root folder_id
+        root_folder_id = ""
+        try:
+            if "google" in st.secrets:
+                root_folder_id = st.secrets["google"].get("folder_id", "")
+        except:
+            pass
+        
+        if not root_folder_id:
+            root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
         
         if not root_folder_id:
             return {}
@@ -59,12 +69,22 @@ def _save_to_drive(ex_map: Dict[str, List[str]]) -> None:
     Write exclusions map to Drive (overwrites the file).
     Best-effort: failures are logged but don't crash the UI.
     """
+    import os
     try:
         gd = _get_drive_module()
         service = gd.initialize_drive_service()
         major = st.session_state.get("current_major", "DEFAULT")
         
-        root_folder_id = gd.get_root_folder_id()
+        # Safe access to root folder_id
+        root_folder_id = ""
+        try:
+            if "google" in st.secrets:
+                root_folder_id = st.secrets["google"].get("folder_id", "")
+        except:
+            pass
+        
+        if not root_folder_id:
+            root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
         
         if not root_folder_id:
             log_info("Course exclusions saved locally only (no Drive folder configured).")
