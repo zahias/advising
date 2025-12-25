@@ -91,6 +91,23 @@ def student_eligibility_view():
 
     hidden_for_student = set(map(str, get_for_student(norm_sid)))
 
+    # per-student advising slot
+    sels = st.session_state.advising_selections
+    slot = sels.get(norm_sid)
+    if slot is None:
+        # migrate if a stray str/int key exists
+        alt = sels.get(str(norm_sid)) if isinstance(norm_sid, int) else None
+        if alt:
+            slot = alt
+            sels.pop(str(norm_sid))
+        else:
+            slot = {"advised": [], "optional": [], "repeat": [], "note": ""}
+        sels[norm_sid] = slot
+    
+    # Ensure repeat key exists for existing slots
+    if "repeat" not in slot:
+        slot["repeat"] = []
+
     # Auto-load most recent advising session for this student
     # Only load if the slot is empty (all empty lists/strings)
     advised_list = slot.get("advised", [])
@@ -119,22 +136,6 @@ def student_eligibility_view():
         or {}
     )
 
-    # per-student advising slot
-    sels = st.session_state.advising_selections
-    slot = sels.get(norm_sid)
-    if slot is None:
-        # migrate if a stray str/int key exists
-        alt = sels.get(str(norm_sid)) if isinstance(norm_sid, int) else None
-        if alt:
-            slot = alt
-            sels.pop(str(norm_sid))
-        else:
-            slot = {"advised": [], "optional": [], "repeat": [], "note": ""}
-        sels[norm_sid] = slot
-    
-    # Ensure repeat key exists for existing slots
-    if "repeat" not in slot:
-        slot["repeat"] = []
 
     # header stats
     cr_comp = float(student_row.get("# of Credits Completed", 0) or 0)
