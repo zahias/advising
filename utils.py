@@ -3,7 +3,7 @@
 import pandas as pd
 import logging
 from io import BytesIO
-from typing import List, Tuple, Dict, Any, Union, Optional
+from typing import List, Tuple, Dict, Any
 
 # Import eligibility functions from standalone module to prevent circular imports
 from eligibility_utils import (
@@ -53,7 +53,7 @@ def log_info(message: str) -> None:
     except Exception:
         pass
 
-def log_error(message: str, error: Union[Exception, str]) -> None:
+def log_error(message: str, error: Exception | str) -> None:
     try:
         logger.error(f"{message}: {error}", exc_info=isinstance(error, Exception))
     except Exception:
@@ -91,7 +91,7 @@ def style_df(df: pd.DataFrame) -> "pd.io.formats.style.Styler":
 _BASE_ID_NAME = ["ID", "NAME"]
 _NUMERIC_PREFS = ["# of Credits Completed", "# Registered", "# Remaining", "Total Credits"]
 
-def _coalesce(a: Optional[pd.Series], b: Optional[pd.Series]):
+def _coalesce(a: pd.Series | None, b: pd.Series | None):
     if a is None and b is None:
         return None
     if a is None:
@@ -107,7 +107,7 @@ def _coalesce(a: Optional[pd.Series], b: Optional[pd.Series]):
         return a
     return a.combine_first(b)
 
-def load_progress_excel(content: Union[bytes, BytesIO, str]) -> pd.DataFrame:
+def load_progress_excel(content: bytes | BytesIO | str) -> pd.DataFrame:
     """
     Load a progress report that may have two sheets:
       - 'Required Courses'
@@ -253,7 +253,7 @@ def calculate_course_curriculum_years(courses_df: pd.DataFrame) -> Dict[str, int
     return course_years
 
 
-def calculate_student_curriculum_year(student_row: pd.Series, courses_df: pd.DataFrame, course_curriculum_years: Optional[Dict[str, int]] = None) -> int:
+def calculate_student_curriculum_year(student_row: pd.Series, courses_df: pd.DataFrame, course_curriculum_years: Dict[str, int] = None) -> int:
     """
     Determines which curriculum year a student is in based on their completed/registered courses.
     

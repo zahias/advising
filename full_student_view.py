@@ -19,7 +19,6 @@ from utils import (
 )
 from reporting import add_summary_sheet, apply_full_report_formatting, apply_individual_compact_formatting
 from advising_history import load_all_sessions_for_period
-from curriculum_visualizer import generate_mermaid_code
 
 def _get_drive_module():
     """Lazy loader for google_drive module to avoid import-time side effects."""
@@ -153,52 +152,28 @@ def render_degree_plan_table(courses_df, progress_df):
         for course_code in all_courses:
             status_val = student.get(course_code, "")
             
-            # Check advising selections
-            sels = st.session_state.get("advising_selections", {})
-            slot = (
-                sels.get(student_id)
-                or sels.get(str(student_id))
-                or (sels.get(int(student_id)) if str(student_id).isdigit() else None)
-                or {}
-            )
-            advised = slot.get("advised", [])
-            repeat = slot.get("repeat", [])
-            optional = slot.get("optional", [])
-
             if pd.isna(status_val) or status_val == "":
-                if course_code in advised or course_code in optional:
-                    row[course_code] = "a"
-                elif course_code in repeat:
-                    row[course_code] = "ar"
-                else:
-                    # Check eligibility
-                    is_eligible_status, _ = check_eligibility(
-                        student,
-                        course_code,
-                        [],
-                        courses_df,
-                        ignore_offered=True,
-                        mutual_pairs=mutual_pairs,
-                        bypass_map=student_bypasses
-                    )
-                    # Map check_eligibility status to display codes
-                    status_map = {
-                        "Completed": "c",
-                        "Registered": "r",
-                        "Eligible": "na",
-                        "Eligible (Bypass)": "b",
-                        "Not Eligible": "ne"
-                    }
-                    row[course_code] = status_map.get(is_eligible_status, "ne")
+                # Check eligibility
+                is_eligible_status, _ = check_eligibility(
+                    student,
+                    course_code,
+                    [],
+                    courses_df,
+                    ignore_offered=True,
+                    mutual_pairs=mutual_pairs,
+                    bypass_map=student_bypasses
+                )
+                # Map check_eligibility status to display codes
+                status_map = {
+                    "Completed": "c",
+                    "Registered": "r",
+                    "Eligible": "na",
+                    "Eligible (Bypass)": "b",
+                    "Not Eligible": "ne"
+                }
+                row[course_code] = status_map.get(is_eligible_status, "ne")
             else:
-                status_str = str(status_val).strip().lower()
-                # Even if they have a status in the sheet, check if it's overridden by advising
-                if course_code in advised or course_code in optional:
-                    row[course_code] = "a"
-                elif course_code in repeat:
-                    row[course_code] = "ar"
-                else:
-                    row[course_code] = status_str
+                row[course_code] = str(status_val).strip().lower()
         
         table_data.append(row)
     
@@ -249,70 +224,18 @@ def full_student_view():
     period_id = current_period.get("period_id", "")
     sessions_loaded_key = f"_fsv_sessions_loaded_{major}_{period_id}"
     if sessions_loaded_key not in st.session_state:
-        with st.spinner("Loading advising sessions..."):
-            load_all_sessions_for_period()
+        load_all_sessions_for_period()
         st.session_state[sessions_loaded_key] = True
 
-    tab = st.tabs(["All Students", "Individual Student", "Curriculum Map", "QAA Sheet", "Schedule Conflict"])
+    tab = st.tabs(["All Students", "Individual Student", "QAA Sheet", "Schedule Conflict"])
     with tab[0]:
         _render_all_students()
     with tab[1]:
         _render_individual_student()
     with tab[2]:
-        _render_curriculum_map()
-    with tab[3]:
         _render_qaa_sheet()
-    with tab[4]:
+    with tab[3]:
         _render_schedule_conflict()
-
-def _render_curriculum_map():
-    """Renders the interactive prerequisite map using Mermaid.js."""
-    st.markdown("### 🕸️ Curriculum Prerequisite Map")
-    st.caption("Visualize course dependencies and prerequisite chains for the current major.")
-    
-    courses_df = st.session_state.courses_df
-    if courses_df.empty:
-        st.warning("No courses loaded.")
-        return
-
-    all_courses = sorted(courses_df["Course Code"].astype(str).tolist())
-    
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        focus_course = st.selectbox(
-            "Focus Course (optional)",
-            options=["None"] + all_courses,
-            index=0,
-            help="Select a course to highlight its prerequisite chain (ancestors and descendants)."
-        )
-    with col2:
-        depth = st.slider(
-            "Chain Depth",
-            min_value=1,
-            max_value=10,
-            value=3,
-            help="How many levels of prerequisites and descendants to show."
-        )
-    
-    actual_focus = None if focus_course == "None" else focus_course
-    
-    with st.spinner("Generating map..."):
-        mermaid_code = generate_mermaid_code(courses_df, focus_course=actual_focus, depth=depth)
-    
-    # Display the diagram
-    st.markdown(f"```mermaid\n{mermaid_code}\n```")
-    
-    with st.expander("ℹ️ Legend & Tips"):
-        st.markdown("""
-        - **Solid Arrow (A --> B)**: A is a prerequisite for B.
-        - **Dotted Arrow (A -.-> B)**: A is a concurrent requirement for B.
-        - **Double Arrow (A <-> B)**: A and B are corequisites (must be taken together).
-        - **Blue Node**: Currently focused course.
-        - **Yellow Node**: Intensive course.
-        - **White Node**: Required course.
-        
-        **Tip**: You can pan and zoom the diagram if your browser supports it.
-        """)
 
 def _get_fsv_cache(major: str = None) -> dict:
     """Get or create the Full Student View cache for the specified major."""
@@ -701,18 +624,22 @@ def _render_all_students():
         st.dataframe(styled, width="stretch", height=600, column_config=column_config)
         return export_df, selected
 
-    required_tab, intensive_tab = st.tabs(["Required Courses", "Intensive Courses"])
+    required_tab, intensive_tab, degree_plan_tab = st.tabs(["Required Courses", "Intensive Courses", "Degree Plan"])
 
     required_display_df = None
     required_selected = []
     intensive_display_df = None
     intensive_selected = []
+    degree_plan_display_df = None
 
     with required_tab:
         required_display_df, required_selected = render_course_table("Required", required_courses, "required")
 
     with intensive_tab:
         intensive_display_df, intensive_selected = render_course_table("Intensive", intensive_courses, "intensive")
+    
+    with degree_plan_tab:
+        degree_plan_display_df = render_degree_plan_table(courses_df, df)
 
     has_required = required_display_df is not None and len(required_selected) > 0
     has_intensive = intensive_display_df is not None and len(intensive_selected) > 0
@@ -806,7 +733,6 @@ def _render_all_students():
             file_name="Full_Advising_Report.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary",
-            help="Download Excel report with all students' course progress, advising status, and credits"
         )
 
 def _render_individual_student():
@@ -881,12 +807,11 @@ def _render_individual_student():
             file_name=f"Student_{sid}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary",
-            help="Download Excel report for this student with course status codes and colors"
         )
     
     with col2:
         # Email advising sheet to student
-        if st.button("📧 Email Advising Sheet", key=f"email_indiv_{sid}", help="Send this student's advising recommendations via email"):
+        if st.button("📧 Email Advising Sheet", key=f"email_indiv_{sid}"):
             from email_manager import get_student_email, send_advising_email
             
             student_email = get_student_email(str(sid))
@@ -1014,7 +939,6 @@ def _render_individual_student():
         file_name="All_Advised_Students.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         type="primary",
-        help="Download Excel workbook with individual sheets for each advised student plus an index"
     )
 
     if download_clicked:
@@ -1195,8 +1119,7 @@ def _render_qaa_sheet():
         data=_build_qaa_excel(),
         file_name=f"QAA_Sheet_{major}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        key="download_qaa_sheet",
-        help="Download per-course metrics: eligibility counts, advising stats, and graduation data"
+        key="download_qaa_sheet"
     )
 
 
@@ -1290,7 +1213,7 @@ def _render_schedule_conflict():
     
     with col3:
         st.write("")
-        if st.button("🔄 Refresh", key="sc_refresh", help="Recalculate schedule combinations from current advising data"):
+        if st.button("🔄 Refresh", key="sc_refresh"):
             combo_data, students_processed = _build_schedule_combinations(advising_selections)
             st.session_state[cache_key] = combo_data
             st.session_state[students_processed_key] = students_processed

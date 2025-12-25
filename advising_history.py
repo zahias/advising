@@ -551,13 +551,11 @@ def _find_latest_session_for_student(student_id: Union[int, str], period_id: Opt
         current_period = get_current_period()
         period_id = current_period.get("period_id", "")
     
-    # Filter sessions for this student
-    # Include matches for period_id, and if period_id is provided, also include legacy sessions (empty period_id)
-    # as they represent historical data that should be visible unless explicitly overridden.
+    # Filter sessions for this student in the specified period
     student_sessions = [
         r for r in index 
         if str(r.get("student_id", "")) == str(student_id)
-        and (r.get("period_id", "") == period_id or not r.get("period_id"))
+        and r.get("period_id", "") == period_id
     ]
     
     if not student_sessions:
@@ -638,7 +636,7 @@ def load_all_sessions_for_period(period_id: Optional[str] = None) -> int:
     
     period_sessions = [
         r for r in index 
-        if (r.get("period_id", "") == period_id or not r.get("period_id"))
+        if r.get("period_id", "") == period_id
     ]
     
     if not period_sessions:
