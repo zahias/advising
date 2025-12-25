@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 from datetime import datetime
+from utils import load_progress_excel, default_period_for_today
 
 def _get_drive_module():
     """Lazy loader for google_drive module."""
@@ -129,15 +130,7 @@ def _download_from_drive():
         gd = _get_drive_module()
         service = gd.initialize_drive_service()
         
-        import os
-        root_folder_id = ""
-        try:
-            if "google" in st.secrets:
-                root_folder_id = st.secrets["google"].get("folder_id", "")
-        except:
-            pass
-        if not root_folder_id:
-            root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
+        root_folder_id = gd.get_root_folder_id()
         
         if not root_folder_id:
             st.error("Google Drive folder ID not configured")
@@ -176,15 +169,7 @@ def _upload_to_drive():
         gd = _get_drive_module()
         service = gd.initialize_drive_service()
         
-        import os
-        root_folder_id = ""
-        try:
-            if "google" in st.secrets:
-                root_folder_id = st.secrets["google"].get("folder_id", "")
-        except:
-            pass
-        if not root_folder_id:
-            root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
+        root_folder_id = gd.get_root_folder_id()
         
         if not root_folder_id:
             st.error("Google Drive folder ID not configured")
@@ -197,7 +182,13 @@ def _upload_to_drive():
             output = BytesIO()
             courses_df.to_excel(output, index=False)
             output.seek(0)
-            gd.upload_file_to_drive(service, "courses_table.xlsx", output.getvalue(), major_folder_id)
+            gd.sync_file_with_drive(
+                service=service,
+                file_content=output.getvalue(),
+                drive_file_name="courses_table.xlsx",
+                mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                parent_folder_id=major_folder_id,
+            )
             st.success("✓ Uploaded courses table")
         
         progress_df = st.session_state.get("progress_df", pd.DataFrame())
@@ -205,7 +196,13 @@ def _upload_to_drive():
             output = BytesIO()
             progress_df.to_excel(output, index=False)
             output.seek(0)
-            gd.upload_file_to_drive(service, "progress_report.xlsx", output.getvalue(), major_folder_id)
+            gd.sync_file_with_drive(
+                service=service,
+                file_content=output.getvalue(),
+                drive_file_name="progress_report.xlsx",
+                mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                parent_folder_id=major_folder_id,
+            )
             st.success("✓ Uploaded progress report")
         
     except Exception as e:
@@ -231,20 +228,8 @@ def _render_period_management():
     
     st.markdown("### Start New Period")
     
-    def _default_period_for_today():
-        today = datetime.now()
-        month = today.month
-        year = today.year
-        if month == 1:
-            return "Fall", year - 1
-        if 2 <= month <= 6:
-            return "Spring", year
-        if 7 <= month <= 9:
-            return "Summer", year
-        return "Fall", year
-    
     with st.form("new_period_form"):
-        default_semester, default_year = _default_period_for_today()
+        default_semester, default_year = default_period_for_today()
         
         col1, col2, col3 = st.columns(3)
         

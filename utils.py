@@ -3,7 +3,8 @@
 import pandas as pd
 import logging
 from io import BytesIO
-from typing import List, Tuple, Dict, Any
+from datetime import datetime
+from typing import List, Tuple, Dict, Any, Union
 
 # Import eligibility functions from standalone module to prevent circular imports
 from eligibility_utils import (
@@ -35,6 +36,8 @@ __all__ = [
     "log_error",
     "calculate_course_curriculum_years",
     "calculate_student_curriculum_year",
+    "normalize_student_id",
+    "default_period_for_today",
 ]
 
 # ---------------- Logging ----------------
@@ -310,3 +313,54 @@ def calculate_student_curriculum_year(student_row: pd.Series, courses_df: pd.Dat
     # If they can take Year N+1 courses, they're in Year N+1
     # Otherwise they're in Year N
     return next_year if can_take_next_year else max_year_completed
+
+
+# ------------- Student ID Normalization -------------------
+
+def normalize_student_id(sid: Union[int, str, float, None]) -> Union[int, str]:
+    """
+    Normalize student ID to a consistent format for lookups.
+    
+    Attempts to convert to int for consistent comparisons.
+    Falls back to original value if conversion fails.
+    
+    Args:
+        sid: Student ID in any format (int, str, float, None)
+    
+    Returns:
+        Normalized ID as int, or original value if conversion fails
+    """
+    if sid is None:
+        return ""
+    try:
+        return int(float(str(sid)))  # Handle "123.0" -> 123
+    except (ValueError, TypeError):
+        return str(sid).strip()
+
+
+# ------------- Period Utilities -------------------
+
+def default_period_for_today() -> Tuple[str, int]:
+    """
+    Return default semester and year based on current date.
+    
+    Logic:
+        - January: Fall of previous year (registration continues)
+        - Feb-June: Spring of current year
+        - July-Sept: Summer of current year
+        - Oct-Dec: Fall of current year
+    
+    Returns:
+        Tuple of (semester, year)
+    """
+    today = datetime.now()
+    month = today.month
+    year = today.year
+    
+    if month == 1:
+        return "Fall", year - 1
+    if 2 <= month <= 6:
+        return "Spring", year
+    if 7 <= month <= 9:
+        return "Summer", year
+    return "Fall", year

@@ -6,7 +6,7 @@ import streamlit as st
 from datetime import datetime
 
 from visual_theme import apply_visual_theme
-from utils import log_info, log_error, load_progress_excel
+from utils import log_info, log_error, load_progress_excel, default_period_for_today, normalize_student_id
 
 def _get_drive_module():
     """Lazy loader for google_drive module to avoid import-time side effects."""
@@ -50,18 +50,7 @@ def _sync_bucket_from_globals(major: str):
     bucket["progress_df"] = st.session_state.get("progress_df", pd.DataFrame())
     bucket["advising_selections"] = st.session_state.get("advising_selections", {})
 
-def _default_period_for_today() -> tuple:
-    """Return default semester and year based on current date."""
-    today = datetime.now()
-    month = today.month
-    year = today.year
-    if month == 1:
-        return "Fall", year - 1
-    if 2 <= month <= 6:
-        return "Spring", year
-    if 7 <= month <= 9:
-        return "Summer", year
-    return "Fall", year
+# Note: default_period_for_today is now imported from utils.py
 
 def _count_advised_from_index(progress_ids = None) -> int:
     """Count students with saved sessions from the advising index (fast, no payload download).
@@ -92,11 +81,7 @@ def _count_advised_from_index(progress_ids = None) -> int:
                 sid = entry.get("student_id")
                 if sid:
                     # Normalize to int for comparison
-                    try:
-                        norm_sid = int(sid)
-                    except (ValueError, TypeError):
-                        norm_sid = sid
-                    
+                    norm_sid = normalize_student_id(sid)
                     # Filter to students in progress report if provided
                     if progress_ids is None or norm_sid in progress_ids:
                         students_with_sessions.add(norm_sid)
@@ -210,7 +195,7 @@ def _render_period_gate():
         st.markdown("### Create New Period")
         
         with st.form("new_period_gate"):
-            default_semester, default_year = _default_period_for_today()
+            default_semester, default_year = default_period_for_today()
             
             semester = st.selectbox("Semester", ["Fall", "Spring", "Summer"],
                                    index=["Fall", "Spring", "Summer"].index(default_semester))
@@ -267,14 +252,8 @@ def _auto_load_from_drive(major: str):
         st.session_state[load_key] = True
         return
     
-    root_folder_id = ""
-    try:
-        if "google" in st.secrets:
-            root_folder_id = st.secrets["google"].get("folder_id", "")
-    except:
-        pass
-    if not root_folder_id:
-        root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
+    gd = _get_drive_module()
+    root_folder_id = gd.get_root_folder_id()
     
     if not root_folder_id:
         return
