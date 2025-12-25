@@ -486,11 +486,11 @@ def _render_all_students():
         semester_filter = "All Courses"
     
     required_courses = courses_df.loc[
-        type_series.astype(str).str.lower() == "required",
+        type_series.astype(str).str.strip().str.lower() == "required",
         "Course Code",
     ].dropna().tolist()
     intensive_courses = courses_df.loc[
-        type_series.astype(str).str.lower() == "intensive",
+        type_series.astype(str).str.strip().str.lower() == "intensive",
         "Course Code",
     ].dropna().tolist()
     
@@ -600,14 +600,15 @@ def _render_all_students():
             st.info(f"No {label.lower()} courses available.")
             return None, []
 
-        # Use session state to store confirmed selections
-        confirmed_key = f"confirmed_{key_suffix}_courses"
+        # Use session state to store confirmed selections - make major-specific
+        major = st.session_state.get("current_major", "DEFAULT")
+        confirmed_key = f"confirmed_{key_suffix}_courses_{major}"
         if confirmed_key not in st.session_state:
             st.session_state[confirmed_key] = course_codes
         
-        # Ensure confirmed selections are valid for current course_codes (filter may have changed)
+        # Ensure confirmed selections are valid for current course_codes
         valid_confirmed = [c for c in st.session_state[confirmed_key] if c in course_codes]
-        if not valid_confirmed:
+        if not valid_confirmed and course_codes:
             valid_confirmed = course_codes
         
         with st.expander(f"Select {label.lower()} course columns", expanded=False):
