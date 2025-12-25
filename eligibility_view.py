@@ -91,8 +91,16 @@ def student_eligibility_view():
 
     hidden_for_student = set(map(str, get_for_student(norm_sid)))
 
-    # Auto-load most recent advising session for this student (Task 7)
-    if f"_autoloaded_{norm_sid}" not in st.session_state:
+    # Auto-load most recent advising session for this student
+    # Only load if the slot is empty (all empty lists/strings)
+    advised_list = slot.get("advised", [])
+    optional_list = slot.get("optional", [])
+    repeat_list = slot.get("repeat", [])
+    note_val = slot.get("note", "")
+    
+    is_empty = not (advised_list or optional_list or repeat_list or note_val.strip())
+    
+    if is_empty and f"_autoloaded_{norm_sid}" not in st.session_state:
         _load_session_and_apply(norm_sid)
         st.session_state[f"_autoloaded_{norm_sid}"] = True
 

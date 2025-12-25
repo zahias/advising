@@ -153,28 +153,52 @@ def render_degree_plan_table(courses_df, progress_df):
         for course_code in all_courses:
             status_val = student.get(course_code, "")
             
+            # Check advising selections
+            sels = st.session_state.get("advising_selections", {})
+            slot = (
+                sels.get(student_id)
+                or sels.get(str(student_id))
+                or (sels.get(int(student_id)) if str(student_id).isdigit() else None)
+                or {}
+            )
+            advised = slot.get("advised", [])
+            repeat = slot.get("repeat", [])
+            optional = slot.get("optional", [])
+
             if pd.isna(status_val) or status_val == "":
-                # Check eligibility
-                is_eligible_status, _ = check_eligibility(
-                    student,
-                    course_code,
-                    [],
-                    courses_df,
-                    ignore_offered=True,
-                    mutual_pairs=mutual_pairs,
-                    bypass_map=student_bypasses
-                )
-                # Map check_eligibility status to display codes
-                status_map = {
-                    "Completed": "c",
-                    "Registered": "r",
-                    "Eligible": "na",
-                    "Eligible (Bypass)": "b",
-                    "Not Eligible": "ne"
-                }
-                row[course_code] = status_map.get(is_eligible_status, "ne")
+                if course_code in advised or course_code in optional:
+                    row[course_code] = "a"
+                elif course_code in repeat:
+                    row[course_code] = "ar"
+                else:
+                    # Check eligibility
+                    is_eligible_status, _ = check_eligibility(
+                        student,
+                        course_code,
+                        [],
+                        courses_df,
+                        ignore_offered=True,
+                        mutual_pairs=mutual_pairs,
+                        bypass_map=student_bypasses
+                    )
+                    # Map check_eligibility status to display codes
+                    status_map = {
+                        "Completed": "c",
+                        "Registered": "r",
+                        "Eligible": "na",
+                        "Eligible (Bypass)": "b",
+                        "Not Eligible": "ne"
+                    }
+                    row[course_code] = status_map.get(is_eligible_status, "ne")
             else:
-                row[course_code] = str(status_val).strip().lower()
+                status_str = str(status_val).strip().lower()
+                # Even if they have a status in the sheet, check if it's overridden by advising
+                if course_code in advised or course_code in optional:
+                    row[course_code] = "a"
+                elif course_code in repeat:
+                    row[course_code] = "ar"
+                else:
+                    row[course_code] = status_str
         
         table_data.append(row)
     

@@ -221,9 +221,6 @@ def _render_period_gate():
                 if not advisor:
                     st.error("Please enter your name")
                 else:
-                    st.session_state.advising_selections = {}
-                    st.session_state.majors[major]["advising_selections"] = {}
-                    
                     new_period, saved = start_new_period(semester, int(year), advisor)
                     st.success(f"Created: {semester} {year}")
                     st.rerun()
@@ -246,8 +243,6 @@ def _render_period_gate():
             if st.button("Use This Period"):
                 selected_period = period_map[selected]
                 set_current_period(selected_period)
-                st.session_state.advising_selections = {}
-                st.session_state.majors[major]["advising_selections"] = {}
                 st.success(f"Using: {selected}")
                 st.rerun()
         else:
