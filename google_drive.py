@@ -68,6 +68,27 @@ def _secrets() -> dict:
         return {}
 
 
+def get_root_folder_id() -> str:
+    """
+    Get the root Google Drive folder ID from secrets or environment.
+    This is the centralized location for folder ID retrieval.
+    
+    Returns:
+        Root folder ID string, or empty string if not configured.
+    """
+    import os
+    
+    # Try secrets first
+    s = _secrets()
+    folder_id = s.get("folder_id", "")
+    
+    # Fall back to environment variable
+    if not folder_id:
+        folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
+    
+    return folder_id
+
+
 def _get_credentials_hash() -> str:
     """Generate a hash of credentials for cache key."""
     import os
