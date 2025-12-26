@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from advising_history import get_advised_student_ids, get_students_with_saved_sessions
 
 def render_home():
     """Render the Home dashboard with KPIs and quick actions."""
@@ -28,12 +29,30 @@ def render_home():
     total_students = len(progress_df)
     total_courses = len(courses_df)
     
+    # FAST: Get advised count from index
+    advised_ids = get_advised_student_ids()
+    if not advised_ids:
+        # Fallback: try one refresh if empty (might be first load of major)
+        advised_ids = get_advised_student_ids(force_refresh=True)
+        
+    # Normalize IDs in set for comparison
+    advised_ids_norm = set()
+    for aid in advised_ids:
+        try:
+            advised_ids_norm.add(int(aid))
+        except:
+            advised_ids_norm.add(str(aid))
+
     advised_count = 0
     not_advised_count = 0
     for _, row in progress_df.iterrows():
         sid = row.get("ID", 0)
-        sel = advising_selections.get(int(sid)) or advising_selections.get(str(int(sid))) or {}
-        if sel.get("advised") or sel.get("optional") or sel.get("repeat") or sel.get("note", "").strip():
+        try:
+            norm_sid = int(sid)
+        except:
+            norm_sid = str(sid)
+            
+        if norm_sid in advised_ids_norm:
             advised_count += 1
         else:
             not_advised_count += 1
@@ -88,8 +107,12 @@ def render_home():
             graduating_not_advised = []
             for _, row in graduating.iterrows():
                 sid = row.get("ID", 0)
-                sel = advising_selections.get(int(sid)) or advising_selections.get(str(int(sid))) or {}
-                if not (sel.get("advised") or sel.get("optional") or sel.get("note", "").strip()):
+                try:
+                    norm_sid = int(sid)
+                except:
+                    norm_sid = str(sid)
+                
+                if norm_sid not in advised_ids_norm:
                     graduating_not_advised.append(row.get("NAME", "Unknown"))
             
             if graduating_not_advised:
@@ -107,24 +130,10 @@ def render_home():
     
     st.markdown("### Recent Activity")
     
-    recent_advised = []
-    for sid, sel in advising_selections.items():
-        if sel.get("advised"):
-            try:
-                student_row = progress_df[progress_df["ID"] == int(sid)]
-                if not student_row.empty:
-                    name = student_row.iloc[0].get("NAME", "Unknown")
-                    recent_advised.append({
-                        "name": name,
-                        "courses": len(sel.get("advised", [])),
-                        "optional": len(sel.get("optional", []))
-                    })
-            except:
-                pass
+    recent_sessions = get_students_with_saved_sessions()
     
-    if recent_advised:
-        for item in recent_advised[:5]:
-            st.caption(f"• {item['name']}: {item['courses']} courses advised" + 
-                      (f" (+{item['optional']} optional)" if item['optional'] else ""))
+    if recent_sessions:
+        for item in recent_sessions[:5]:
+            st.caption(f"• {item['student_name']} (Advised on {item['latest_created_at'][:10]})")
     else:
-        st.caption("No advising activity yet this session")
+        st.caption("No advising activity yet this period")

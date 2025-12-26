@@ -347,7 +347,20 @@ def main():
     if not _render_period_gate():
         return
     
-    # Session index is loaded/refreshed on-demand by _count_advised_from_index() in header
+    # Eagerly load full advising sessions (payloads) once per session/period
+    from advising_period import get_current_period
+    from advising_history import load_all_sessions_for_period
+    
+    current_period = get_current_period()
+    period_id = current_period.get("period_id", "")
+    load_sessions_key = f"_sessions_loaded_{selected_major}_{period_id}"
+    
+    if load_sessions_key not in st.session_state and not st.session_state.progress_df.empty:
+        with st.spinner("Syncing advising records..."):
+            load_all_sessions_for_period()
+        st.session_state[load_sessions_key] = True
+    
+    # Session index is already loaded/refreshed by _count_advised_from_index() in header
     # or by specialized views.
     
     active_nav = _render_navigation()

@@ -699,17 +699,16 @@ def get_students_with_saved_sessions(period_id: Optional[str] = None) -> List[Di
     Get list of students who have saved sessions in the current period.
     Returns list of dicts with student_id, student_name, session_count, latest_session info.
     """
-    if "advising_index" not in st.session_state:
-        st.session_state.advising_index = _load_index()
-    
-    index = st.session_state.advising_index or []
+    index = _load_index()
+    if not index:
+        return []
     
     if period_id is None:
         current_period = get_current_period()
         period_id = current_period.get("period_id", "")
     
     # Filter sessions for current period
-    period_sessions = [r for r in index if r.get("period_id", "") == period_id]
+    period_sessions = [r for r in index if str(r.get("period_id", "")) == str(period_id)]
     
     # Group by student
     students_info: Dict[str, Dict[str, Any]] = {}
@@ -726,15 +725,39 @@ def get_students_with_saved_sessions(period_id: Optional[str] = None) -> List[Di
                 "session_count": 0,
                 "latest_session_id": None,
                 "latest_created_at": "",
+                "created_at": "", # for sort
             }
         
-        students_info[sid_str]["session_count"] += 1
+        info = students_info[sid_str]
+        info["session_count"] += 1
+        
         created_at = session.get("created_at", "")
-        if created_at > students_info[sid_str]["latest_created_at"]:
-            students_info[sid_str]["latest_created_at"] = created_at
-            students_info[sid_str]["latest_session_id"] = session.get("id")
+        if not info["latest_created_at"] or created_at > info["latest_created_at"]:
+            info["latest_created_at"] = created_at
+            info["created_at"] = created_at
+            info["latest_session_id"] = session.get("id")
+            
+    return sorted(list(students_info.values()), key=lambda x: x["latest_created_at"], reverse=True)
+
+def get_advised_student_ids(period_id: Optional[str] = None, force_refresh: bool = False) -> Set[Union[int, str]]:
+    """
+    Get a set of all student IDs who have at least one session in the specified period.
+    This is FAST as it only uses the index.
+    """
+    index = _load_index(force_refresh=force_refresh)
+    if not index:
+        return set()
     
-    return list(students_info.values())
+    if period_id is None:
+        from advising_period import get_current_period
+        current_period = get_current_period()
+        period_id = current_period.get("period_id", "")
+    
+    return {
+        entry.get("student_id") 
+        for entry in index 
+        if str(entry.get("period_id", "")) == str(period_id) and entry.get("student_id")
+    }
 
 
 def bulk_restore_sessions(student_ids: List[Union[int, str]], force: bool = False) -> Dict[str, Any]:

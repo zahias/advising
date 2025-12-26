@@ -246,7 +246,7 @@ def full_student_view():
     from advising_period import get_current_period
     current_period = get_current_period()
     period_id = current_period.get("period_id", "")
-    sessions_loaded_key = f"_fsv_sessions_loaded_{major}_{period_id}"
+    sessions_loaded_key = f"_sessions_loaded_{major}_{period_id}"
     if sessions_loaded_key not in st.session_state:
         with st.spinner("Loading advising sessions..."):
             load_all_sessions_for_period()
