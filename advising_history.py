@@ -22,7 +22,7 @@ from eligibility_utils import (
 )
 
 # Import logging from utils (lightweight, no circular deps)
-from utils import log_info, log_error, style_df
+from advising_utils import log_info, log_error, style_df
 
 from advising_period import get_current_period
 
@@ -88,7 +88,7 @@ def _session_filename(session_id: str) -> str:
 
 def _get_major_folder_id() -> str:
     """Get major-specific folder ID. Returns major-specific folder inside root folder."""
-    from utils import get_major_folder_id_helper
+    from advising_utils import get_major_folder_id_helper
     try:
         gd = _get_drive_module()
         service = gd.initialize_drive_service()

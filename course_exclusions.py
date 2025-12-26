@@ -6,7 +6,7 @@ import json
 from typing import Dict, List, Union
 
 import streamlit as st
-from utils import log_error, log_info
+from advising_utils import log_error, log_info
 
 def _get_drive_module():
     """Lazy loader for google_drive module to avoid import-time side effects."""

@@ -15,7 +15,7 @@ from typing import Dict, List, Optional, Any
 import pandas as pd
 import streamlit as st
 
-from utils import log_info, log_error
+from advising_utils import log_info, log_error
 
 def _get_drive_module():
     """Lazy loader for google_drive module to avoid import-time side effects."""

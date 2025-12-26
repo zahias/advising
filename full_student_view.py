@@ -3,7 +3,7 @@
 import streamlit as st
 import pandas as pd
 from io import BytesIO
-from utils import (
+from advising_utils import (
     check_course_completed,
     check_course_registered,
     check_eligibility,

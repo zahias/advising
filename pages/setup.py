@@ -75,7 +75,7 @@ def _render_data_upload():
         
         if progress_file:
             try:
-                from utils import load_progress_excel
+                from advising_utils import load_progress_excel
                 df = load_progress_excel(progress_file.read())
                 st.session_state.progress_df = df
                 st.session_state.majors[major]["progress_df"] = df
@@ -158,7 +158,7 @@ def _download_from_drive():
         if progress_id:
             data = gd.download_file_from_drive(service, progress_id)
             if data:
-                from utils import load_progress_excel
+                from advising_utils import load_progress_excel
                 df = load_progress_excel(data)
                 st.session_state.progress_df = df
                 st.session_state.majors[major]["progress_df"] = df

@@ -6,7 +6,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 import streamlit as st
 
-from utils import log_info, log_error
+from advising_utils import log_info, log_error
 
 def _get_drive_module():
     """Lazy loader for google_drive module to avoid import-time side effects."""
@@ -80,7 +80,7 @@ def _reconstruct_periods_from_sessions() -> List[Dict[str, Any]]:
 
 def _get_major_folder_id_internal() -> str:
     """Get major-specific folder ID."""
-    from utils import get_major_folder_id_helper
+    from advising_utils import get_major_folder_id_helper
     try:
         gd = _get_drive_module()
         service = gd.initialize_drive_service()

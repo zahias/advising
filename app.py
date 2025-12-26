@@ -6,7 +6,7 @@ import streamlit as st
 from datetime import datetime
 
 from visual_theme import apply_visual_theme
-from utils import log_info, log_error, load_progress_excel
+from advising_utils import log_info, log_error, load_progress_excel
 
 def _get_drive_module():
     """Lazy loader for google_drive module to avoid import-time side effects."""

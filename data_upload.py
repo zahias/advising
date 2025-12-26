@@ -8,7 +8,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-from utils import log_info, log_error, load_progress_excel
+from advising_utils import log_info, log_error, load_progress_excel
 
 def _get_drive_module():
     """Lazy loader for google_drive module to avoid import-time side effects."""

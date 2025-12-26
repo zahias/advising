@@ -2,7 +2,7 @@
 
 import streamlit as st
 import pandas as pd
-from utils import check_eligibility, get_mutual_concurrent_pairs, get_student_selections
+from advising_utils import check_eligibility, get_mutual_concurrent_pairs, get_student_selections
 
 
 def degree_plan_view():

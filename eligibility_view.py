@@ -15,7 +15,7 @@ from eligibility_utils import (
     get_student_standing,
     get_mutual_concurrent_pairs,
 )
-from utils import (
+from advising_utils import (
     style_df,
     log_info,
     log_error,

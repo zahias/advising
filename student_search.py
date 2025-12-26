@@ -28,7 +28,7 @@ def render_student_search(view_key: str = "default") -> Optional[int]:
         students_df.get("# Registered", 0).fillna(0).astype(float)
     )
     
-    from utils import get_student_standing
+    from advising_utils import get_student_standing
     students_df["Standing"] = students_df["Total Credits"].apply(get_student_standing)
     
     students_df["DISPLAY"] = (
