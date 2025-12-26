@@ -487,6 +487,7 @@ def save_session_for_student(student_id: Union[int, str]) -> Optional[str]:
         # This ensures we have the latest entries from other users
         st.session_state.advising_index = _load_index(force_refresh=True)
         
+        student_data = students[0]
         st.session_state.advising_index.append({
             "id": sid,
             "title": title,
@@ -499,6 +500,10 @@ def save_session_for_student(student_id: Union[int, str]) -> Optional[str]:
             "semester": meta["semester"],
             "year": meta["year"],
             "advisor_name": meta["advisor_name"],
+            # Summary data for instant loading
+            "advised": student_data.get("advised", []),
+            "optional": student_data.get("optional", []),
+            "repeat": student_data.get("repeat", []),
         })
         _save_index(st.session_state.advising_index)
 
@@ -661,6 +666,18 @@ def load_all_sessions_for_period(period_id: Optional[str] = None) -> int:
         if not session_id:
             continue
         
+        # USE INDEX SUMMARY DATA IF AVAILABLE (FAST!)
+        if "advised" in session_meta:
+             st.session_state.advising_selections[norm_id] = {
+                "advised": session_meta.get("advised", []),
+                "optional": session_meta.get("optional", []),
+                "repeat": session_meta.get("repeat", []),
+                "note": session_meta.get("note", ""), # may still be missing in index
+            }
+             loaded_count += 1
+             continue
+             
+        # FALLBACK: Load from Drive for legacy entries (SLOW)
         payload = _load_session_payload_by_id(session_id)
         if not payload:
             continue

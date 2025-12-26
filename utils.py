@@ -1,5 +1,6 @@
 # utils.py
 
+import streamlit as st
 import pandas as pd
 import logging
 from io import BytesIO
@@ -35,6 +36,9 @@ __all__ = [
     "log_error",
     "calculate_course_curriculum_years",
     "calculate_student_curriculum_year",
+    "get_major_folder_id_helper",
+    "get_student_selections",
+    "get_student_bypasses",
 ]
 
 # ---------------- Logging ----------------
