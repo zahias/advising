@@ -1487,21 +1487,29 @@ def _render_schedule_conflict():
     max_courses_merged = max(c["# Courses"] for c in merged_data) if merged_data else 2
 
     with col_f1:
-        min_students = st.slider(
-            "Minimum students",
-            min_value=1,
-            max_value=max_students_merged,
-            value=1,
-            key="sc_min_students",
-        )
+        if max_students_merged > 1:
+            min_students = st.slider(
+                "Minimum students",
+                min_value=1,
+                max_value=max_students_merged,
+                value=1,
+                key="sc_min_students",
+            )
+        else:
+            min_students = 1
+            st.info("Showing groups with at least 1 student.")
     with col_f2:
-        min_courses = st.slider(
-            "Minimum courses",
-            min_value=2,
-            max_value=max(2, max_courses_merged),
-            value=2,
-            key="sc_min_courses",
-        )
+        if max_courses_merged > 2:
+            min_courses = st.slider(
+                "Minimum courses",
+                min_value=2,
+                max_value=max(2, max_courses_merged),
+                value=2,
+                key="sc_min_courses",
+            )
+        else:
+            min_courses = 2
+            st.info("Showing groups with at least 2 courses.")
 
     filtered = [
         c
