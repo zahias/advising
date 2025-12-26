@@ -11,6 +11,13 @@ from advising_utils import (
     build_requisites_str,
     get_corequisite_and_concurrent_courses,
     get_mutual_concurrent_pairs,
+    style_df,          # kept (used elsewhere in app)
+    log_info,
+    log_error,
+    get_student_selections,
+    get_student_bypasses,
+)
+from reporting import add_summary_sheet, apply_full_report_formatting, apply_individual_compact_formatting
 from advising_history import load_all_sessions_for_period
 
 def _get_drive_module():
@@ -251,21 +258,6 @@ def full_student_view():
     with tab[3]:
         _render_schedule_conflict()
 
-    
-    # Display the diagram
-    st.markdown(f"```mermaid\n{mermaid_code}\n```")
-    
-    with st.expander("ℹ️ Legend & Tips"):
-        st.markdown("""
-        - **Solid Arrow (A --> B)**: A is a prerequisite for B.
-        - **Dotted Arrow (A -.-> B)**: A is a concurrent requirement for B.
-        - **Double Arrow (A <-> B)**: A and B are corequisites (must be taken together).
-        - **Blue Node**: Currently focused course.
-        - **Yellow Node**: Intensive course.
-        - **White Node**: Required course.
-        
-        **Tip**: You can pan and zoom the diagram if your browser supports it.
-        """)
 
 def _get_fsv_cache(major: str = None) -> dict:
     """Get or create the Full Student View cache for the specified major."""
@@ -279,7 +271,6 @@ def _get_fsv_cache(major: str = None) -> dict:
         st.session_state[cache_key] = {
             "coreq_concurrent_courses": get_corequisite_and_concurrent_courses(courses_df),
             "mutual_pairs": get_mutual_concurrent_pairs(courses_df),
-            "course_curriculum_years": calculate_course_curriculum_years(courses_df),
         }
         st.session_state[f"{cache_key}_stale"] = False
     
@@ -349,16 +340,10 @@ def _render_all_students():
     # Get courses_df from session state first
     courses_df = st.session_state.courses_df
     
-    # Use cached curriculum years (already computed above)
-    course_curriculum_years = cached["course_curriculum_years"]
-    
     # Compute derived columns
     df["Total Credits Completed"] = (df.get("# of Credits Completed", 0).fillna(0).astype(float) + \
                                      df.get("# Registered", 0).fillna(0).astype(float)).astype(int)
     df["Standing"] = df["Total Credits Completed"].apply(get_student_standing)
-    df["Curriculum Year"] = df.apply(
-        lambda row: calculate_student_curriculum_year(row, courses_df, course_curriculum_years), axis=1
-    )
     def _get_advising_status(sid):
         slot = get_student_selections(sid)
         # Mark as "Advised" if any advising activity exists (courses selected OR note added)
@@ -396,19 +381,6 @@ def _render_all_students():
             & (df["Remaining Credits"] <= remaining_range[1])
         ]
 
-    # Curriculum year filter
-    all_curriculum_years = sorted(df["Curriculum Year"].unique().tolist())
-    if len(all_curriculum_years) > 1:
-        curriculum_year_filter = st.multiselect(
-            "📚 Filter by Curriculum Year",
-            options=all_curriculum_years,
-            default=all_curriculum_years,
-            help="Show students in specific curriculum years. Years are calculated based on prerequisite chain completion."
-        )
-        if curriculum_year_filter:
-            df = df[df["Curriculum Year"].isin(curriculum_year_filter)]
-    else:
-        st.caption(f"All students are currently in Curriculum Year {all_curriculum_years[0] if all_curriculum_years else 'N/A'}.")
 
     type_series = courses_df.get("Type", pd.Series(dtype=str))
     
@@ -477,7 +449,6 @@ def _render_all_students():
         "Total Credits Completed",
         "Remaining Credits",
         "Standing",
-        "Curriculum Year",
         "Advising Status",
     ]
     legend_md = "*Legend:* c=Completed, r=Registered, s=Simulated (will register), a=Advised, ar=Advised-Repeat, o=Optional, na=Eligible not chosen, ne=Not Eligible"
