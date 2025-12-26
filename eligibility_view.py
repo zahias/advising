@@ -6,15 +6,17 @@ import pandas as pd
 from io import BytesIO
 from typing import Dict, List, Any
 
-from utils import (
+from eligibility_utils import (
     check_course_completed,
     check_course_registered,
     is_course_offered,
     check_eligibility,
     build_requisites_str,
-    style_df,
     get_student_standing,
     get_mutual_concurrent_pairs,
+)
+from utils import (
+    style_df,
     log_info,
     log_error,
     get_student_selections,

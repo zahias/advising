@@ -51,38 +51,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def log_info(message: str) -> None:
-    try:
-        logger.info(message)
-    except Exception:
-        pass
-
-def log_error(message: str, error: Union[Exception, str]) -> None:
-    try:
-        logger.error(f"{message}: {error}", exc_info=isinstance(error, Exception))
-    except Exception:
-        pass
-
-def get_major_folder_id_helper(service) -> str:
-    """Centralized helper to get major-specific folder ID from secrets or env."""
-    import os
-    major = st.session_state.get("current_major", "DEFAULT")
-    root_folder_id = ""
-    try:
-        if "google" in st.secrets:
-            root_folder_id = st.secrets["google"].get("folder_id", "")
-    except Exception:
-        pass
-    
-    if not root_folder_id:
-        root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
-    
-    if not root_folder_id:
-        return ""
-    
-    import google_drive as gd
-    return gd.get_major_folder_id(service, major, root_folder_id)
-
 def get_student_selections(student_id: Union[int, str]) -> Dict[str, Any]:
     """Robustly fetch advising selections for a student from session state."""
     if "advising_selections" not in st.session_state:
@@ -124,6 +92,40 @@ def get_student_bypasses(student_id: Union[int, str], major: str) -> Dict[str, A
         or (all_bypasses.get(sid_int) if sid_int is not None else None)
         or {}
     )
+
+def log_info(message: str) -> None:
+    try:
+        logger.info(message)
+    except Exception:
+        pass
+
+def log_error(message: str, error: Union[Exception, str]) -> None:
+    try:
+        logger.error(f"{message}: {error}", exc_info=isinstance(error, Exception))
+    except Exception:
+        pass
+
+def get_major_folder_id_helper(service) -> str:
+    """Centralized helper to get major-specific folder ID from secrets or env."""
+    import os
+    major = st.session_state.get("current_major", "DEFAULT")
+    root_folder_id = ""
+    try:
+        if "google" in st.secrets:
+            root_folder_id = st.secrets["google"].get("folder_id", "")
+    except Exception:
+        pass
+    
+    if not root_folder_id:
+        root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
+    
+    if not root_folder_id:
+        return ""
+    
+    import google_drive as gd
+    return gd.get_major_folder_id(service, major, root_folder_id)
+
+
 
 
 # ------------- Styling for Streamlit tables --------------
