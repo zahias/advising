@@ -12,7 +12,6 @@ def render_master_plan():
     
     if "courses_df" not in st.session_state or st.session_state.courses_df.empty:
         st.warning("⚠️ Please upload the Courses Table on the Home page first.")
-        st.warning("⚠️ Please upload the Courses Table on the Home page first.")
         return
     
     if "progress_df" not in st.session_state or st.session_state.progress_df.empty:
