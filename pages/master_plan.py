@@ -7,7 +7,7 @@ from curriculum_engine import CurriculumGraph
 
 def render_master_plan():
     st.markdown("## 🌐 Global Master Plan & Curriculum Optimizer")
-    st.caption("v2.0.1 - Robust Fix Active")
+    st.caption("v2.1.0 - What-If Simulator & Visualizer Active")
     st.markdown("Strategic forecasting of graduation paths and cohort-based demand.")
     
     if "courses_df" not in st.session_state or st.session_state.courses_df.empty:
@@ -51,17 +51,27 @@ def render_master_plan():
     # ----------------------------------------
 
     # Sidebar-style controls in the main area for planning
-    with st.expander("🛠️ Simulation Configuration", expanded=False):
+    with st.expander("🛠️ Simulation & What-If Configuration", expanded=True):
         col1, col2 = st.columns(2)
         with col1:
-            max_credits = st.slider("Max Credits per Semester", 12, 21, 18)
-        with col2:
+            max_credits = st.slider("Max Credits per Semester", 12, 21, 18, help="Capacity limit for simulated students.")
             forecast_semesters = st.slider("Forecast Horizon (Semesters)", 2, 8, 4)
+        with col2:
+            all_codes = sorted(courses_df["Course Code"].unique())
+            unavailable_next = st.multiselect(
+                "🚫 Temporarily Cancelled Courses (Next Semester)",
+                options=all_codes,
+                help="Simulate the impact of NOT offering these courses in the immediate next semester."
+            )
+            
+    # Prepare unavailability dict
+    # For now, we only allow cancelling for the immediate next semester (index 1)
+    unavail_dict = {1: set(unavailable_next)}
 
     # Core engine initialization
     with st.spinner("🔮 Running cohort simulations..."):
         forecaster = DemandForecaster(courses_df, progress_df, max_credits_per_sem=max_credits)
-        forecaster.run_simulation(semesters_to_forecast=forecast_semesters)
+        forecaster.run_simulation(semesters_to_forecast=forecast_semesters, unavailable_courses=unavail_dict)
         summary_df = forecaster.get_summary_matrix()
         graph = forecaster.graph
 
@@ -70,11 +80,12 @@ def render_master_plan():
     col1, col2, col3 = st.columns(3)
     
     avg_rem = progress_df["# Remaining"].astype(float).mean() if "# Remaining" in progress_df.columns else 0
-    top_bottleneck = graph.get_top_bottlenecks(1)[0] if graph.get_top_bottlenecks(1) else ("N/A", 0)
+    bottlenecks = graph.get_top_bottlenecks(10)
+    top_bottleneck = bottlenecks[0] if bottlenecks else ("N/A", 0)
     
     with col1:
         st.metric("Avg. Credits Remaining", f"{avg_rem:.1f}")
-        st.caption("Lower is closer to graduation")
+        st.caption("Institutional baseline")
     with col2:
         st.metric("Primary Bottleneck", top_bottleneck[0])
         st.caption(f"Unlocks {top_bottleneck[1]:.0f} downstream credits")
@@ -85,22 +96,47 @@ def render_master_plan():
 
     st.markdown("---")
 
-    # Heatmap Section
-    st.markdown("### 🗓️ Future Demand Heatmap")
-    st.caption("Projected number of students needing each course in future semesters based on prerequisite chains.")
-    
-    if not summary_df.empty:
-        # Style the dataframe like a heatmap
-        def style_heatmap(val):
-            if val == 0: return ""
-            # Higher demand gets darker color
-            opacity = min(0.1 + (val / total_students) * 0.9, 0.9)
-            return f"background-color: rgba(65, 105, 225, {opacity}); color: {'white' if opacity > 0.5 else 'black'}"
+    # Dual Column for Heatmap and Visualizer
+    col_left, col_right = st.columns([3, 2])
 
-        styled_df = summary_df.style.map(style_heatmap)
-        st.dataframe(styled_df, width="stretch", height=500)
-    else:
-        st.info("No future demand projected. All students might be finished or prerequisites are missing.")
+    with col_left:
+        st.markdown("### 🗓️ Future Demand Heatmap")
+        st.caption("Projected number of students needing each course in future semesters.")
+        
+        if not summary_df.empty:
+            # Style the dataframe like a heatmap
+            def style_heatmap(val):
+                if val == 0: return ""
+                opacity = min(0.1 + (val / total_students) * 0.9, 0.9)
+                return f"background-color: rgba(65, 105, 225, {opacity}); color: {'white' if opacity > 0.5 else 'black'}"
+
+            styled_df = summary_df.style.map(style_heatmap)
+            st.dataframe(styled_df, width="stretch", height=450)
+        else:
+            st.info("No future demand projected.")
+
+    with col_right:
+        st.markdown("### 🕸️ Dependency visualizer")
+        st.caption(f"Unlocking path for **{top_bottleneck[0]}**")
+        
+        if top_bottleneck[0] != "N/A":
+            mermaid_code = graph.generate_mermaid_graph(top_bottleneck[0])
+            import streamlit.components.v1 as components
+            
+            # Simple Mermaid rendering via CDN if st.mermaid isn't available
+            # Note: We'll use the built-in st.html with mermaid.js for a premium look
+            html_code = f"""
+            <div class="mermaid" style="display: flex; justify-content: center;">
+            {mermaid_code}
+            </div>
+            <script type="module">
+                import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+                mermaid.initialize({{ startOnLoad: true, theme: 'neutral' }});
+            </script>
+            """
+            st.components.v1.html(html_code, height=450, scrolling=True)
+        else:
+            st.info("Select a bottleneck to visualize.")
 
     # Strategic Action Section
     st.markdown("---")
@@ -108,8 +144,7 @@ def render_master_plan():
     
     with colA:
         st.markdown("### 🚀 Strategic Bottlenecks")
-        st.caption("Courses with high 'Unlock Weight'. Offering these clears the most graduation barriers.")
-        bottlenecks = graph.get_top_bottlenecks(10)
+        st.caption("Offering these clears the most total graduation barriers.")
         
         bn_data = []
         for code, weight in bottlenecks:
@@ -117,7 +152,6 @@ def render_master_plan():
             title = "Unknown"
             if not course_info.empty:
                 row = course_info.iloc[0]
-                # Use .get with fallback for maximum safety
                 title = row.get("Course Title", row.get("Title", "Unknown"))
             
             bn_data.append(
@@ -136,7 +170,15 @@ def render_master_plan():
             
             rec_data = []
             for code, count in sorted_next[:10]:
-                rec_data.append({"Course": code, "Projected Demand": count, "Priority": "🔥 High" if count > total_students * 0.5 else "✅ Normal"})
+                status = "✅ High" if count > total_students * 0.4 else "🔹 Normal"
+                if code in unavailable_next:
+                    status = "🚫 CANCELLED"
+                
+                rec_data.append({
+                    "Course": code, 
+                    "Demand": count, 
+                    "Status": status
+                })
             
             st.table(rec_data)
         else:
@@ -149,4 +191,5 @@ def render_master_plan():
         2. **Greedy Pathfinding**: For every student, it pretends they register for up to their credit limit in the *next* semester, always picking the courses that unlock the most downstream content first.
         3. **Simulation**: It repeats this until the student graduates or the horizon is reached.
         4. **Aggregation**: It sums up these "virtual registrations" to predict institutional demand.
+        5. **What-If Logic**: If you cancel a course, the simulator forces students to pick the next best available course, potentially delaying their graduation.
         """)

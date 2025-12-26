@@ -106,3 +106,41 @@ class CurriculumGraph:
         # Actually, we want the max depth of any uncompleted course
         depths = [get_depth(c) for c in uncompleted_courses]
         return max(depths) if depths else 0
+
+    def generate_mermaid_graph(self, root_code: str, depth: int = 3) -> str:
+        """Generates Mermaid code for a directional graph starting from root_code."""
+        if root_code not in self.upstream and root_code not in self.downstream:
+            return ""
+
+        lines = ["graph TD"]
+        # Use classes for styling
+        lines.append("classDef root fill:#f96,stroke:#333,stroke-width:2px;")
+        lines.append("classDef downstream fill:#bbf,stroke:#333,stroke-width:1px;")
+        
+        visited = set()
+        to_visit = [(root_code, 0)]
+        
+        while to_visit:
+            curr, curr_depth = to_visit.pop(0)
+            if curr in visited or curr_depth >= depth:
+                continue
+            
+            visited.add(curr)
+            
+            # Label the node
+            course_info = self.courses_df[self.courses_df["Course Code"] == curr]
+            title = course_info.iloc[0].get("Course Title", course_info.iloc[0].get("Title", curr)) if not course_info.empty else curr
+            # Sanitize title for Mermaid (remove special chars)
+            title_clean = str(title).replace('"', '').replace('(', '[').replace(')', ']')
+            lines.append(f'{curr}["{curr} {title_clean}"]')
+            
+            if curr == root_code:
+                lines.append(f"class {curr} root")
+            else:
+                lines.append(f"class {curr} downstream")
+
+            for child in self.downstream.get(curr, []):
+                lines.append(f"{curr} --> {child}")
+                to_visit.append((child, curr_depth + 1))
+        
+        return "\n    ".join(lines)

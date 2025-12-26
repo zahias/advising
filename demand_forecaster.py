@@ -15,16 +15,23 @@ class DemandForecaster:
         # semester_index (0, 1, 2, 3) -> course_code -> count
         self.demand_projection = {}
 
-    def run_simulation(self, semesters_to_forecast: int = 4):
-        """Simulates the future path for every student in the progress report."""
+    def run_simulation(self, semesters_to_forecast: int = 4, unavailable_courses: Dict[int, Set[str]] = None):
+        """Simulates the future path for every student in the progress report.
+        
+        Args:
+            semesters_to_forecast: Number of semesters to project.
+            unavailable_courses: Dict mapping semester index (1, 2, ...) to a set of course codes 
+                               that cannot be taken in that semester.
+        """
         self.demand_projection = {i: {} for i in range(1, semesters_to_forecast + 1)}
+        unavailable = unavailable_courses or {}
         
         for _, student in self.progress_df.iterrows():
-            self._simulate_student(student, semesters_to_forecast)
+            self._simulate_student(student, semesters_to_forecast, unavailable)
             
         return self.demand_projection
 
-    def _simulate_student(self, student: pd.Series, max_sems: int):
+    def _simulate_student(self, student: pd.Series, max_sems: int, unavailable_courses: Dict[int, Set[str]]):
         # We need a copy of the student row to track "simulated completions"
         sim_student = student.copy()
         
@@ -34,7 +41,12 @@ class DemandForecaster:
         for sem_idx in range(1, max_sems + 1):
             # 1. Identify what they can take now
             eligible_courses = []
+            sem_unavailable = unavailable_courses.get(sem_idx, set())
+            
             for code in all_courses:
+                if code in sem_unavailable:
+                    continue
+                    
                 if check_course_completed(sim_student, code) or check_course_registered(sim_student, code):
                     continue
                 
