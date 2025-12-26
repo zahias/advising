@@ -7,9 +7,11 @@ from curriculum_engine import CurriculumGraph
 
 def render_master_plan():
     st.markdown("## 🌐 Global Master Plan & Curriculum Optimizer")
+    st.caption("v2.0.1 - Robust Fix Active")
     st.markdown("Strategic forecasting of graduation paths and cohort-based demand.")
     
     if "courses_df" not in st.session_state or st.session_state.courses_df.empty:
+        st.warning("⚠️ Please upload the Courses Table on the Home page first.")
         st.warning("⚠️ Please upload the Courses Table on the Home page first.")
         return
     
@@ -17,16 +19,38 @@ def render_master_plan():
         st.warning("⚠️ Please upload the Student Progress Report on the Home page first.")
         return
 
+    # Use a copy to avoid mutating session state accidentally
     courses_df = st.session_state.courses_df.copy()
-    progress_df = st.session_state.progress_df
+    progress_df = st.session_state.progress_df.copy()
     
-    # Robust column normalization
-    col_map = {col.lower().strip(): col for col in courses_df.columns}
-    if "course code" not in col_map and "code" in col_map:
-        courses_df = courses_df.rename(columns={col_map["code"]: "Course Code"})
-    if "course title" not in col_map and "title" in col_map:
-        courses_df = courses_df.rename(columns={col_map["title"]: "Course Title"})
+    # --- ULTRA-ROBUST COLUMN NORMALIZATION ---
+    # We normalize column names to be exactly what the engine expects
+    col_map = {str(col).lower().strip(): col for col in courses_df.columns}
     
+    # 1. Course Code
+    if "course code" not in col_map:
+        if "code" in col_map:
+            courses_df = courses_df.rename(columns={col_map["code"]: "Course Code"})
+        elif "course" in col_map:
+             courses_df = courses_df.rename(columns={col_map["course"]: "Course Code"})
+             
+    # 2. Course Title
+    if "course title" not in col_map:
+        if "title" in col_map:
+            courses_df = courses_df.rename(columns={col_map["title"]: "Course Title"})
+        elif "course_title" in col_map:
+            courses_df = courses_df.rename(columns={col_map["course_title"]: "Course Title"})
+
+    # 3. Credits
+    if "credits" not in col_map and "cr" in col_map:
+        courses_df = courses_df.rename(columns={col_map["cr"]: "Credits"})
+
+    # Re-verify critical columns
+    if "Course Code" not in courses_df.columns:
+        st.error("❌ 'Course Code' column not found in courses table. Please ensure your Excel has a code column.")
+        return
+    # ----------------------------------------
+
     # Sidebar-style controls in the main area for planning
     with st.expander("🛠️ Simulation Configuration", expanded=False):
         col1, col2 = st.columns(2)
@@ -91,11 +115,12 @@ def render_master_plan():
         bn_data = []
         for code, weight in bottlenecks:
             course_info = courses_df[courses_df["Course Code"] == code]
+            title = "Unknown"
             if not course_info.empty:
                 row = course_info.iloc[0]
+                # Use .get with fallback for maximum safety
                 title = row.get("Course Title", row.get("Title", "Unknown"))
-            else:
-                title = "Unknown"
+            
             bn_data.append(
                 {"Course": code, "Impact Score": f"{weight:.0f}", "Description": title}
             )
