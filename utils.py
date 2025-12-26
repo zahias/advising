@@ -59,6 +59,68 @@ def log_error(message: str, error: Union[Exception, str]) -> None:
     except Exception:
         pass
 
+def get_major_folder_id_helper(service) -> str:
+    """Centralized helper to get major-specific folder ID from secrets or env."""
+    import os
+    major = st.session_state.get("current_major", "DEFAULT")
+    root_folder_id = ""
+    try:
+        if "google" in st.secrets:
+            root_folder_id = st.secrets["google"].get("folder_id", "")
+    except Exception:
+        pass
+    
+    if not root_folder_id:
+        root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
+    
+    if not root_folder_id:
+        return ""
+    
+    import google_drive as gd
+    return gd.get_major_folder_id(service, major, root_folder_id)
+
+def get_student_selections(student_id: Union[int, str]) -> Dict[str, Any]:
+    """Robustly fetch advising selections for a student from session state."""
+    if "advising_selections" not in st.session_state:
+        return {"advised": [], "optional": [], "repeat": [], "note": ""}
+    
+    sels = st.session_state.advising_selections
+    sid_str = str(student_id)
+    sid_int = int(student_id) if sid_str.isdigit() else None
+    
+    slot = (
+        sels.get(student_id)
+        or sels.get(sid_str)
+        or (sels.get(sid_int) if sid_int is not None else None)
+        or {"advised": [], "optional": [], "repeat": [], "note": ""}
+    )
+    
+    # Ensure all keys exist
+    for key in ["advised", "optional", "repeat"]:
+        if key not in slot:
+            slot[key] = []
+    if "note" not in slot:
+        slot["note"] = ""
+        
+    return slot
+
+def get_student_bypasses(student_id: Union[int, str], major: str) -> Dict[str, Any]:
+    """Robustly fetch bypasses for a student from session state."""
+    bypasses_key = f"bypasses_{major}"
+    if bypasses_key not in st.session_state:
+        return {}
+    
+    all_bypasses = st.session_state[bypasses_key]
+    sid_str = str(student_id)
+    sid_int = int(student_id) if sid_str.isdigit() else None
+    
+    return (
+        all_bypasses.get(student_id)
+        or all_bypasses.get(sid_str)
+        or (all_bypasses.get(sid_int) if sid_int is not None else None)
+        or {}
+    )
+
 
 # ------------- Styling for Streamlit tables --------------
 

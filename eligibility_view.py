@@ -17,6 +17,8 @@ from utils import (
     get_mutual_concurrent_pairs,
     log_info,
     log_error,
+    get_student_selections,
+    get_student_bypasses,
 )
 from reporting import apply_excel_formatting
 from course_exclusions import (
@@ -91,23 +93,10 @@ def student_eligibility_view():
 
     hidden_for_student = set(map(str, get_for_student(norm_sid)))
 
-    # per-student advising slot
-    sels = st.session_state.advising_selections
-    slot = sels.get(norm_sid)
-    if slot is None:
-        # migrate if a stray str/int key exists
-        alt = sels.get(str(norm_sid)) if isinstance(norm_sid, int) else None
-        if alt:
-            slot = alt
-            sels.pop(str(norm_sid))
-        else:
-            slot = {"advised": [], "optional": [], "repeat": [], "note": ""}
-        sels[norm_sid] = slot
+    # per-student advising slot and bypasses
+    slot = get_student_selections(norm_sid)
+    st.session_state.advising_selections[norm_sid] = slot
     
-    # Ensure repeat key exists for existing slots
-    if "repeat" not in slot:
-        slot["repeat"] = []
-
     # Auto-load most recent advising session for this student
     # Only load if the slot is empty (all empty lists/strings)
     advised_list = slot.get("advised", [])
@@ -121,21 +110,8 @@ def student_eligibility_view():
         _load_session_and_apply(norm_sid)
         st.session_state[f"_autoloaded_{norm_sid}"] = True
 
-    # Initialize bypasses for this major if needed
     major = st.session_state.get("current_major", "")
-    bypasses_key = f"bypasses_{major}"
-    if bypasses_key not in st.session_state:
-        st.session_state[bypasses_key] = {}
-    
-    # Get bypasses for this student
-    all_bypasses = st.session_state[bypasses_key]
-    student_bypasses = (
-        all_bypasses.get(norm_sid)
-        or all_bypasses.get(str(norm_sid))
-        or (all_bypasses.get(int(norm_sid)) if str(norm_sid).isdigit() else None)
-        or {}
-    )
-
+    student_bypasses = get_student_bypasses(norm_sid, major)
 
     # header stats
     cr_comp = float(student_row.get("# of Credits Completed", 0) or 0)

@@ -80,26 +80,11 @@ def _reconstruct_periods_from_sessions() -> List[Dict[str, Any]]:
 
 def _get_major_folder_id_internal() -> str:
     """Get major-specific folder ID."""
-    import os
+    from utils import get_major_folder_id_helper
     try:
         gd = _get_drive_module()
         service = gd.initialize_drive_service()
-        major = st.session_state.get("current_major", "DEFAULT")
-        
-        root_folder_id = ""
-        try:
-            if "google" in st.secrets:
-                root_folder_id = st.secrets["google"].get("folder_id", "")
-        except:
-            pass
-        
-        if not root_folder_id:
-            root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
-        
-        if not root_folder_id:
-            return ""
-        
-        return gd.get_major_folder_id(service, major, root_folder_id)
+        return get_major_folder_id_helper(service)
     except Exception:
         return ""
 

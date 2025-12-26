@@ -2,7 +2,7 @@
 
 import streamlit as st
 import pandas as pd
-from utils import check_eligibility, get_mutual_concurrent_pairs
+from utils import check_eligibility, get_mutual_concurrent_pairs, get_student_selections
 
 
 def degree_plan_view():
@@ -256,8 +256,7 @@ def _get_student_course_statuses(student_data, courses_df):
         
         # Check advising selections
         sid = student_data.get("ID")
-        sels = st.session_state.get("advising_selections", {})
-        slot = sels.get(sid) or sels.get(str(sid)) or {}
+        slot = get_student_selections(sid)
         
         advised = slot.get("advised", [])
         repeat = slot.get("repeat", [])

@@ -15,7 +15,9 @@ from utils import (
     calculate_student_curriculum_year,
     style_df,          # kept (used elsewhere in app)
     log_info,
-    log_error
+    log_error,
+    get_student_selections,
+    get_student_bypasses,
 )
 from reporting import add_summary_sheet, apply_full_report_formatting, apply_individual_compact_formatting
 from advising_history import load_all_sessions_for_period
@@ -153,14 +155,11 @@ def render_degree_plan_table(courses_df, progress_df):
         for course_code in all_courses:
             status_val = student.get(course_code, "")
             
-            # Check advising selections
-            sels = st.session_state.get("advising_selections", {})
-            slot = (
-                sels.get(student_id)
-                or sels.get(str(student_id))
-                or (sels.get(int(student_id)) if str(student_id).isdigit() else None)
-                or {}
-            )
+            # Check advising selections and bypasses
+            major = st.session_state.get("current_major", "")
+            slot = get_student_selections(student_id)
+            student_bypasses = get_student_bypasses(student_id, major)
+            
             advised = slot.get("advised", [])
             repeat = slot.get("repeat", [])
             optional = slot.get("optional", [])
@@ -407,8 +406,7 @@ def _render_all_students():
         lambda row: calculate_student_curriculum_year(row, courses_df, course_curriculum_years), axis=1
     )
     def _get_advising_status(sid):
-        sels = st.session_state.advising_selections
-        slot = sels.get(int(sid)) or sels.get(str(int(sid))) or {}
+        slot = get_student_selections(sid)
         # Mark as "Advised" if any advising activity exists (courses selected OR note added)
         has_advised = bool(slot.get("advised"))
         has_optional = bool(slot.get("optional"))
@@ -569,13 +567,14 @@ def _render_all_students():
                     break
 
     def status_code(row_original: pd.Series, student_id: int, course: str, simulated_for_student: list) -> str:
-        sel = st.session_state.advising_selections.get(int(student_id), {})
+        major = st.session_state.get("current_major", "")
+        sel = get_student_selections(student_id)
         advised_list = sel.get("advised", []) or []
         optional_list = sel.get("optional", []) or []
         repeat_list = sel.get("repeat", []) or []
         
         # Get bypasses for this student
-        student_bypasses = all_bypasses.get(student_id) or all_bypasses.get(str(student_id)) or {}
+        student_bypasses = get_student_bypasses(student_id, major)
 
         if course in repeat_list:
             return "ar"

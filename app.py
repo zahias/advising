@@ -75,20 +75,25 @@ def _count_advised_from_index(progress_ids = None) -> int:
         from advising_history import _load_index
         
         # _load_index() has internal per-major caching via _advising_index_cache_{major}
-        # So this is fast after first call for each major
         index = _load_index()
-        if not index:
-            return 0
         
         current_period = get_current_period()
         period_id = current_period.get("period_id", "")
         if not period_id:
             return 0
+            
+        # If we have progress_ids but index is empty, try one force refresh 
+        # to ensure we're not seeing a stale cache from before Drive was ready
+        if not index and progress_ids:
+             index = _load_index(force_refresh=True)
+        
+        if not index:
+            return 0
         
         # Count unique students with sessions in this period
         students_with_sessions = set()
         for entry in index:
-            if entry.get("period_id") == period_id:
+            if str(entry.get("period_id", "")) == str(period_id):
                 sid = entry.get("student_id")
                 if sid:
                     # Normalize to int for comparison
@@ -102,7 +107,8 @@ def _count_advised_from_index(progress_ids = None) -> int:
                         students_with_sessions.add(norm_sid)
         
         return len(students_with_sessions)
-    except Exception:
+    except Exception as e:
+        log_error("Dashboard count failed", e)
         return 0
 
 def _render_header():
@@ -308,11 +314,21 @@ def _auto_load_from_drive(major: str):
 def main():
     """Main application entry point."""
     
+    # 1. Initialize major context and sync data buckets before ANY rendering
+    selected_major = st.session_state.get("current_major", "Select major...")
+    
+    if selected_major in MAJORS:
+        _sync_globals_from_bucket(selected_major)
+        
+        # Auto-load from Drive if bucket is empty
+        bucket = st.session_state.majors.get(selected_major, {})
+        if bucket.get("courses_df", pd.DataFrame()).empty or bucket.get("progress_df", pd.DataFrame()).empty:
+             _auto_load_from_drive(selected_major)
+    
+    # 2. Render Header (now has access to synced data)
     _render_header()
     
     st.markdown("---")
-    
-    selected_major = st.session_state.get("current_major", "Select major...")
     
     if selected_major not in MAJORS:
         st.markdown("## 🎓 Advising Dashboard")
@@ -327,24 +343,12 @@ def main():
         """)
         return
     
-    _sync_globals_from_bucket(selected_major)
-    
-    # Check if we need to load from Drive (bucket is empty)
-    bucket = st.session_state.majors.get(selected_major, {})
-    needs_loading = (
-        bucket.get("courses_df", pd.DataFrame()).empty or 
-        bucket.get("progress_df", pd.DataFrame()).empty
-    )
-    
-    if needs_loading:
-        with st.spinner("Loading data..."):
-            _auto_load_from_drive(selected_major)
-    
+    # Render period gate if needed
     if not _render_period_gate():
         return
     
-    # Session index is loaded on-demand by _count_advised_from_index() in header
-    # Full sessions load on-demand when student is selected
+    # Session index is loaded/refreshed on-demand by _count_advised_from_index() in header
+    # or by specialized views.
     
     active_nav = _render_navigation()
     
