@@ -17,8 +17,15 @@ def render_master_plan():
         st.warning("⚠️ Please upload the Student Progress Report on the Home page first.")
         return
 
-    courses_df = st.session_state.courses_df
+    courses_df = st.session_state.courses_df.copy()
     progress_df = st.session_state.progress_df
+    
+    # Robust column normalization
+    col_map = {col.lower().strip(): col for col in courses_df.columns}
+    if "course code" not in col_map and "code" in col_map:
+        courses_df = courses_df.rename(columns={col_map["code"]: "Course Code"})
+    if "course title" not in col_map and "title" in col_map:
+        courses_df = courses_df.rename(columns={col_map["title"]: "Course Title"})
     
     # Sidebar-style controls in the main area for planning
     with st.expander("🛠️ Simulation Configuration", expanded=False):
