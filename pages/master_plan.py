@@ -84,8 +84,14 @@ def render_master_plan():
         bn_data = []
         for code, weight in bottlenecks:
             course_info = courses_df[courses_df["Course Code"] == code]
-            title = course_info["Course Title"].iloc[0] if not course_info.empty else "Unknown"
-            bn_data.append({"Course": code, "Impact Score": f"{weight:.0f}", "Description": title})
+            if not course_info.empty:
+                row = course_info.iloc[0]
+                title = row.get("Course Title", row.get("Title", "Unknown"))
+            else:
+                title = "Unknown"
+            bn_data.append(
+                {"Course": code, "Impact Score": f"{weight:.0f}", "Description": title}
+            )
         
         st.table(bn_data)
 
