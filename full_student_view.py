@@ -11,17 +11,7 @@ from advising_utils import (
     build_requisites_str,
     get_corequisite_and_concurrent_courses,
     get_mutual_concurrent_pairs,
-    calculate_course_curriculum_years,
-    calculate_student_curriculum_year,
-    style_df,          # kept (used elsewhere in app)
-    log_info,
-    log_error,
-    get_student_selections,
-    get_student_bypasses,
-)
-from reporting import add_summary_sheet, apply_full_report_formatting, apply_individual_compact_formatting
 from advising_history import load_all_sessions_for_period
-from curriculum_visualizer import generate_mermaid_code
 
 def _get_drive_module():
     """Lazy loader for google_drive module to avoid import-time side effects."""
@@ -124,7 +114,6 @@ def render_degree_plan_table(courses_df, progress_df):
     
     # Use cached values
     cached = _get_fsv_cache(major)
-    course_curriculum_years = cached["course_curriculum_years"]
     mutual_pairs = cached["mutual_pairs"]
     
     bypasses_key = f"bypasses_{major}"
@@ -147,8 +136,8 @@ def render_degree_plan_table(courses_df, progress_df):
             "ID": student_id,
             "Total Credits Completed": student.get("Total Credits Completed", 0),
             "Remaining Credits": student.get("Remaining Credits", 0),
+            "Remaining Credits": student.get("Remaining Credits", 0),
             "Standing": student.get("Standing", ""),
-            "Curriculum Year": student.get("Curriculum Year", calculate_student_curriculum_year(student, courses_df, course_curriculum_years)),
         }
         
         # Add course statuses
@@ -252,51 +241,16 @@ def full_student_view():
             load_all_sessions_for_period()
         st.session_state[sessions_loaded_key] = True
 
-    tab = st.tabs(["All Students", "Individual Student", "Curriculum Map", "QAA Sheet", "Schedule Conflict"])
+    tab = st.tabs(["All Students", "Individual Student", "QAA Sheet", "Schedule Conflict"])
     with tab[0]:
         _render_all_students()
     with tab[1]:
         _render_individual_student()
     with tab[2]:
-        _render_curriculum_map()
-    with tab[3]:
         _render_qaa_sheet()
-    with tab[4]:
+    with tab[3]:
         _render_schedule_conflict()
 
-def _render_curriculum_map():
-    """Renders the interactive prerequisite map using Mermaid.js."""
-    st.markdown("### 🕸️ Curriculum Prerequisite Map")
-    st.caption("Visualize course dependencies and prerequisite chains for the current major.")
-    
-    courses_df = st.session_state.courses_df
-    if courses_df.empty:
-        st.warning("No courses loaded.")
-        return
-
-    all_courses = sorted(courses_df["Course Code"].astype(str).tolist())
-    
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        focus_course = st.selectbox(
-            "Focus Course (optional)",
-            options=["None"] + all_courses,
-            index=0,
-            help="Select a course to highlight its prerequisite chain (ancestors and descendants)."
-        )
-    with col2:
-        depth = st.slider(
-            "Chain Depth",
-            min_value=1,
-            max_value=10,
-            value=3,
-            help="How many levels of prerequisites and descendants to show."
-        )
-    
-    actual_focus = None if focus_course == "None" else focus_course
-    
-    with st.spinner("Generating map..."):
-        mermaid_code = generate_mermaid_code(courses_df, focus_course=actual_focus, depth=depth)
     
     # Display the diagram
     st.markdown(f"```mermaid\n{mermaid_code}\n```")
