@@ -49,6 +49,8 @@ __all__ = [
     "save_session_for_student", 
     "_find_latest_session_for_student", 
     "_load_session_and_apply",
+    "reload_student_session_from_drive",
+    "load_all_sessions_for_period",
     "get_students_with_saved_sessions",
     "bulk_restore_sessions",
     "bulk_restore_panel",
@@ -617,15 +619,43 @@ def _load_session_and_apply(student_id: Union[int, str]) -> bool:
     return True
 
 
-def load_all_sessions_for_period(period_id: Optional[str] = None) -> int:
+def reload_student_session_from_drive(student_id: Union[int, str]) -> bool:
+    """
+    Force reload a specific student's most recent session from Drive.
+    Useful when switching students to ensure we have the latest data.
+    
+    Returns True if successfully loaded, False otherwise.
+    """
+    # Remove from cache so it gets reloaded
+    sid_int = int(student_id) if str(student_id).isdigit() else student_id
+    sid_str = str(student_id)
+    
+    # Remove from advising_selections to allow reload
+    if "advising_selections" in st.session_state:
+        st.session_state.advising_selections.pop(sid_int, None)
+        st.session_state.advising_selections.pop(sid_str, None)
+    
+    # Remove the autoload flag to allow re-loading
+    st.session_state.pop(f"_autoloaded_{sid_int}", None)
+    st.session_state.pop(f"_autoloaded_{sid_str}", None)
+    
+    # Now load the session
+    return _load_session_and_apply(student_id)
+
+
+def load_all_sessions_for_period(period_id: Optional[str] = None, force_refresh: bool = False) -> int:
     """
     Load all saved advising sessions for the current (or specified) period
     and apply them to advising_selections.
     
+    Args:
+        period_id: The period to load. If None, uses current period.
+        force_refresh: If True, force reload index from Drive and reload ALL student data.
+    
     Returns the number of sessions loaded.
     """
-    if "advising_index" not in st.session_state:
-        st.session_state.advising_index = _load_index()
+    if "advising_index" not in st.session_state or force_refresh:
+        st.session_state.advising_index = _load_index(force_refresh=True)
     
     index = st.session_state.advising_index or []
     
@@ -665,9 +695,8 @@ def load_all_sessions_for_period(period_id: Optional[str] = None) -> int:
         except (ValueError, TypeError):
             norm_id = str(student_id)
         
-        if norm_id in st.session_state.advising_selections:
-            continue
-        if str(norm_id) in st.session_state.advising_selections:
+        # Only skip if not force_refresh AND data already loaded
+        if not force_refresh and (norm_id in st.session_state.advising_selections or str(norm_id) in st.session_state.advising_selections):
             continue
         
         session_id = session_meta.get("id")

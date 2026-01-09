@@ -86,6 +86,12 @@ def student_eligibility_view():
     optional_key = f"optional_ms_{norm_sid}"
     repeat_key = f"repeat_ms_{norm_sid}"
     note_key = f"note_{norm_sid}"
+    
+    # Track if student has changed to force refresh from Drive
+    prev_student_key = "_prev_student_id_eligibility"
+    prev_student = st.session_state.get(prev_student_key)
+    student_changed = (prev_student != norm_sid)
+    st.session_state[prev_student_key] = norm_sid
 
     # robust row fetch
     pdf = st.session_state.progress_df
@@ -98,6 +104,11 @@ def student_eligibility_view():
     student_row = row.iloc[0]
 
     hidden_for_student = set(map(str, get_for_student(norm_sid)))
+
+    # If student changed, force reload their latest session from Drive
+    if student_changed:
+        from advising_history import reload_student_session_from_drive
+        reload_student_session_from_drive(norm_sid)
 
     # per-student advising slot and bypasses
     slot = get_student_selections(norm_sid)
