@@ -188,8 +188,8 @@ def find_file_in_drive(service, filename: str, parent_folder_id: str) -> Optiona
             spaces="drive",
             fields="files(id, name)",
             pageSize=10,
-            includeItemsFromAllDrives=False,
-            supportsAllDrives=False,
+            includeItemsFromAllDrives=True,
+            supportsAllDrives=True,
         ).execute()
         for f in resp.get("files", []):
             if f.get("name") == filename:
@@ -249,7 +249,7 @@ def sync_file_with_drive(
                     fileId=file_id,
                     media_body=media,
                     body={"name": drive_file_name},
-                    supportsAllDrives=False,
+                    supportsAllDrives=True,
                 ).execute()
                 return updated.get("id", file_id)
             else:
@@ -257,7 +257,7 @@ def sync_file_with_drive(
                     body=body,
                     media_body=media,
                     fields="id",
-                    supportsAllDrives=False,
+                    supportsAllDrives=True,
                 ).execute()
                 return created.get("id")
                 
@@ -285,8 +285,8 @@ def list_files_with_prefix(service, parent_folder_id: str, prefix: str, page_siz
             fields="files(id, name, modifiedTime)",
             pageSize=page_size,
             orderBy="modifiedTime desc",
-            includeItemsFromAllDrives=False,
-            supportsAllDrives=False,
+            includeItemsFromAllDrives=True,
+            supportsAllDrives=True,
         ).execute()
         return resp.get("files", [])
     except HttpError as e:
@@ -308,7 +308,7 @@ def delete_file_by_name(service, parent_folder_id: str, filename: str) -> bool:
         fid = find_file_in_drive(service, filename, parent_folder_id)
         if not fid:
             return True
-        service.files().delete(fileId=fid).execute()
+        service.files().delete(fileId=fid, supportsAllDrives=True).execute()
         return True
     except HttpError:
         return False
@@ -318,7 +318,7 @@ def delete_file_from_drive(service, file_id: str) -> bool:
     """Delete a file by its file ID. Returns True if deleted successfully."""
     HttpError = _get_http_error_class()
     try:
-        service.files().delete(fileId=file_id).execute()
+        service.files().delete(fileId=file_id, supportsAllDrives=True).execute()
         return True
     except HttpError:
         return False
@@ -334,8 +334,8 @@ def find_folder_by_name(service, folder_name: str, parent_folder_id: str) -> Opt
             spaces="drive",
             fields="files(id, name)",
             pageSize=10,
-            includeItemsFromAllDrives=False,
-            supportsAllDrives=False,
+            includeItemsFromAllDrives=True,
+            supportsAllDrives=True,
         ).execute()
         for f in resp.get("files", []):
             if f.get("name") == folder_name:
@@ -357,7 +357,7 @@ def create_folder(service, folder_name: str, parent_folder_id: str) -> str:
         folder = service.files().create(
             body=body,
             fields="id",
-            supportsAllDrives=False,
+            supportsAllDrives=True,
         ).execute()
         return folder.get("id")
     except HttpError as e:
