@@ -544,10 +544,18 @@ def _find_latest_session_for_student(student_id: Union[int, str], period_id: Opt
     # Include matches for period_id, and if period_id is provided, also include legacy sessions (empty period_id)
     # as they represent historical data that should be visible unless explicitly overridden.
     student_sessions = [
-        r for r in index 
+        r for r in index
         if str(r.get("student_id", "")) == str(student_id)
         and (r.get("period_id", "") == period_id or not r.get("period_id"))
     ]
+
+    # Fallback: if no sessions match the current period, try any period for this student.
+    # This covers cases where period metadata wasn't saved or restored correctly.
+    if not student_sessions and period_id:
+        student_sessions = [
+            r for r in index
+            if str(r.get("student_id", "")) == str(student_id)
+        ]
     
     if not student_sessions:
         return None
