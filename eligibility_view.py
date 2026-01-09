@@ -82,6 +82,10 @@ def student_eligibility_view():
     
     norm_sid = _norm_id(selected_student_id)
     st.session_state["current_student_id"] = norm_sid
+    advised_key = f"advised_ms_{norm_sid}"
+    optional_key = f"optional_ms_{norm_sid}"
+    repeat_key = f"repeat_ms_{norm_sid}"
+    note_key = f"note_{norm_sid}"
 
     # robust row fetch
     pdf = st.session_state.progress_df
@@ -108,9 +112,18 @@ def student_eligibility_view():
     
     is_empty = not (advised_list or optional_list or repeat_list or note_val.strip())
     
+    autoloaded_now = False
     if is_empty and f"_autoloaded_{norm_sid}" not in st.session_state:
-        _load_session_and_apply(norm_sid)
+        if _load_session_and_apply(norm_sid):
+            autoloaded_now = True
         st.session_state[f"_autoloaded_{norm_sid}"] = True
+
+    if autoloaded_now:
+        slot = get_student_selections(norm_sid)
+        st.session_state[advised_key] = list(slot.get("advised", []) or [])
+        st.session_state[optional_key] = list(slot.get("optional", []) or [])
+        st.session_state[repeat_key] = list(slot.get("repeat", []) or [])
+        st.session_state[note_key] = slot.get("note", "")
 
     major = st.session_state.get("current_major", "")
     student_bypasses = get_student_bypasses(norm_sid, major)
@@ -306,9 +319,6 @@ def student_eligibility_view():
 
     # Remove mutual exclusivity - advised courses shouldn't appear in optional options
     # We handle this dynamically: options for optional exclude current advised, and vice versa
-    advised_key = f"advised_ms_{norm_sid}"
-    optional_key = f"optional_ms_{norm_sid}"
-    
     # Get current selections from session state (for real-time mutual exclusivity)
     current_advised_sel = set(st.session_state.get(advised_key, default_advised))
     current_optional_sel = set(st.session_state.get(optional_key, default_optional))
@@ -333,11 +343,11 @@ def student_eligibility_view():
             help="Additional optional courses (cannot overlap with Advised)"
         )
         repeat_selection = st.multiselect(
-            "Repeat Courses (Completed or Registered)", options=repeat_opts, default=default_repeat, key=f"repeat_ms_{norm_sid}",
+            "Repeat Courses (Completed or Registered)", options=repeat_opts, default=default_repeat, key=repeat_key,
             help="Select courses that the student should repeat to improve GPA"
         )
         note_input = st.text_area(
-            "Advisor Note (optional)", value=slot.get("note", ""), key=f"note_{norm_sid}"
+            "Advisor Note (optional)", value=slot.get("note", ""), key=note_key
         )
 
         # Two buttons side by side
