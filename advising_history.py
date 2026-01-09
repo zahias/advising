@@ -124,7 +124,9 @@ def _load_index(force_refresh: bool = False) -> List[Dict[str, Any]]:
     
     # Use cached index if available (unless force refresh requested)
     if not force_refresh and cache_key in st.session_state:
-        return st.session_state[cache_key]
+        cached_index = st.session_state[cache_key]
+        if cached_index:  # Return immediately if cached and non-empty
+            return cached_index
     
     try:
         gd = _get_drive_module()

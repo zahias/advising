@@ -4,7 +4,7 @@ from __future__ import annotations
 import streamlit as st
 import pandas as pd
 from io import BytesIO
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Tuple
 
 from eligibility_utils import (
     check_course_completed,
@@ -168,28 +168,49 @@ def student_eligibility_view():
     with col5:
         pass  # Empty column for spacing
 
-    # ---------- Eligibility map (skip hidden) ----------
-    status_dict: Dict[str, str] = {}
-    justification_dict: Dict[str, str] = {}
-    # Include both advised AND optional courses for concurrent/corequisite checks
-    # Guard against None values from legacy sessions
-    advised_list = slot.get("advised") or []
-    optional_for_checks = slot.get("optional") or []
-    current_advised_for_checks = list(advised_list) + list(optional_for_checks)
+    # ---------- Eligibility map (skip hidden) - with caching ----------
+    import hashlib
     
-    # Compute mutual concurrent/corequisite pairs once for the courses table
-    mutual_pairs = get_mutual_concurrent_pairs(st.session_state.courses_df)
+    eligibility_cache_key = f"_eligibility_cache_{norm_sid}"
+    student_data_hash_key = f"_student_data_hash_{norm_sid}"
     
-    for course_code in st.session_state.courses_df["Course Code"]:
-        code = str(course_code)
-        if code in hidden_for_student:
-            continue
-        status, justification = check_eligibility(
-            student_row, code, current_advised_for_checks, st.session_state.courses_df, 
-            registered_courses=[], mutual_pairs=mutual_pairs, bypass_map=student_bypasses
-        )
-        status_dict[code] = status
-        justification_dict[code] = justification
+    # Create a hash of student data to detect changes
+    student_data_str = f"{norm_sid}_{str(student_row.to_dict())}"
+    current_hash = hashlib.md5(student_data_str.encode()).hexdigest()
+    cached_hash = st.session_state.get(student_data_hash_key)
+    
+    # Use cached eligibility if student data hasn't changed
+    if (eligibility_cache_key in st.session_state and 
+        cached_hash == current_hash and 
+        st.session_state.get(eligibility_cache_key)):
+        status_dict, justification_dict = st.session_state[eligibility_cache_key]
+    else:
+        # Calculate eligibility for all courses
+        status_dict: Dict[str, str] = {}
+        justification_dict: Dict[str, str] = {}
+        # Include both advised AND optional courses for concurrent/corequisite checks
+        # Guard against None values from legacy sessions
+        advised_list = slot.get("advised") or []
+        optional_for_checks = slot.get("optional") or []
+        current_advised_for_checks = list(advised_list) + list(optional_for_checks)
+        
+        # Compute mutual concurrent/corequisite pairs once for the courses table
+        mutual_pairs = get_mutual_concurrent_pairs(st.session_state.courses_df)
+        
+        for course_code in st.session_state.courses_df["Course Code"]:
+            code = str(course_code)
+            if code in hidden_for_student:
+                continue
+            status, justification = check_eligibility(
+                student_row, code, current_advised_for_checks, st.session_state.courses_df, 
+                registered_courses=[], mutual_pairs=mutual_pairs, bypass_map=student_bypasses
+            )
+            status_dict[code] = status
+            justification_dict[code] = justification
+        
+        # Cache the results
+        st.session_state[eligibility_cache_key] = (status_dict, justification_dict)
+        st.session_state[student_data_hash_key] = current_hash
 
     # ---------- Build display rows (screen Action shows Advised / Optional / Advised-Repeat) ----------
     rows = []
@@ -346,21 +367,45 @@ def student_eligibility_view():
     optional_opts = [c for c in eligible_opts if c not in current_advised_sel]
     advised_opts_filtered = [c for c in eligible_opts if c not in current_optional_sel]
     
+    # Pagination for large course lists
+    if "_show_all_courses" not in st.session_state:
+        st.session_state._show_all_courses = False
+    
+    def _paginate_courses(courses_list: List[str], page_size: int = 25) -> Tuple[List[str], int]:
+        """Paginate course list. Returns (paginated_list, num_pages)"""
+        total = len(courses_list)
+        num_pages = max(1, (total + page_size - 1) // page_size)
+        
+        if st.session_state._show_all_courses:
+            return courses_list, num_pages
+        else:
+            return courses_list[:page_size], num_pages
+    
+    advised_opts_paginated, advised_pages = _paginate_courses(advised_opts_filtered)
+    optional_opts_paginated, optional_pages = _paginate_courses(optional_opts)
+    
     with st.form(key=f"advise_form_{norm_sid}"):
         advised_selection = st.multiselect(
             "Advised Courses (Eligible, Not Yet Taken)", 
-            options=advised_opts_filtered, 
-            default=[c for c in default_advised if c in advised_opts_filtered], 
+            options=advised_opts_paginated, 
+            default=[c for c in default_advised if c in advised_opts_paginated], 
             key=advised_key,
             help="Primary course recommendations for this student"
         )
+        
+        if advised_pages > 1 and not st.session_state._show_all_courses:
+            st.caption(f"Showing 1 of {advised_pages} pages")
+        
         optional_selection = st.multiselect(
             "Optional Courses",
-            options=optional_opts,
-            default=[c for c in default_optional if c in optional_opts],
+            options=optional_opts_paginated,
+            default=[c for c in default_optional if c in optional_opts_paginated],
             key=optional_key,
             help="Additional optional courses (cannot overlap with Advised)"
         )
+        
+        if optional_pages > 1 and not st.session_state._show_all_courses:
+            st.caption(f"Showing 1 of {optional_pages} pages")
         repeat_selection = st.multiselect(
             "Repeat Courses (Completed or Registered)", options=repeat_opts, default=default_repeat, key=repeat_key,
             help="Select courses that the student should repeat to improve GPA"
@@ -369,14 +414,21 @@ def student_eligibility_view():
             "Advisor Note (optional)", value=slot.get("note", ""), key=note_key
         )
 
-        # Two buttons side by side
-        btn_col1, btn_col2 = st.columns(2)
+        # Three buttons: Save, Email, and Show All Courses
+        btn_col1, btn_col2, btn_col3 = st.columns([1.5, 1.5, 1])
 
         with btn_col1:
             submitted = st.form_submit_button("💾 Save Selections", width="stretch", type="primary")
 
         with btn_col2:
             email_clicked = st.form_submit_button("✉️ Email Student", width="stretch")
+        
+        with btn_col3:
+            if not st.session_state._show_all_courses and (advised_pages > 1 or optional_pages > 1):
+                show_all_clicked = st.form_submit_button("📋 Show All", width="stretch", type="secondary")
+                if show_all_clicked:
+                    st.session_state._show_all_courses = True
+                    st.rerun()
 
         if submitted or email_clicked:
             _persist_student_selections(advised_selection, repeat_selection, optional_selection, note_input)
