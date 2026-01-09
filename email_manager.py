@@ -248,6 +248,8 @@ def send_advising_email(
     courses_df: pd.DataFrame,
     remaining_credits: int = 0,
     period_info: str = "",
+    advisor_email: Optional[str] = None,
+    cc_advisor: bool = True,
 ) -> tuple[bool, str]:
     """
     Send advising sheet email to student via Outlook/Office 365 SMTP.
@@ -263,6 +265,8 @@ def send_advising_email(
         courses_df: Courses table for course details
         remaining_credits: Remaining credits to graduation
         period_info: Advising period information (semester/year/advisor)
+        advisor_email: Email of advisor to CC (optional)
+        cc_advisor: Whether to CC the advisor on the email
     
     Returns:
         (success: bool, message: str)
@@ -459,6 +463,13 @@ This is an automated message from the Academic Advising System.
         msg['From'] = from_email
         msg['To'] = to_email
         
+        # Add CC for advisor if provided
+        if cc_advisor and advisor_email:
+            msg['Cc'] = advisor_email
+            recipient_list = [to_email, advisor_email]
+        else:
+            recipient_list = [to_email]
+        
         # Attach both plain text and HTML versions
         part1 = MIMEText(text_body, 'plain')
         part2 = MIMEText(html_body, 'html')
@@ -469,10 +480,14 @@ This is an automated message from the Academic Advising System.
         with smtplib.SMTP('smtp.office365.com', 587) as server:
             server.starttls()
             server.login(from_email, password)
-            server.send_message(msg)
+            server.send_message(msg, to_addrs=recipient_list)
         
-        log_info(f"Advising email sent to {to_email} for student {student_id}")
-        return True, f"Email sent successfully to {to_email}"
+        if advisor_email:
+            log_info(f"Advising email sent to {to_email} (CC: {advisor_email}) for student {student_id}")
+            return True, f"Email sent successfully to {to_email} (CC: {advisor_email})"
+        else:
+            log_info(f"Advising email sent to {to_email} for student {student_id}")
+            return True, f"Email sent successfully to {to_email}"
         
     except smtplib.SMTPAuthenticationError:
         error_msg = "Authentication failed. Please check your email address and password."

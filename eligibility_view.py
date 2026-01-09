@@ -5,6 +5,8 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 from typing import Dict, List, Any, Tuple
+import time
+import hashlib
 
 from eligibility_utils import (
     check_course_completed,
@@ -31,6 +33,7 @@ from course_exclusions import (
 from advising_history import save_session_for_student, _load_session_and_apply
 from student_search import render_student_search
 from notification_system import show_notification, show_action_feedback
+from email_templates import get_template_display_names, add_template_note_prefix
 from advising_period import get_current_period
 
 
@@ -58,6 +61,69 @@ def _sum_credits(codes: List[str]) -> int:
         except Exception:
             pass
     return int(total)
+
+
+# ---------- Helper functions for UI enhancements ----------
+
+def _format_course_option(course_code: str, courses_df: pd.DataFrame) -> str:
+    """Format course code with course information."""
+    if courses_df is None or courses_df.empty:
+        return course_code
+    
+    course_info = courses_df[courses_df["Course Code"] == course_code]
+    if course_info.empty:
+        return course_code
+    
+    row = course_info.iloc[0]
+    title = str(row.get("Title", "")).strip() or "N/A"
+    credits = str(row.get("Credits", "")).strip() or "N/A"
+    
+    # Format: CODE - Title (Credits cr)
+    display_text = f"{course_code} - {title[:35]} ({credits}cr)"
+    return display_text
+
+
+def _sum_credits_from_list(course_list: list, courses_df: pd.DataFrame) -> float:
+    """Sum credits from a list of course codes."""
+    if not course_list or courses_df is None:
+        return 0
+    total = 0
+    for course in course_list:
+        course_info = courses_df[courses_df["Course Code"] == course]
+        if not course_info.empty:
+            try:
+                total += float(course_info.iloc[0].get("Credits", 0) or 0)
+            except:
+                pass
+    return total
+
+
+def _get_recommended_courses(
+    eligible_opts: List[str], 
+    already_selected: List[str],
+    courses_df: pd.DataFrame,
+    max_recommendations: int = 3
+) -> List[str]:
+    """
+    Recommend courses based on:
+    - Eligibility (already in eligible_opts)
+    - Not already selected
+    - Prioritize by course type and typical sequence
+    """
+    recommendations = []
+    
+    # Filter out already selected courses
+    available = [c for c in eligible_opts if c not in already_selected]
+    
+    if not available:
+        return []
+    
+    # Simple heuristic: prefer courses with matching course codes in sequence
+    # Sort by course code to get natural ordering
+    available_sorted = sorted(available)
+    
+    # Return top 3 recommendations
+    return available_sorted[:max_recommendations]
 
 
 # ---------- main panel ----------
@@ -148,29 +214,113 @@ def student_eligibility_view():
 
     st.markdown(f"### {student_row['NAME']}")
     
-    col1, col2, col3, col4, col5 = st.columns(5)
-    with col1:
-        st.metric("Total Credits", f"{int(total_credits)} / {int(cr_remaining)} rem")
-    with col2:
-        st.metric("Standing", standing)
-    with col3:
-        # Advised count includes repeat courses
-        advised_list = slot.get("advised", []) or []
-        repeat_list = slot.get("repeat", []) or []
-        advised_count = len(advised_list) + len(repeat_list)
-        advised_credits = _sum_credits(advised_list) + _sum_credits(repeat_list)
-        st.metric("Advised Courses", f"{advised_count} ({advised_credits} cr)")
-    with col4:
-        optional_list = slot.get("optional", []) or []
-        optional_count = len(optional_list)
-        optional_credits = _sum_credits(optional_list)
-        st.metric("Optional Courses", f"{optional_count} ({optional_credits} cr)")
-    with col5:
-        pass  # Empty column for spacing
+    # Calculate advised courses
+    advised_list = slot.get("advised", []) or []
+    repeat_list = slot.get("repeat", []) or []
+    optional_list = slot.get("optional", []) or []
+    
+    advised_credits = _sum_credits_from_list(advised_list, st.session_state.courses_df)
+    repeat_credits = _sum_credits_from_list(repeat_list, st.session_state.courses_df)
+    optional_credits = _sum_credits_from_list(optional_list, st.session_state.courses_df)
+    
+    # Display enhanced metrics
+    metric_col1, metric_col2, metric_col3, metric_col4, metric_col5 = st.columns(5)
+    
+    with metric_col1:
+        st.metric(
+            label="📚 Total Credits",
+            value=f"{int(total_credits)}",
+            delta=f"{int(cr_remaining)} remaining",
+            delta_color="inverse",
+            help="Total credits completed / total required"
+        )
+    
+    with metric_col2:
+        standing_emoji = "🎓" if standing == "Senior" else "📖" if standing == "Junior" else "🆕"
+        st.metric(
+            label=f"{standing_emoji} Standing",
+            value=standing,
+            help="Current academic standing"
+        )
+    
+    with metric_col3:
+        total_advised = len(advised_list) + len(repeat_list)
+        st.metric(
+            label="✅ Advised",
+            value=f"{total_advised}",
+            delta=f"{int(advised_credits + repeat_credits)} cr",
+            delta_color="normal",
+            help="Advised courses + repeats this session"
+        )
+    
+    with metric_col4:
+        st.metric(
+            label="📝 Optional",
+            value=f"{len(optional_list)}",
+            delta=f"{int(optional_credits)} cr",
+            delta_color="normal",
+            help="Optional electives available"
+        )
+    
+    with metric_col5:
+        pct_complete = int((total_credits / (total_credits + cr_remaining) * 100)) if (total_credits + cr_remaining) > 0 else 0
+        st.metric(
+            label="📊 Progress",
+            value=f"{pct_complete}%",
+            delta=f"{int(cr_remaining)} to go",
+            delta_color="inverse",
+            help="Percentage of degree completed"
+        )
+    
+    st.divider()
+    
+    # Color legend
+    with st.expander("📋 Status Color Legend", expanded=False):
+        col1, col2, col3, col4, col5 = st.columns(5)
+        
+        with col1:
+            st.markdown(
+                """<div style='background-color: #C6E0B4; padding: 12px; border-radius: 6px; text-align: center;'>
+                <b style='color: #375623;'>C</b><br><small>Completed</small>
+                </div>""",
+                unsafe_allow_html=True
+            )
+        
+        with col2:
+            st.markdown(
+                """<div style='background-color: #BDD7EE; padding: 12px; border-radius: 6px; text-align: center;'>
+                <b style='color: #1F4E78;'>R</b><br><small>Registered</small>
+                </div>""",
+                unsafe_allow_html=True
+            )
+        
+        with col3:
+            st.markdown(
+                """<div style='background-color: #FFE699; padding: 12px; border-radius: 6px; text-align: center;'>
+                <b style='color: #7F6000;'>F</b><br><small>Failed</small>
+                </div>""",
+                unsafe_allow_html=True
+            )
+        
+        with col4:
+            st.markdown(
+                """<div style='background-color: #E2EFDA; padding: 12px; border-radius: 6px; text-align: center;'>
+                <b style='color: #548235;'>A</b><br><small>Advised</small>
+                </div>""",
+                unsafe_allow_html=True
+            )
+        
+        with col5:
+            st.markdown(
+                """<div style='background-color: #FCE4D6; padding: 12px; border-radius: 6px; text-align: center;'>
+                <b style='color: #C65911;'>⚠</b><br><small>Ineligible</small>
+                </div>""",
+                unsafe_allow_html=True
+            )
+    
+    st.divider()
 
     # ---------- Eligibility map (skip hidden) - with caching ----------
-    import hashlib
-    
     eligibility_cache_key = f"_eligibility_cache_{norm_sid}"
     student_data_hash_key = f"_student_data_hash_{norm_sid}"
     
@@ -390,7 +540,8 @@ def student_eligibility_view():
             options=advised_opts_paginated, 
             default=[c for c in default_advised if c in advised_opts_paginated], 
             key=advised_key,
-            help="Primary course recommendations for this student"
+            help="Primary course recommendations for this student. Shows course title and credits.",
+            format_func=lambda x: _format_course_option(x, st.session_state.courses_df)
         )
         
         if advised_pages > 1 and not st.session_state._show_all_courses:
@@ -401,21 +552,38 @@ def student_eligibility_view():
             options=optional_opts_paginated,
             default=[c for c in default_optional if c in optional_opts_paginated],
             key=optional_key,
-            help="Additional optional courses (cannot overlap with Advised)"
+            help="Additional optional courses (cannot overlap with Advised). Shows course title and credits.",
+            format_func=lambda x: _format_course_option(x, st.session_state.courses_df)
         )
         
         if optional_pages > 1 and not st.session_state._show_all_courses:
             st.caption(f"Showing 1 of {optional_pages} pages")
         repeat_selection = st.multiselect(
-            "Repeat Courses (Completed or Registered)", options=repeat_opts, default=default_repeat, key=repeat_key,
-            help="Select courses that the student should repeat to improve GPA"
+            "Repeat Courses (Completed or Registered)", 
+            options=repeat_opts, 
+            default=default_repeat, 
+            key=repeat_key,
+            help="Select courses that the student should repeat to improve GPA. Shows course title and credits.",
+            format_func=lambda x: _format_course_option(x, st.session_state.courses_df)
         )
+        # Email template selector (only show if going to email)
+        template_col, note_col = st.columns([1, 3])
+        with template_col:
+            template_options = get_template_display_names()
+            selected_template = st.selectbox(
+                "📧 Email Template",
+                options=list(template_options.keys()),
+                format_func=lambda x: template_options[x],
+                help="Choose template format for student email",
+                index=0  # Default to "default" template
+            )
+        
         note_input = st.text_area(
             "Advisor Note (optional)", value=slot.get("note", ""), key=note_key
         )
 
-        # Three buttons: Save, Email, and Show All Courses
-        btn_col1, btn_col2, btn_col3 = st.columns([1.5, 1.5, 1])
+        # Four buttons: Save, Email, Recommend, and Show All Courses
+        btn_col1, btn_col2, btn_col3, btn_col4 = st.columns([1.3, 1.3, 1.2, 1.2])
 
         with btn_col1:
             submitted = st.form_submit_button("💾 Save Selections", width="stretch", type="primary")
@@ -424,28 +592,68 @@ def student_eligibility_view():
             email_clicked = st.form_submit_button("✉️ Email Student", width="stretch")
         
         with btn_col3:
+            recommend_clicked = st.form_submit_button("🎯 Recommend", width="stretch", type="secondary", help="Auto-recommend next courses")
+        
+        with btn_col4:
             if not st.session_state._show_all_courses and (advised_pages > 1 or optional_pages > 1):
                 show_all_clicked = st.form_submit_button("📋 Show All", width="stretch", type="secondary")
                 if show_all_clicked:
                     st.session_state._show_all_courses = True
                     st.rerun()
 
-        if submitted or email_clicked:
-            _persist_student_selections(advised_selection, repeat_selection, optional_selection, note_input)
+        if submitted or email_clicked or recommend_clicked:
+            if recommend_clicked:
+                # Get recommendations
+                current_selected = advised_selection + optional_selection
+                recommendations = _get_recommended_courses(
+                    eligible_opts, 
+                    current_selected,
+                    st.session_state.courses_df,
+                    max_recommendations=3
+                )
+                
+                if recommendations:
+                    st.info(f"🎯 **Recommended Courses**: {', '.join(recommendations)}\n\nClick 'Show All' to see all options, or add these to your selections above.")
+                else:
+                    st.info("✓ All available courses have been selected!")
+            else:
+                _persist_student_selections(advised_selection, repeat_selection, optional_selection, note_input)
 
             if submitted:
-                # EXPLICIT autosave for this student
-                session_id = save_session_for_student(norm_sid)
-                # Mark as autoloaded so we don't reload from Drive and overwrite
-                st.session_state[f"_autoloaded_{norm_sid}"] = True
-                if session_id:
-                    show_action_feedback("save", True, f"Session for {student_row['NAME']}")
-                else:
-                    show_action_feedback("save", False, "Check logs for details")
-                st.rerun()
+                # Show saving status with better feedback
+                status_placeholder = st.empty()
+                
+                try:
+                    # Show saving message
+                    with status_placeholder.container():
+                        st.info("⏳ Saving to Google Drive...")
+                    
+                    # Perform save operation
+                    session_id = save_session_for_student(norm_sid)
+                    
+                    time.sleep(0.5)
+                    
+                    # Show success message
+                    if session_id:
+                        with status_placeholder.container():
+                            st.success("✅ Saved successfully! Changes have been synced to Google Drive.")
+                    else:
+                        with status_placeholder.container():
+                            st.warning("⚠️ Save completed with warnings. Check logs for details.")
+                    
+                    # Mark as autoloaded so we don't reload from Drive and overwrite
+                    st.session_state[f"_autoloaded_{norm_sid}"] = True
+                    
+                    time.sleep(1.5)
+                    status_placeholder.empty()
+                    st.rerun()
+                    
+                except Exception as e:
+                    with status_placeholder.container():
+                        st.error(f"❌ Error saving: {str(e)}")
 
             elif email_clicked:
-                # Email student
+                # Email student with template
                 from email_manager import get_student_email, send_advising_email
 
                 student_email = get_student_email(str(norm_sid))
@@ -460,6 +668,12 @@ def student_eligibility_view():
                     # Get period info for email
                     current_period = get_current_period()
                     period_info = f"{current_period.get('semester', '')} {current_period.get('year', '')} — Advisor: {current_period.get('advisor_name', '')}"
+                    
+                    # Get advisor email if available
+                    advisor_email = st.session_state.get("advisor_email", "")
+                    
+                    # Apply email template to note
+                    final_note = add_template_note_prefix(selected_template, note_input)
 
                     success, message = send_advising_email(
                         to_email=student_email,
@@ -468,10 +682,12 @@ def student_eligibility_view():
                         advised_courses=list(advised_selection),
                         repeat_courses=list(repeat_selection),
                         optional_courses=list(optional_selection),
-                        note=note_input,
+                        note=final_note,
                         courses_df=st.session_state.courses_df,
                         remaining_credits=int(cr_remaining),
                         period_info=period_info,
+                        advisor_email=advisor_email if advisor_email else None,
+                        cc_advisor=True,
                     )
 
                     if success:
