@@ -274,12 +274,20 @@ def student_eligibility_view():
         advised_set = set(advised_selection)
         clean_optional = [c for c in optional_selection if c not in advised_set]
         
-        st.session_state.advising_selections[norm_sid] = {
+        selection_data = {
             "advised": list(advised_selection),
             "repeat": list(repeat_selection),
             "optional": clean_optional,
             "note": note_value,
         }
+        
+        # Update both the global session state and the major bucket
+        st.session_state.advising_selections[norm_sid] = selection_data
+        
+        # Also update the bucket to ensure persistence across reruns
+        major = st.session_state.get("current_major", "")
+        if major and major in st.session_state.majors:
+            st.session_state.majors[major]["advising_selections"][norm_sid] = selection_data
 
     def _build_student_download_bytes(
         advised_selection: List[str],
