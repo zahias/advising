@@ -34,6 +34,7 @@ from advising_history import save_session_for_student, _load_session_and_apply
 from student_search import render_student_search
 from notification_system import show_notification, show_action_feedback
 from email_templates import get_template_display_names, add_template_note_prefix
+from graduation_projection import project_graduation_date, format_graduation_message
 from advising_period import get_current_period
 
 
@@ -270,6 +271,38 @@ def student_eligibility_view():
             delta=f"{int(cr_remaining)} to go",
             delta_color="inverse",
             help="Percentage of degree completed"
+        )
+    
+    st.divider()
+    
+    # Graduation Projection
+    projection = project_graduation_date(
+        completed_credits=total_credits,
+        advised_courses=advised_list,
+        optional_courses=optional_list,
+        repeat_courses=repeat_list,
+        required_credits=total_credits + cr_remaining,
+        courses_df=st.session_state.courses_df,
+        credits_per_semester=15.0
+    )
+    
+    grad_col1, grad_col2 = st.columns([2, 3])
+    with grad_col1:
+        grad_status = "✅ ON TRACK" if projection['on_track'] else "⚠️ EXTENDED"
+        st.metric(
+            label="🎓 Graduation",
+            value=projection['graduation_text'],
+            delta=grad_status,
+            delta_color="normal" if projection['on_track'] else "off",
+            help="Projected graduation date based on current plan"
+        )
+    
+    with grad_col2:
+        st.info(
+            f"📚 **Semesters Remaining**: {projection['semesters_remaining']}\n"
+            f"   • This semester: {projection['credits_this_semester']} credits\n"
+            f"   • After this: {projection['credits_after_this_semester']} credits\n"
+            f"   • Still needed: {projection['credits_still_needed']} credits"
         )
     
     st.divider()
