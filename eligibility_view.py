@@ -75,6 +75,58 @@ def _format_academic_year(year: str) -> str:
         return year
 
 
+def _build_semester_plan(advised_courses: List[str], optional_courses: List[str], 
+                         repeat_courses: List[str], courses_df: pd.DataFrame) -> str:
+    """
+    Build a semester planning visualization showing which courses are taken when.
+    Returns markdown table showing semester offerings.
+    """
+    if courses_df is None or courses_df.empty:
+        return "No course data available"
+    
+    all_courses = advised_courses + optional_courses + repeat_courses
+    if not all_courses:
+        return "No courses selected yet"
+    
+    # Group courses by semester offered
+    by_semester = {}
+    for course_code in all_courses:
+        course_info = courses_df[courses_df["Course Code"] == course_code]
+        if not course_info.empty:
+            row = course_info.iloc[0]
+            semester_offered = str(row.get("Semester Offered", "TBA")).strip()
+            if not semester_offered or semester_offered.lower() == "nan":
+                semester_offered = "TBA"
+            
+            # Determine if advised, optional, or repeat
+            if course_code in advised_courses:
+                course_type = "📌 Advised"
+            elif course_code in repeat_courses:
+                course_type = "🔄 Repeat"
+            else:
+                course_type = "📚 Optional"
+            
+            credits = row.get("Credits", 0)
+            title = str(row.get("Title", ""))[:25]  # Truncate for readability
+            
+            course_display = f"{course_code} - {title} ({credits}cr) {course_type}"
+            
+            if semester_offered not in by_semester:
+                by_semester[semester_offered] = []
+            by_semester[semester_offered].append(course_display)
+    
+    if not by_semester:
+        return "No courses selected"
+    
+    # Build markdown table
+    markdown = "| Semester Offered | Courses |\n|---|---|\n"
+    for semester in sorted(by_semester.keys(), key=lambda x: (x != "Spring", x != "Fall", x != "Summer", x)):
+        courses_list = "<br>".join(by_semester[semester])
+        markdown += f"| **{semester}** | {courses_list} |\n"
+    
+    return markdown
+
+
 def _format_course_option(course_code: str, courses_df: pd.DataFrame) -> str:
     """Format course code with course information - shows: CODE - Title (Credits cr)"""
     if courses_df is None or courses_df.empty:
@@ -288,9 +340,7 @@ def student_eligibility_view():
             help="Percentage of degree completed"
         )
     
-    st.divider()
-    
-    # Graduation Projection
+    # Graduation Projection (on same line as metrics)
     projection = project_graduation_date(
         completed_credits=total_credits,
         advised_courses=advised_list,
@@ -317,23 +367,36 @@ def student_eligibility_view():
         )
     
     with grad_col2:
+        # Show semester planning with realistic credits per semester
+        remaining_after = projection['credits_still_needed']
+        credits_per_sem = 16  # Realistic advising load (15-16 typical, 18 max)
+        
+        if remaining_after <= 0:
+            plan_text = "✅ Will complete this semester"
+        else:
+            sems_needed = (remaining_after + credits_per_sem - 1) // credits_per_sem
+            plan_text = f"📊 {sems_needed} more semester(s) needed at ~{credits_per_sem} cr/semester\n"
+            plan_text += f"   • This semester: {int(projection['credits_this_semester'])} new credits\n"
+            plan_text += f"   • Future semesters: {int(remaining_after)} credits remaining"
+        
         st.info(
-            f"📚 **Semesters Remaining**: {projection['semesters_remaining']}\n"
-            f"   • This semester: {int(projection['credits_with_repeats'])} credits total\n"
-            f"   • New credits only: {int(projection['credits_this_semester'])}\n"
-            f"   • After this: {int(projection['credits_after_this_semester'])} credits\n"
-            f"   • Still needed: {int(projection['credits_still_needed'])} credits"
+            f"📚 **Semester Plan**: {projection['semesters_remaining']} semesters to graduation\n"
+            f"{plan_text}\n"
+            f"   • Total at graduation: {int(projection['credits_after_this_semester'])} + {int(remaining_after)} credits"
         )
     
-    st.divider()
+    # Collapsible semester planning
+    with st.expander("📅 Semester Planning by Offering", expanded=False):
+        semester_plan_md = _build_semester_plan(
+            advised_list, optional_list, repeat_list, st.session_state.courses_df
+        )
+        st.markdown(semester_plan_md, unsafe_allow_html=True)
     
-    # Email status indicator
+    # Email status indicator (compact)
     email_status_key = f"_email_sent_{norm_sid}"
     if email_status_key in st.session_state and st.session_state[email_status_key]:
         email_timestamp = st.session_state.get(f"{email_status_key}_time", "recently")
-        st.success(f"✅ **Email sent** to student {email_timestamp}")
-    
-    st.divider()
+        st.caption(f"✅ Email sent to student {email_timestamp}")
     
     # Color legend
     with st.expander("📋 Status Color Legend", expanded=False):
@@ -453,7 +516,6 @@ def student_eligibility_view():
     req_df = display_df[display_df["Type"].astype(str).str.lower() == "required"].copy()
     int_df = display_df[display_df["Type"].astype(str).str.lower() == "intensive"].copy()
 
-    st.markdown("---")
     st.markdown("### Course Eligibility")
     if not req_df.empty:
         st.markdown("**Required Courses**")

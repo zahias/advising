@@ -466,10 +466,20 @@ def save_session_for_student(student_id: Union[int, str]) -> Optional[str]:
         student_name = str(students[0].get("NAME", ""))
         now = _now_beirut()
         sid = str(uuid4())
-        title = f"{now.strftime('%Y-%m-%d %H:%M')} — {student_name} ({student_id})"
         
         # Get current period information
         current_period = get_current_period()
+        year = current_period.get("year", "")
+        
+        # Format academic year (e.g., 2024 -> 2024/2025)
+        try:
+            year_int = int(year)
+            academic_year = f"{year_int}/{year_int + 1}"
+        except (ValueError, TypeError):
+            academic_year = year
+        
+        # Session title includes date, student, and academic year
+        title = f"{now.strftime('%Y-%m-%d %H:%M')} — {student_name} ({student_id}) | {academic_year}"
         
         meta = {
             "id": sid,
