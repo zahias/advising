@@ -71,3 +71,54 @@ def add_template_note_prefix(template_name: str, note: str) -> str:
         return prefix.rstrip()
     else:
         return note
+
+
+def render_templates_ui():
+    """
+    Streamlit UI component to view and manage email templates.
+    Call this from settings or admin page.
+    """
+    try:
+        import streamlit as st
+    except ImportError:
+        return
+    
+    st.subheader("📧 Email Templates")
+    st.markdown("View and manage email templates for different student scenarios.")
+    
+    # Template selector
+    templates = list(EMAIL_TEMPLATES.keys())
+    selected_template = st.selectbox(
+        "Select Template",
+        options=templates,
+        format_func=lambda x: EMAIL_TEMPLATES[x]["name"]
+    )
+    
+    if selected_template:
+        template = EMAIL_TEMPLATES[selected_template]
+        
+        # Display template info
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write(f"**Template Name:** {template['name']}")
+        with col2:
+            st.write(f"**Include Summary:** {'Yes' if template['include_summary'] else 'No'}")
+        
+        st.markdown(f"**Description:** {template['description']}")
+        
+        # Display prefix
+        st.markdown("**Note Prefix (prepended to advisor note):**")
+        if template['note_prefix']:
+            st.code(template['note_prefix'], language="text")
+        else:
+            st.text("(No prefix - uses advisor note as-is)")
+        
+        # Expandable section for all templates
+        with st.expander("📋 View All Templates"):
+            for key, tmpl in EMAIL_TEMPLATES.items():
+                st.markdown(f"### {tmpl['name']}")
+                st.text(f"Description: {tmpl['description']}")
+                if tmpl['note_prefix']:
+                    st.code(tmpl['note_prefix'], language="text")
+                st.divider()
+

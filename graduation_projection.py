@@ -84,6 +84,7 @@ def project_graduation_date(
     repeat_courses: List[str],
     required_credits: float,
     courses_df: pd.DataFrame,
+    max_credits_per_semester: float = 18.0,
     credits_per_semester: float = 15.0
 ) -> Dict:
     """
@@ -96,13 +97,14 @@ def project_graduation_date(
         repeat_courses: List of repeat course codes for this semester
         required_credits: Total credits needed for degree
         courses_df: DataFrame with course information
-        credits_per_semester: Avg credits taken per semester (default 15)
+        max_credits_per_semester: Maximum credits student can register for (caps advised+optional) (default 18)
+        credits_per_semester: Avg credits taken per semester for future planning (default 15)
     
     Returns:
         Dict with:
         - projected_graduation: (semester, year) tuple
         - semesters_remaining: number of semesters
-        - credits_this_semester: credits for current semester plan
+        - credits_this_semester: credits for current semester plan (capped at max_credits_per_semester)
         - credits_after_this_semester: total credits after this semester
         - credits_still_needed: remaining credits after this semester
         - on_track: boolean if will graduate in expected timeframe
@@ -113,7 +115,16 @@ def project_graduation_date(
     optional_credits = calculate_total_credits(optional_courses, courses_df)
     repeat_credits = calculate_total_credits(repeat_courses, courses_df)
     
-    credits_this_semester = advised_credits + optional_credits + repeat_credits
+    # Cap total credits at max allowed (advised + optimal subset of optional)
+    advised_and_optional = advised_credits + optional_credits
+    if advised_and_optional > max_credits_per_semester:
+        # Cap at max, prioritize advised courses
+        credits_this_semester = max_credits_per_semester
+    else:
+        credits_this_semester = advised_and_optional
+    
+    # Add repeat courses separately (they don't count toward new requirement)
+    credits_this_semester_with_repeats = credits_this_semester + repeat_credits
     credits_after_this = completed_credits + credits_this_semester
     credits_needed = max(0, required_credits - credits_after_this)
     
@@ -137,6 +148,7 @@ def project_graduation_date(
         "projected_graduation": (projected_semester, projected_year),
         "semesters_remaining": semesters_needed,
         "credits_this_semester": credits_this_semester,
+        "credits_with_repeats": credits_this_semester_with_repeats,
         "credits_after_this_semester": credits_after_this,
         "credits_still_needed": credits_needed,
         "on_track": on_track,

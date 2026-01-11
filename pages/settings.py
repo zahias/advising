@@ -11,7 +11,7 @@ def render_settings():
     
     st.markdown("## Settings")
     
-    tabs = st.tabs(["Sessions", "Exclusions", "Sync"])
+    tabs = st.tabs(["Sessions", "Exclusions", "Sync", "Email Templates"])
     
     with tabs[0]:
         _render_session_management()
@@ -21,6 +21,9 @@ def render_settings():
     
     with tabs[2]:
         _render_sync_settings()
+    
+    with tabs[3]:
+        _render_email_templates()
 
 def _render_session_management():
     """Render session management section."""
@@ -260,3 +263,9 @@ def _render_sync_settings():
     else:
         st.warning("No Google Drive folder configured")
         st.caption("Set GOOGLE_FOLDER_ID in your environment or secrets")
+
+
+def _render_email_templates():
+    """Render email templates management UI."""
+    from email_templates import render_templates_ui
+    render_templates_ui()

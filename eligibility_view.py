@@ -66,8 +66,17 @@ def _sum_credits(codes: List[str]) -> int:
 
 # ---------- Helper functions for UI enhancements ----------
 
+def _format_academic_year(year: str) -> str:
+    """Convert year to academic year format. E.g., '2024' -> '2024/2025'"""
+    try:
+        year_int = int(year)
+        return f"{year_int}/{year_int + 1}"
+    except (ValueError, TypeError):
+        return year
+
+
 def _format_course_option(course_code: str, courses_df: pd.DataFrame) -> str:
-    """Format course code with course information."""
+    """Format course code with course information - shows: CODE - Title (Credits cr)"""
     if courses_df is None or courses_df.empty:
         return course_code
     
@@ -76,11 +85,17 @@ def _format_course_option(course_code: str, courses_df: pd.DataFrame) -> str:
         return course_code
     
     row = course_info.iloc[0]
-    title = str(row.get("Title", "")).strip() or "N/A"
-    credits = str(row.get("Credits", "")).strip() or "N/A"
+    title = str(row.get("Title", "")).strip()
+    credits = row.get("Credits", 0)
     
-    # Format: CODE - Title (Credits cr)
-    display_text = f"{course_code} - {title[:35]} ({credits}cr)"
+    # Only include title if available, skip if N/A
+    if title and title != "N/A":
+        # Format: CODE - Title (Credits cr)
+        display_text = f"{course_code} - {title[:30]} ({credits}cr)"
+    else:
+        # Format: CODE (Credits cr)
+        display_text = f"{course_code} ({credits}cr)"
+    
     return display_text
 
 
@@ -283,15 +298,19 @@ def student_eligibility_view():
         repeat_courses=repeat_list,
         required_credits=total_credits + cr_remaining,
         courses_df=st.session_state.courses_df,
-        credits_per_semester=15.0
+        max_credits_per_semester=18.0,  # Max credits per semester (caps advised + optional)
+        credits_per_semester=15.0  # Avg credits per semester for future planning
     )
     
     grad_col1, grad_col2 = st.columns([2, 3])
     with grad_col1:
         grad_status = "✅ ON TRACK" if projection['on_track'] else "⚠️ EXTENDED"
+        # Format graduation text with academic year
+        sem, yr = projection['projected_graduation']
+        grad_display = f"{sem} {_format_academic_year(yr)}" if projection['on_track'] else "Beyond projection"
         st.metric(
             label="🎓 Graduation",
-            value=projection['graduation_text'],
+            value=grad_display,
             delta=grad_status,
             delta_color="normal" if projection['on_track'] else "off",
             help="Projected graduation date based on current plan"
@@ -300,10 +319,19 @@ def student_eligibility_view():
     with grad_col2:
         st.info(
             f"📚 **Semesters Remaining**: {projection['semesters_remaining']}\n"
-            f"   • This semester: {projection['credits_this_semester']} credits\n"
-            f"   • After this: {projection['credits_after_this_semester']} credits\n"
-            f"   • Still needed: {projection['credits_still_needed']} credits"
+            f"   • This semester: {int(projection['credits_with_repeats'])} credits total\n"
+            f"   • New credits only: {int(projection['credits_this_semester'])}\n"
+            f"   • After this: {int(projection['credits_after_this_semester'])} credits\n"
+            f"   • Still needed: {int(projection['credits_still_needed'])} credits"
         )
+    
+    st.divider()
+    
+    # Email status indicator
+    email_status_key = f"_email_sent_{norm_sid}"
+    if email_status_key in st.session_state and st.session_state[email_status_key]:
+        email_timestamp = st.session_state.get(f"{email_status_key}_time", "recently")
+        st.success(f"✅ **Email sent** to student {email_timestamp}")
     
     st.divider()
     
@@ -596,9 +624,11 @@ def student_eligibility_view():
             options=repeat_opts, 
             default=default_repeat, 
             key=repeat_key,
-            help="Select courses that the student should repeat to improve GPA. Shows course title and credits.",
+            help="📝 Courses to repeat to improve GPA. These count toward semester load but student has already completed them.",
             format_func=lambda x: _format_course_option(x, st.session_state.courses_df)
         )
+        if repeat_opts:
+            st.caption("💡 **Tip**: Repeating courses replaces prior grades in GPA calculation.")
         # Email template selector (only show if going to email)
         template_col, note_col = st.columns([1, 3])
         with template_col:
@@ -726,6 +756,10 @@ def student_eligibility_view():
                     if success:
                         show_action_feedback("email", True, f"Sent to {student_email}")
                         log_info(f"Advising email sent to {student_email} for student {norm_sid}")
+                        # Track email sent in session state
+                        from datetime import datetime
+                        st.session_state[f"_email_sent_{norm_sid}"] = True
+                        st.session_state[f"_email_sent_{norm_sid}_time"] = datetime.now().strftime("%I:%M %p")
                     else:
                         show_action_feedback("email", False, message)
                     st.rerun()
