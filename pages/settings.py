@@ -266,11 +266,53 @@ def _render_sync_settings():
 
 
 def _render_email_templates():
-    """Render email templates management UI."""
-    try:
-        from email_templates import render_templates_ui
-        render_templates_ui()
-    except ImportError as e:
-        st.error(f"Failed to load email templates: {e}")
-    except Exception as e:
-        st.error(f"Error rendering email templates: {e}")
+    """Render email template editor for current period."""
+    from advising_period import get_current_period
+    
+    st.subheader("📧 Email Template")
+    st.markdown("Edit the email template for the current advising period.")
+    
+    current_period = get_current_period()
+    period_id = current_period.get("period_id", "default")
+    
+    # Template editor
+    st.markdown("**Email Header (appears before course list):**")
+    
+    # Initialize default template if not exists
+    template_key = f"_email_template_{period_id}"
+    if template_key not in st.session_state:
+        st.session_state[template_key] = """Dear {student_name},
+
+Based on your academic progress and requirements, here are your recommended courses for {semester} {year}:"""
+    
+    template_text = st.text_area(
+        "Edit template",
+        value=st.session_state[template_key],
+        height=150,
+        label_visibility="collapsed",
+        help="Variables: {student_name}, {semester}, {year}, {advisor_name}"
+    )
+    
+    if template_text != st.session_state[template_key]:
+        st.session_state[template_key] = template_text
+    
+    st.markdown("**Available variables:**")
+    st.code("{student_name} - Student full name\n{semester} - Current semester\n{year} - Current year\n{advisor_name} - Advisor name", language="text")
+    
+    st.divider()
+    
+    st.markdown("**Current Period Info:**")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.text(f"Semester: {current_period.get('semester', 'N/A')}")
+    with col2:
+        st.text(f"Year: {current_period.get('year', 'N/A')}")
+    with col3:
+        st.text(f"Advisor: {current_period.get('advisor_name', 'N/A')}")
+    with col4:
+        if st.button("Reset to Default", type="secondary", help="Restore default email template"):
+            st.session_state[template_key] = """Dear {student_name},
+
+Based on your academic progress and requirements, here are your recommended courses for {semester} {year}:"""
+            st.rerun()
+

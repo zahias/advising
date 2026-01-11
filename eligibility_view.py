@@ -33,7 +33,6 @@ from course_exclusions import (
 from advising_history import save_session_for_student, _load_session_and_apply
 from student_search import render_student_search
 from notification_system import show_notification, show_action_feedback
-from email_templates import get_template_display_names, add_template_note_prefix
 from advising_period import get_current_period
 
 
@@ -345,50 +344,6 @@ def student_eligibility_view():
         email_timestamp = st.session_state.get(f"{email_status_key}_time", "recently")
         st.caption(f"✅ Email sent to student {email_timestamp}")
     
-    # Color legend
-    with st.expander("📋 Status Color Legend", expanded=False):
-        col1, col2, col3, col4, col5 = st.columns(5)
-        
-        with col1:
-            st.markdown(
-                """<div style='background-color: #C6E0B4; padding: 12px; border-radius: 6px; text-align: center;'>
-                <b style='color: #375623;'>C</b><br><small>Completed</small>
-                </div>""",
-                unsafe_allow_html=True
-            )
-        
-        with col2:
-            st.markdown(
-                """<div style='background-color: #BDD7EE; padding: 12px; border-radius: 6px; text-align: center;'>
-                <b style='color: #1F4E78;'>R</b><br><small>Registered</small>
-                </div>""",
-                unsafe_allow_html=True
-            )
-        
-        with col3:
-            st.markdown(
-                """<div style='background-color: #FFE699; padding: 12px; border-radius: 6px; text-align: center;'>
-                <b style='color: #7F6000;'>F</b><br><small>Failed</small>
-                </div>""",
-                unsafe_allow_html=True
-            )
-        
-        with col4:
-            st.markdown(
-                """<div style='background-color: #E2EFDA; padding: 12px; border-radius: 6px; text-align: center;'>
-                <b style='color: #548235;'>A</b><br><small>Advised</small>
-                </div>""",
-                unsafe_allow_html=True
-            )
-        
-        with col5:
-            st.markdown(
-                """<div style='background-color: #FCE4D6; padding: 12px; border-radius: 6px; text-align: center;'>
-                <b style='color: #C65911;'>⚠</b><br><small>Ineligible</small>
-                </div>""",
-                unsafe_allow_html=True
-            )
-    
     st.divider()
 
     # ---------- Eligibility map (skip hidden) - with caching ----------
@@ -638,17 +593,6 @@ def student_eligibility_view():
         )
         if repeat_opts:
             st.caption("💡 **Tip**: Repeating courses replaces prior grades in GPA calculation.")
-        # Email template selector (only show if going to email)
-        template_col, note_col = st.columns([1, 3])
-        with template_col:
-            template_options = get_template_display_names()
-            selected_template = st.selectbox(
-                "📧 Email Template",
-                options=list(template_options.keys()),
-                format_func=lambda x: template_options[x],
-                help="Choose template format for student email",
-                index=0  # Default to "default" template
-            )
         
         note_input = st.text_area(
             "Advisor Note (optional)", value=slot.get("note", ""), key=note_key
@@ -744,9 +688,6 @@ def student_eligibility_view():
                     # Get advisor email if available
                     advisor_email = st.session_state.get("advisor_email", "")
                     
-                    # Apply email template to note
-                    final_note = add_template_note_prefix(selected_template, note_input)
-
                     success, message = send_advising_email(
                         to_email=student_email,
                         student_name=str(student_row["NAME"]),
@@ -754,7 +695,7 @@ def student_eligibility_view():
                         advised_courses=list(advised_selection),
                         repeat_courses=list(repeat_selection),
                         optional_courses=list(optional_selection),
-                        note=final_note,
+                        note=note_input,
                         courses_df=st.session_state.courses_df,
                         remaining_credits=int(cr_remaining),
                         period_info=period_info,
