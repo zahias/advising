@@ -13,9 +13,9 @@ def get_course_credits(course_code: str, courses_df: pd.DataFrame) -> float:
     if courses_df is None or courses_df.empty:
         return 0.0
     
-    matching = courses_df[courses_df['CODE'] == course_code]
+    matching = courses_df[courses_df['Course Code'] == course_code]
     if not matching.empty:
-        credits = matching.iloc[0].get('CREDITS', 0)
+        credits = matching.iloc[0].get('Credits', 0)
         return float(credits) if credits else 0.0
     return 0.0
 
