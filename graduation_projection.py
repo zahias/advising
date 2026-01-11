@@ -121,7 +121,7 @@ def project_graduation_date(
     if credits_needed <= 0:
         semesters_needed = 0
     else:
-        semesters_needed = (credits_needed + credits_per_semester - 1) // int(credits_per_semester)
+        semesters_needed = int((credits_needed + credits_per_semester - 1) // int(credits_per_semester))
     
     # Get semester sequence
     semesters = get_semester_sequence()
