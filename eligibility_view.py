@@ -23,6 +23,7 @@ from advising_utils import (
     log_error,
     get_student_selections,
     get_student_bypasses,
+    get_mutual_pairs_cached,
 )
 from reporting import apply_excel_formatting
 from course_exclusions import (
@@ -370,8 +371,8 @@ def student_eligibility_view():
         optional_for_checks = slot.get("optional") or []
         current_advised_for_checks = list(advised_list) + list(optional_for_checks)
         
-        # Compute mutual concurrent/corequisite pairs once for the courses table
-        mutual_pairs = get_mutual_concurrent_pairs(st.session_state.courses_df)
+        # Compute mutual concurrent/corequisite pairs once for the courses table (CACHED)
+        mutual_pairs = get_mutual_pairs_cached(st.session_state.courses_df)
         
         for course_code in st.session_state.courses_df["Course Code"]:
             code = str(course_code)

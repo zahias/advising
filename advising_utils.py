@@ -3,6 +3,7 @@
 import streamlit as st
 import pandas as pd
 import logging
+import hashlib
 from io import BytesIO
 from typing import List, Tuple, Dict, Any, Union, Optional
 
@@ -18,6 +19,42 @@ from eligibility_utils import (
     get_mutual_concurrent_pairs,
     check_eligibility,
 )
+
+
+# ------------- Cached wrapper functions for performance ---------------
+
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def get_cached_mutual_pairs(_courses_df_hash: str, courses_df: pd.DataFrame) -> Dict[str, List[str]]:
+    """Cached wrapper for get_mutual_concurrent_pairs. Uses hash of DataFrame for cache key."""
+    return get_mutual_concurrent_pairs(courses_df)
+
+
+@st.cache_data(ttl=300)  # Cache for 5 minutes  
+def get_cached_coreq_concurrent(_courses_df_hash: str, courses_df: pd.DataFrame) -> List[str]:
+    """Cached wrapper for get_corequisite_and_concurrent_courses. Uses hash of DataFrame for cache key."""
+    return get_corequisite_and_concurrent_courses(courses_df)
+
+
+def _hash_dataframe(df: pd.DataFrame) -> str:
+    """Create a hash of a DataFrame for cache key purposes."""
+    if df is None or df.empty:
+        return "empty"
+    try:
+        return hashlib.md5(pd.util.hash_pandas_object(df).values.tobytes()).hexdigest()
+    except Exception:
+        return hashlib.md5(str(df.shape).encode()).hexdigest()
+
+
+def get_mutual_pairs_cached(courses_df: pd.DataFrame) -> Dict[str, List[str]]:
+    """Get mutual concurrent pairs with caching."""
+    df_hash = _hash_dataframe(courses_df)
+    return get_cached_mutual_pairs(df_hash, courses_df)
+
+
+def get_coreq_concurrent_cached(courses_df: pd.DataFrame) -> List[str]:
+    """Get corequisite and concurrent courses with caching."""
+    df_hash = _hash_dataframe(courses_df)
+    return get_cached_coreq_concurrent(df_hash, courses_df)
 
 # Re-export for backward compatibility
 __all__ = [
@@ -37,6 +74,10 @@ __all__ = [
     "get_major_folder_id_helper",
     "get_student_selections",
     "get_student_bypasses",
+    # Cached versions
+    "get_mutual_pairs_cached",
+    "get_coreq_concurrent_cached",
+    "_hash_dataframe",
 ]
 
 # ---------------- Logging ----------------

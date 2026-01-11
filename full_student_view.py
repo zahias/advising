@@ -12,6 +12,8 @@ from advising_utils import (
     build_requisites_str,
     get_corequisite_and_concurrent_courses,
     get_mutual_concurrent_pairs,
+    get_mutual_pairs_cached,
+    get_coreq_concurrent_cached,
     style_df,  # kept (used elsewhere in app)
     log_info,
     log_error,
@@ -155,21 +157,30 @@ def render_degree_plan_table(courses_df, progress_df):
     bypasses_key = f"bypasses_{major}"
     all_bypasses = st.session_state.get(bypasses_key, {})
 
+    # Pre-fetch all student selections once (PERFORMANCE: avoid repeated lookups)
+    all_selections = {}
+    for sid in progress_df["ID"].tolist():
+        all_selections[sid] = get_student_selections(sid)
+        all_selections[str(sid)] = all_selections[sid]  # Handle both int and str keys
+
     # Build table
     table_data = []
     for _, student in progress_df.iterrows():
         student_id = student.get("ID", "")
 
-        # Get bypasses for this student
+        # Get bypasses and selections for this student (cached lookup)
         student_bypasses = (
             all_bypasses.get(student_id) or all_bypasses.get(str(student_id)) or {}
         )
+        slot = all_selections.get(student_id) or all_selections.get(str(student_id)) or {}
+        advised = set(slot.get("advised", []))
+        repeat = set(slot.get("repeat", []))
+        optional = set(slot.get("optional", []))
 
         row = {
             "NAME": student.get("NAME", ""),
             "ID": student_id,
             "Total Credits Completed": student.get("Total Credits Completed", 0),
-            "Remaining Credits": student.get("Remaining Credits", 0),
             "Remaining Credits": student.get("Remaining Credits", 0),
             "Standing": student.get("Standing", ""),
         }
@@ -177,15 +188,6 @@ def render_degree_plan_table(courses_df, progress_df):
         # Add course statuses
         for course_code in all_courses:
             status_val = student.get(course_code, "")
-
-            # Check advising selections and bypasses
-            major = st.session_state.get("current_major", "")
-            slot = get_student_selections(student_id)
-            student_bypasses = get_student_bypasses(student_id, major)
-
-            advised = slot.get("advised", [])
-            repeat = slot.get("repeat", [])
-            optional = slot.get("optional", [])
 
             if pd.isna(status_val) or status_val == "":
                 if course_code in advised or course_code in optional:
@@ -303,11 +305,10 @@ def _get_fsv_cache(major: str = None) -> dict:
         f"{cache_key}_stale", False
     ):
         courses_df = st.session_state.courses_df
+        # Use cached versions for better performance
         st.session_state[cache_key] = {
-            "coreq_concurrent_courses": get_corequisite_and_concurrent_courses(
-                courses_df
-            ),
-            "mutual_pairs": get_mutual_concurrent_pairs(courses_df),
+            "coreq_concurrent_courses": get_coreq_concurrent_cached(courses_df),
+            "mutual_pairs": get_mutual_pairs_cached(courses_df),
         }
         st.session_state[f"{cache_key}_stale"] = False
 
@@ -548,60 +549,70 @@ def _render_all_students():
     all_bypasses = st.session_state.get(bypasses_key, {})
 
     if simulated_courses:
-        for sid in df["ID"].astype(int).tolist():
-            row_original = original_rows.get(int(sid))
-            if row_original is None:
-                continue
+        with st.spinner("Calculating simulation results..."):
+            for sid in df["ID"].astype(int).tolist():
+                row_original = original_rows.get(int(sid))
+                if row_original is None:
+                    continue
 
-            # Get bypasses for this student
-            student_bypasses = all_bypasses.get(sid) or all_bypasses.get(str(sid)) or {}
+                # Get bypasses for this student
+                student_bypasses = all_bypasses.get(sid) or all_bypasses.get(str(sid)) or {}
 
-            simulated_completions[sid] = []
-            advised_list = (
-                st.session_state.advising_selections.get(int(sid), {}).get(
-                    "advised", []
-                )
-                or []
-            )
-
-            max_iterations = len(simulated_courses)
-            for iteration in range(max_iterations):
-                added_this_iteration = False
-                for sim_course in simulated_courses:
-                    if sim_course in simulated_completions[sid]:
-                        continue
-
-                    stt, _ = check_eligibility(
-                        row_original,
-                        sim_course,
-                        advised_list,
-                        st.session_state.courses_df,
-                        registered_courses=simulated_completions[sid],
-                        ignore_offered=True,
-                        mutual_pairs=mutual_pairs,
-                        bypass_map=student_bypasses,
+                simulated_completions[sid] = []
+                advised_list = (
+                    st.session_state.advising_selections.get(int(sid), {}).get(
+                        "advised", []
                     )
-                    if stt in ("Eligible", "Eligible (Bypass)"):
-                        simulated_completions[sid].append(sim_course)
-                        added_this_iteration = True
+                    or []
+                )
 
-                if not added_this_iteration:
-                    break
+                max_iterations = len(simulated_courses)
+                for iteration in range(max_iterations):
+                    added_this_iteration = False
+                    for sim_course in simulated_courses:
+                        if sim_course in simulated_completions[sid]:
+                            continue
+
+                        stt, _ = check_eligibility(
+                            row_original,
+                            sim_course,
+                            advised_list,
+                            st.session_state.courses_df,
+                            registered_courses=simulated_completions[sid],
+                            ignore_offered=True,
+                            mutual_pairs=mutual_pairs,
+                            bypass_map=student_bypasses,
+                        )
+                        if stt in ("Eligible", "Eligible (Bypass)"):
+                            simulated_completions[sid].append(sim_course)
+                            added_this_iteration = True
+
+                    if not added_this_iteration:
+                        break
 
     def status_code(
         row_original: pd.Series,
         student_id: int,
         course: str,
         simulated_for_student: list,
+        _student_selections_cache: dict = None,
+        _student_bypasses_cache: dict = None,
     ) -> str:
-        major = st.session_state.get("current_major", "")
-        sel = get_student_selections(student_id)
+        # Use cached values if provided (PERFORMANCE: avoid repeated lookups)
+        if _student_selections_cache and student_id in _student_selections_cache:
+            sel = _student_selections_cache[student_id]
+        else:
+            sel = get_student_selections(student_id)
+        
         advised_list = sel.get("advised", []) or []
         optional_list = sel.get("optional", []) or []
         repeat_list = sel.get("repeat", []) or []
 
-        # Get bypasses for this student
-        student_bypasses = get_student_bypasses(student_id, major)
+        # Use cached bypasses if provided
+        if _student_bypasses_cache and student_id in _student_bypasses_cache:
+            student_bypasses = _student_bypasses_cache[student_id]
+        else:
+            student_bypasses = get_student_bypasses(student_id, major)
 
         if course in repeat_list:
             return "ar"
@@ -629,6 +640,13 @@ def _render_all_students():
         if stt == "Eligible (Bypass)":
             return "b"
         return "na" if stt == "Eligible" else "ne"
+
+    # Pre-fetch all student selections and bypasses once (PERFORMANCE)
+    all_student_selections = {}
+    all_student_bypasses = {}
+    for sid in df["ID"].astype(int).tolist():
+        all_student_selections[sid] = get_student_selections(sid)
+        all_student_bypasses[sid] = all_bypasses.get(sid) or all_bypasses.get(str(sid)) or {}
 
     def render_course_table(label: str, course_codes: List[str], key_suffix: str):
         if not course_codes:
@@ -689,7 +707,11 @@ def _render_all_students():
                     continue
                 student_simulated = simulated_completions.get(sid, [])
                 statuses.append(
-                    status_code(row_original, sid, course, student_simulated)
+                    status_code(
+                        row_original, sid, course, student_simulated,
+                        _student_selections_cache=all_student_selections,
+                        _student_bypasses_cache=all_student_bypasses,
+                    )
                 )
             table_df[course] = statuses
             course_status_data[course] = statuses
