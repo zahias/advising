@@ -114,8 +114,8 @@ class CurriculumGraph:
 
         lines = ["graph TD"]
         # Use classes for styling
-        lines.append("classDef root fill:#f96,stroke:#333,stroke-width:2px;")
-        lines.append("classDef downstream fill:#bbf,stroke:#333,stroke-width:1px;")
+        lines.append("    classDef root fill:#f96,stroke:#333,stroke-width:2px")
+        lines.append("    classDef downstream fill:#bbf,stroke:#333,stroke-width:1px")
         
         visited = set()
         to_visit = [(root_code, 0)]
@@ -130,17 +130,21 @@ class CurriculumGraph:
             # Label the node
             course_info = self.courses_df[self.courses_df["Course Code"] == curr]
             title = course_info.iloc[0].get("Course Title", course_info.iloc[0].get("Title", curr)) if not course_info.empty else curr
-            # Sanitize title for Mermaid (remove special chars)
-            title_clean = str(title).replace('"', '').replace('(', '[').replace(')', ']')
-            lines.append(f'{curr}["{curr} {title_clean}"]')
+            # Sanitize title for Mermaid (remove special chars and quotes)
+            title_clean = str(title).replace('"', "'").replace('(', '[').replace(')', ']')[:30]  # Limit length
+            
+            # Proper Mermaid node syntax
+            safe_curr = str(curr).replace('-', '_').replace(' ', '')
+            lines.append(f"    {safe_curr}[\"{curr}<br/>{title_clean}\"]")
             
             if curr == root_code:
-                lines.append(f"class {curr} root")
+                lines.append(f"    class {safe_curr} root")
             else:
-                lines.append(f"class {curr} downstream")
+                lines.append(f"    class {safe_curr} downstream")
 
             for child in self.downstream.get(curr, []):
-                lines.append(f"{curr} --> {child}")
+                safe_child = str(child).replace('-', '_').replace(' ', '')
+                lines.append(f"    {safe_curr} --> {safe_child}")
                 to_visit.append((child, curr_depth + 1))
         
-        return "\n    ".join(lines)
+        return "\n".join(lines)

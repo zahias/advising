@@ -34,7 +34,6 @@ from advising_history import save_session_for_student, _load_session_and_apply
 from student_search import render_student_search
 from notification_system import show_notification, show_action_feedback
 from email_templates import get_template_display_names, add_template_note_prefix
-from graduation_projection import project_graduation_date, format_graduation_message
 from advising_period import get_current_period
 
 
@@ -339,58 +338,6 @@ def student_eligibility_view():
             delta_color="inverse",
             help="Percentage of degree completed"
         )
-    
-    # Graduation Projection (on same line as metrics)
-    projection = project_graduation_date(
-        completed_credits=total_credits,
-        advised_courses=advised_list,
-        optional_courses=optional_list,
-        repeat_courses=repeat_list,
-        required_credits=total_credits + cr_remaining,
-        courses_df=st.session_state.courses_df,
-        max_credits_per_semester=18.0,  # Max credits per semester (caps advised + optional)
-        credits_per_semester=15.0  # Avg credits per semester for future planning
-    )
-    
-    grad_col1, grad_col2 = st.columns([2, 3])
-    with grad_col1:
-        grad_status = "✅ ON TRACK" if projection['on_track'] else "⚠️ EXTENDED"
-        # Format graduation text with academic year
-        sem, yr = projection['projected_graduation']
-        grad_display = f"{sem} {_format_academic_year(yr)}" if projection['on_track'] else "Beyond projection"
-        st.metric(
-            label="🎓 Graduation",
-            value=grad_display,
-            delta=grad_status,
-            delta_color="normal" if projection['on_track'] else "off",
-            help="Projected graduation date based on current plan"
-        )
-    
-    with grad_col2:
-        # Show semester planning with realistic credits per semester
-        remaining_after = projection['credits_still_needed']
-        credits_per_sem = 16  # Realistic advising load (15-16 typical, 18 max)
-        
-        if remaining_after <= 0:
-            plan_text = "✅ Will complete this semester"
-        else:
-            sems_needed = (remaining_after + credits_per_sem - 1) // credits_per_sem
-            plan_text = f"📊 {sems_needed} more semester(s) needed at ~{credits_per_sem} cr/semester\n"
-            plan_text += f"   • This semester: {int(projection['credits_this_semester'])} new credits\n"
-            plan_text += f"   • Future semesters: {int(remaining_after)} credits remaining"
-        
-        st.info(
-            f"📚 **Semester Plan**: {projection['semesters_remaining']} semesters to graduation\n"
-            f"{plan_text}\n"
-            f"   • Total at graduation: {int(projection['credits_after_this_semester'])} + {int(remaining_after)} credits"
-        )
-    
-    # Collapsible semester planning
-    with st.expander("📅 Semester Planning by Offering", expanded=False):
-        semester_plan_md = _build_semester_plan(
-            advised_list, optional_list, repeat_list, st.session_state.courses_df
-        )
-        st.markdown(semester_plan_md, unsafe_allow_html=True)
     
     # Email status indicator (compact)
     email_status_key = f"_email_sent_{norm_sid}"
