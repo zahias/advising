@@ -267,5 +267,10 @@ def _render_sync_settings():
 
 def _render_email_templates():
     """Render email templates management UI."""
-    from email_templates import render_templates_ui
-    render_templates_ui()
+    try:
+        from email_templates import render_templates_ui
+        render_templates_ui()
+    except ImportError as e:
+        st.error(f"Failed to load email templates: {e}")
+    except Exception as e:
+        st.error(f"Error rendering email templates: {e}")

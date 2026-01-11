@@ -214,17 +214,35 @@ def _upload_to_drive():
 def _render_period_management():
     """Render period management section."""
     from advising_period import get_current_period, start_new_period, get_all_periods, set_current_period
+    from datetime import datetime
+    
+    def _format_academic_year(year):
+        """Convert year to academic year format. E.g., 2024 -> 2024/2025"""
+        try:
+            year_int = int(year)
+            return f"{year_int}/{year_int + 1}"
+        except (ValueError, TypeError):
+            return str(year)
     
     st.markdown("### Current Period")
     
     current_period = get_current_period()
     
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Semester", current_period.get("semester", "Not set"))
     with col2:
-        st.metric("Year", current_period.get("year", "—"))
+        year = current_period.get("year", "")
+        academic_year = _format_academic_year(year) if year else "—"
+        st.metric("Academic Year", academic_year)
     with col3:
+        created = current_period.get("created_at", "")
+        if created:
+            created_date = created.split("T")[0] if "T" in created else created
+            st.metric("Created", created_date)
+        else:
+            st.metric("Created", "—")
+    with col4:
         st.metric("Advisor", current_period.get("advisor_name", "Not set"))
     
     st.markdown("---")
@@ -256,6 +274,10 @@ def _render_period_management():
         with col3:
             advisor = st.text_input("Advisor Name")
         
+        # Show academic year preview
+        academic_year_preview = _format_academic_year(year)
+        st.caption(f"📅 Academic Year: {academic_year_preview} | Created: {datetime.now().strftime('%Y-%m-%d')}")
+        
         if st.form_submit_button("Create New Period", type="primary"):
             if not advisor:
                 st.error("Please enter advisor name")
@@ -267,7 +289,7 @@ def _render_period_management():
                 new_period, drive_saved = start_new_period(semester, int(year), advisor)
                 
                 if drive_saved:
-                    st.success(f"✓ Created period: {semester} {year}")
+                    st.success(f"✓ Created period: {semester} {academic_year_preview}")
                 else:
                     st.warning(f"Created period locally (Drive sync failed)")
                 st.rerun()
@@ -283,7 +305,9 @@ def _render_period_management():
         period_options = []
         period_map = {}
         for p in real_periods:
-            label = f"{p.get('semester', '')} {p.get('year', '')} — {p.get('advisor_name', '')}"
+            year = p.get('year', '')
+            academic_year = _format_academic_year(year) if year else year
+            label = f"{p.get('semester', '')} {academic_year} — {p.get('advisor_name', '')}"
             period_options.append(label)
             period_map[label] = p
         
