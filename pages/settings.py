@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime
 
 def _get_drive_module():
     """Lazy loader for google_drive module."""
@@ -212,7 +213,22 @@ def _render_sync_settings():
     with col1:
         st.markdown("#### Refresh Data")
         
-        if st.button("Sync from Drive", type="primary"):
+        if st.button("🔄 Force Sync from Drive", type="primary"):
+            # Clear all caches including local file cache
+            from advising_history import load_all_sessions_for_period, _get_local_cache_dir
+            import shutil
+            import os
+            
+            # Clear local file cache
+            cache_dir = _get_local_cache_dir()
+            if os.path.exists(cache_dir):
+                try:
+                    shutil.rmtree(cache_dir)
+                    os.makedirs(cache_dir, exist_ok=True)
+                except Exception:
+                    pass
+            
+            # Clear session state caches
             if "period_history_cache" in st.session_state:
                 st.session_state.period_history_cache.pop(major, None)
             
@@ -220,14 +236,31 @@ def _render_sync_settings():
             if cache_key in st.session_state:
                 del st.session_state[cache_key]
             
+            # Clear advising index
+            if "advising_index" in st.session_state:
+                del st.session_state["advising_index"]
+            
+            # Clear advising selections
+            if "advising_selections" in st.session_state:
+                del st.session_state["advising_selections"]
+            
+            # Clear sessions loaded flags
             for key in list(st.session_state.keys()):
-                if isinstance(key, str) and key.startswith("_fsv_sessions_loaded_"):
+                if isinstance(key, str) and (
+                    key.startswith("_fsv_sessions_loaded_") or 
+                    key.startswith("_sessions_loaded_") or
+                    key.startswith("_fsv_cache_")
+                ):
                     del st.session_state[key]
             
-            st.success("Cache cleared - data will refresh from Drive")
+            # Force reload from Drive
+            with st.spinner("Syncing from Google Drive..."):
+                load_all_sessions_for_period(force_refresh=True)
+            
+            st.success("✅ Data synced from Google Drive")
             st.rerun()
         
-        st.caption("Refreshes data from Google Drive")
+        st.caption("Forces a full refresh from Google Drive and rebuilds local cache")
     
     with col2:
         st.markdown("#### Connection Status")
@@ -244,9 +277,37 @@ def _render_sync_settings():
     
     st.markdown("---")
     
+    # Show local cache info
+    st.markdown("#### Local Cache Status")
+    from advising_history import _get_local_cache_dir, _get_local_index_path, _get_local_selections_path
+    import os
+    
+    cache_dir = _get_local_cache_dir()
+    index_path = _get_local_index_path(major)
+    selections_path = _get_local_selections_path(major)
+    
+    col_cache1, col_cache2 = st.columns(2)
+    with col_cache1:
+        if os.path.exists(index_path):
+            mod_time = datetime.fromtimestamp(os.path.getmtime(index_path))
+            st.success(f"✓ Index cache: {mod_time.strftime('%Y-%m-%d %H:%M')}")
+        else:
+            st.info("No index cache")
+    
+    with col_cache2:
+        if os.path.exists(selections_path):
+            mod_time = datetime.fromtimestamp(os.path.getmtime(selections_path))
+            st.success(f"✓ Selections cache: {mod_time.strftime('%Y-%m-%d %H:%M')}")
+        else:
+            st.info("No selections cache")
+    
+    st.caption("Local cache enables instant page loading")
+    
+    st.markdown("---")
+    
     st.markdown("#### Drive Folder Configuration")
     
-    import os
+    import os as os_module
     
     folder_id = ""
     try:
@@ -255,7 +316,7 @@ def _render_sync_settings():
     except:
         pass
     if not folder_id:
-        folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
+        folder_id = os_module.getenv("GOOGLE_FOLDER_ID", "")
     
     if folder_id:
         st.text_input("Root Folder ID", value=folder_id, disabled=True)

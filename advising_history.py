@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
 from uuid import uuid4
 from datetime import datetime
@@ -43,6 +44,26 @@ try:
 except Exception:
     _LOCAL_TZ = None
 
+
+# ---------- Local cache file paths ----------
+
+def _get_local_cache_dir() -> str:
+    """Get or create local cache directory for faster loading."""
+    # Use a .cache folder in the current working directory
+    cache_dir = os.path.join(os.getcwd(), ".advising_cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    return cache_dir
+
+def _get_local_index_path(major: str) -> str:
+    """Get path to local index cache file for a major."""
+    cache_dir = _get_local_cache_dir()
+    return os.path.join(cache_dir, f"advising_index_{major}.json")
+
+def _get_local_selections_path(major: str) -> str:
+    """Get path to local selections cache file for a major."""
+    cache_dir = _get_local_cache_dir()
+    return os.path.join(cache_dir, f"advising_selections_{major}.json")
+
 __all__ = [
     "advising_history_panel", 
     "autosave_current_student_session", 
@@ -54,6 +75,10 @@ __all__ = [
     "get_students_with_saved_sessions",
     "bulk_restore_sessions",
     "bulk_restore_panel",
+    # Local cache helpers (for settings page)
+    "_get_local_cache_dir",
+    "_get_local_index_path",
+    "_get_local_selections_path",
 ]
 
 
@@ -116,18 +141,34 @@ def _get_sessions_folder_id() -> str:
 
 def _load_index(force_refresh: bool = False) -> List[Dict[str, Any]]:
     """
-    Load advising index. Uses session state cache to avoid repeated Drive calls.
+    Load advising index with local-first approach for speed.
+    Priority: 1) Session state cache, 2) Local file cache, 3) Google Drive
     Set force_refresh=True to force reload from Drive.
     """
     major = st.session_state.get("current_major", "DEFAULT")
     cache_key = f"_advising_index_cache_{major}"
     
-    # Use cached index if available (unless force refresh requested)
+    # 1. Use session state cache if available (fastest - in memory)
     if not force_refresh and cache_key in st.session_state:
         cached_index = st.session_state[cache_key]
-        if cached_index:  # Return immediately if cached and non-empty
+        if cached_index:
             return cached_index
     
+    # 2. Try local file cache (fast - disk read)
+    if not force_refresh:
+        local_path = _get_local_index_path(major)
+        if os.path.exists(local_path):
+            try:
+                with open(local_path, 'r', encoding='utf-8') as f:
+                    local_index = json.load(f)
+                if isinstance(local_index, list) and local_index:
+                    _save_index_local(local_index)
+                    log_info(f"Loaded index from local cache: {len(local_index)} entries")
+                    return local_index
+            except Exception as e:
+                log_error("Failed to read local index cache", e)
+    
+    # 3. Fall back to Google Drive (slow - network)
     try:
         gd = _get_drive_module()
         service = gd.initialize_drive_service()
@@ -140,8 +181,9 @@ def _load_index(force_refresh: bool = False) -> List[Dict[str, Any]]:
                 payload = gd.download_file_from_drive(service, fid)
                 idx = json.loads(payload.decode("utf-8"))
                 result = idx if isinstance(idx, list) else []
-                # Update both cache AND advising_index for downstream functions
+                # Save to both session state AND local file
                 _save_index_local(result)
+                _save_index_to_local_file(result, major)
                 return result
         
         # Fall back to major folder root (backward compatibility for legacy sessions)
@@ -153,8 +195,8 @@ def _load_index(force_refresh: bool = False) -> List[Dict[str, Any]]:
                 idx = json.loads(payload.decode("utf-8"))
                 log_info("Loaded legacy advising index from major folder root (consider migrating to sessions/)")
                 result = idx if isinstance(idx, list) else []
-                # Update both cache AND advising_index for downstream functions
                 _save_index_local(result)
+                _save_index_to_local_file(result, major)
                 return result
         
         # No index found - initialize empty
@@ -163,6 +205,19 @@ def _load_index(force_refresh: bool = False) -> List[Dict[str, Any]]:
     except Exception as e:
         log_error("Failed to load advising index", e)
         return st.session_state.get(cache_key, [])
+
+
+def _save_index_to_local_file(index_items: List[Dict[str, Any]], major: str = None) -> None:
+    """Save index to local file for fast loading on next visit."""
+    if major is None:
+        major = st.session_state.get("current_major", "DEFAULT")
+    try:
+        local_path = _get_local_index_path(major)
+        serializable_items = _convert_to_json_serializable(index_items)
+        with open(local_path, 'w', encoding='utf-8') as f:
+            json.dump(serializable_items, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        log_error("Failed to save local index cache", e)
 
 def _save_index_local(index_items: List[Dict[str, Any]]) -> None:
     """Save index to session state immediately (local-first)."""
@@ -173,9 +228,10 @@ def _save_index_local(index_items: List[Dict[str, Any]]) -> None:
     st.session_state[cache_key] = index_items
 
 def _save_index(index_items: List[Dict[str, Any]]) -> None:
-    """Save index to Drive asynchronously (background)."""
-    # Save locally first
+    """Save index to local cache, session state, and Drive."""
+    # Save locally first (instant)
     _save_index_local(index_items)
+    _save_index_to_local_file(index_items)
     
     # Background save to Drive (best effort)
     try:
@@ -520,6 +576,10 @@ def save_session_for_student(student_id: Union[int, str]) -> Optional[str]:
             "repeat": student_data.get("repeat", []),
         })
         _save_index(st.session_state.advising_index)
+        
+        # Also update local selections cache
+        major = st.session_state.get("current_major", "")
+        _save_selections_to_local_file(major)
 
         log_info(f"Auto-saved advising session for {student_id}: {title}")
         return sid
@@ -655,19 +715,106 @@ def reload_student_session_from_drive(student_id: Union[int, str]) -> bool:
     return _load_session_and_apply(student_id)
 
 
+def _save_selections_to_local_file(major: str = None) -> None:
+    """Save current advising_selections to local file for fast loading."""
+    if major is None:
+        major = st.session_state.get("current_major", "DEFAULT")
+    try:
+        selections = st.session_state.get("advising_selections", {})
+        bypasses_key = f"bypasses_{major}"
+        bypasses = st.session_state.get(bypasses_key, {})
+        
+        # Convert keys to strings for JSON compatibility
+        serializable_selections = {str(k): _convert_to_json_serializable(v) for k, v in selections.items()}
+        serializable_bypasses = {str(k): _convert_to_json_serializable(v) for k, v in bypasses.items()}
+        
+        data = {
+            "selections": serializable_selections,
+            "bypasses": serializable_bypasses,
+            "saved_at": _now_beirut().isoformat() if _LOCAL_TZ else datetime.now().isoformat(),
+        }
+        
+        local_path = _get_local_selections_path(major)
+        with open(local_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        log_error("Failed to save local selections cache", e)
+
+
+def _load_selections_from_local_file(major: str = None) -> bool:
+    """Load advising_selections from local file. Returns True if loaded successfully."""
+    if major is None:
+        major = st.session_state.get("current_major", "DEFAULT")
+    try:
+        local_path = _get_local_selections_path(major)
+        if not os.path.exists(local_path):
+            return False
+        
+        with open(local_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        selections = data.get("selections", {})
+        bypasses = data.get("bypasses", {})
+        
+        if not selections:
+            return False
+        
+        # Convert string keys back to int where possible
+        if "advising_selections" not in st.session_state:
+            st.session_state.advising_selections = {}
+        
+        for k, v in selections.items():
+            try:
+                norm_k = int(k)
+            except (ValueError, TypeError):
+                norm_k = k
+            st.session_state.advising_selections[norm_k] = v
+        
+        bypasses_key = f"bypasses_{major}"
+        if bypasses_key not in st.session_state:
+            st.session_state[bypasses_key] = {}
+        
+        for k, v in bypasses.items():
+            try:
+                norm_k = int(k)
+            except (ValueError, TypeError):
+                norm_k = k
+            st.session_state[bypasses_key][norm_k] = v
+        
+        log_info(f"Loaded {len(selections)} selections from local cache")
+        return True
+    except Exception as e:
+        log_error("Failed to load local selections cache", e)
+        return False
+
+
 def load_all_sessions_for_period(period_id: Optional[str] = None, force_refresh: bool = False) -> int:
     """
     Load all saved advising sessions for the current (or specified) period
     and apply them to advising_selections.
     
+    Uses local-first approach:
+    1. Try local file cache (instant)
+    2. Try session state (in-memory)  
+    3. Fall back to Drive index (network)
+    
     Args:
         period_id: The period to load. If None, uses current period.
-        force_refresh: If True, force reload index from Drive and reload ALL student data.
+        force_refresh: If True, force reload from Drive and refresh ALL caches.
     
     Returns the number of sessions loaded.
     """
+    major = st.session_state.get("current_major", "")
+    
+    # Try local file cache first (fastest - no network)
+    if not force_refresh:
+        if _load_selections_from_local_file(major):
+            # Local cache hit - return immediately
+            return len(st.session_state.get("advising_selections", {}))
+    
+    # Load index (uses local-first approach internally)
     if "advising_index" not in st.session_state or force_refresh:
-        st.session_state.advising_index = _load_index(force_refresh=True)
+        st.session_state.advising_index = _load_index(force_refresh=force_refresh)
     
     index = st.session_state.advising_index or []
     
@@ -754,6 +901,8 @@ def load_all_sessions_for_period(period_id: Optional[str] = None, force_refresh:
     
     if loaded_count > 0:
         log_info(f"Loaded {loaded_count} advising sessions for period {period_id}")
+        # Save to local cache for faster loading next time
+        _save_selections_to_local_file(major)
     
     return loaded_count
 
