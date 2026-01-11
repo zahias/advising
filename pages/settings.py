@@ -266,11 +266,11 @@ def _render_sync_settings():
 
 
 def _render_email_templates():
-    """Render email template editor for current period."""
+    """Render email template editor with live preview."""
     from advising_period import get_current_period
     
     st.subheader("📧 Email Template")
-    st.markdown("Edit the email template for the current advising period.")
+    st.markdown("Edit the email template and see a live preview of how it will look.")
     
     current_period = get_current_period()
     period_id = current_period.get("period_id", "default")
@@ -301,6 +301,66 @@ Based on your academic progress and requirements, here are your recommended cour
     
     st.divider()
     
+    # Live preview
+    st.markdown("**📧 Email Preview:**")
+    
+    # Mock data
+    mock_student_name = "Sarah Johnson"
+    mock_semester = current_period.get("semester", "Spring")
+    mock_year = current_period.get("year", "2025")
+    mock_advisor = current_period.get("advisor_name", "Dr. Smith")
+    
+    # Fill in template variables
+    preview_header = template_text.format(
+        student_name=mock_student_name,
+        semester=mock_semester,
+        year=mock_year,
+        advisor_name=mock_advisor
+    )
+    
+    # Build mock email content
+    mock_email = f"""{preview_header}
+
+ADVISED COURSES:
+┌─────────────────────────────────────────────────────┐
+│ CS 201 - Data Structures (4 cr)                     │
+│ MATH 301 - Linear Algebra (3 cr)                    │
+│ PHYS 201 - Physics II (4 cr)                        │
+│ ENG 210 - English Composition (3 cr)                │
+└─────────────────────────────────────────────────────┘
+
+OPTIONAL COURSES:
+┌─────────────────────────────────────────────────────┐
+│ CHEM 150 - General Chemistry (4 cr)                 │
+│ ELEC 101 - Introduction to Electronics (3 cr)       │
+└─────────────────────────────────────────────────────┘
+
+REPEAT COURSES (to improve GPA):
+┌─────────────────────────────────────────────────────┐
+│ CS 101 - Introduction to Programming (3 cr)         │
+└─────────────────────────────────────────────────────┘
+
+ADVISOR NOTE:
+Focus on completing core requirements this semester. 
+Your progress is on track for graduation in Spring 2027/2028.
+
+---
+Advisor: {mock_advisor}
+Academic Year: {mock_year}/{int(mock_year) + 1}
+"""
+    
+    # Display preview in a styled box
+    st.markdown(
+        f"""
+        <div style='background-color: #f5f5f5; border: 1px solid #ddd; border-radius: 8px; padding: 16px; font-family: monospace; white-space: pre-wrap; line-height: 1.6;'>
+        {mock_email}
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    st.divider()
+    
     st.markdown("**Current Period Info:**")
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -315,4 +375,5 @@ Based on your academic progress and requirements, here are your recommended cour
 
 Based on your academic progress and requirements, here are your recommended courses for {semester} {year}:"""
             st.rerun()
+
 
