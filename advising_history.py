@@ -742,7 +742,7 @@ def _save_selections_to_local_file(major: str = None) -> None:
 
 
 def _load_selections_from_local_file(major: str = None) -> bool:
-    """Load advising_selections from local file. Returns True if loaded successfully."""
+    """Load advising_selections from local file. Returns True if loaded successfully with data."""
     if major is None:
         major = st.session_state.get("current_major", "DEFAULT")
     try:
@@ -756,7 +756,9 @@ def _load_selections_from_local_file(major: str = None) -> bool:
         selections = data.get("selections", {})
         bypasses = data.get("bypasses", {})
         
+        # Only return True if we actually have selections data
         if not selections:
+            log_info("Local selections cache exists but is empty - will load from Drive")
             return False
         
         # Convert string keys back to int where possible
@@ -807,10 +809,15 @@ def load_all_sessions_for_period(period_id: Optional[str] = None, force_refresh:
     major = st.session_state.get("current_major", "")
     
     # Try local file cache first (fastest - no network)
+    # Only use local cache if NOT force_refresh AND it has actual data
     if not force_refresh:
-        if _load_selections_from_local_file(major):
-            # Local cache hit - return immediately
-            return len(st.session_state.get("advising_selections", {}))
+        local_loaded = _load_selections_from_local_file(major)
+        if local_loaded:
+            selections_count = len(st.session_state.get("advising_selections", {}))
+            if selections_count > 0:
+                log_info(f"Using local cache: {selections_count} selections")
+                return selections_count
+            # If local cache returned True but no selections, continue to Drive
     
     # Load index (uses local-first approach internally)
     if "advising_index" not in st.session_state or force_refresh:

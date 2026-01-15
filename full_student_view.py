@@ -276,7 +276,16 @@ def full_student_view():
     current_period = get_current_period()
     period_id = current_period.get("period_id", "")
     sessions_loaded_key = f"_sessions_loaded_{major}_{period_id}"
-    if sessions_loaded_key not in st.session_state:
+    
+    # Check if sessions need to be loaded
+    # Also reload if advising_selections is empty but we think sessions were loaded
+    needs_load = sessions_loaded_key not in st.session_state
+    if not needs_load and not st.session_state.get("advising_selections"):
+        # Flag is set but no selections - force reload
+        needs_load = True
+        log_info("Sessions flag set but no selections - forcing reload")
+    
+    if needs_load:
         with st.spinner("Loading advising sessions..."):
             load_all_sessions_for_period()
         st.session_state[sessions_loaded_key] = True
