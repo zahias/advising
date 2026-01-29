@@ -1,7 +1,7 @@
 streamlit
-pandas==2.3.3
-numpy==2.2.2
-pyarrow==22.0.0
+pandas
+numpy
+pyarrow
 openpyxl
 Pillow
 google-api-python-client
