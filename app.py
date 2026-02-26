@@ -310,7 +310,6 @@ def _auto_load_from_drive(major: str):
     except Exception as e:
         log_error(f"Auto-load from Drive failed for {major}", e)
 
-
 def main():
     """Main application entry point."""
     
@@ -323,7 +322,7 @@ def main():
         # Auto-load from Drive if bucket is empty
         bucket = st.session_state.majors.get(selected_major, {})
         if bucket.get("courses_df", pd.DataFrame()).empty or bucket.get("progress_df", pd.DataFrame()).empty:
-             _auto_load_from_drive(selected_major)
+            _auto_load_from_drive(selected_major)
     
     # 2. Render Header (now has access to synced data)
     _render_header()

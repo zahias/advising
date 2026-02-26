@@ -15,6 +15,24 @@ GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token"
 
 _google_libs_cache = {}
 
+def _is_drive_feature_enabled() -> bool:
+    """
+    Feature flag for Drive integration.
+    Disable with ENABLE_GOOGLE_DRIVE=false in environment or secrets.
+    """
+    import os
+    raw = os.getenv("ENABLE_GOOGLE_DRIVE")
+    if raw is None:
+        try:
+            raw = st.secrets.get("google", {}).get("enabled")
+        except Exception:
+            raw = None
+    if raw is None:
+        return True
+    if isinstance(raw, bool):
+        return raw
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
 def _lazy_import_google_libs():
     """
     Lazy import Google libraries only when actually needed.
@@ -24,6 +42,13 @@ def _lazy_import_google_libs():
     global _google_libs_cache
     
     if _google_libs_cache:
+        return _google_libs_cache
+
+    if not _is_drive_feature_enabled():
+        _google_libs_cache = {
+            'available': False,
+            'error': ImportError("Google Drive integration is disabled by ENABLE_GOOGLE_DRIVE"),
+        }
         return _google_libs_cache
     
     try:
@@ -153,7 +178,8 @@ def _get_cached_drive_service(_cred_hash: str):
 def initialize_drive_service():
     """
     Return an authenticated Drive service. 
-    Isolated to st.session_state to ensure thread-safety (per-user connection).
+    Build a fresh service by default to avoid stale cross-rerun state.
+    Set CACHE_DRIVE_SERVICE=1 only if you explicitly want session caching.
     """
     if not is_drive_available():
         libs = _lazy_import_google_libs()
@@ -162,11 +188,15 @@ def initialize_drive_service():
         )
     
     cred_hash = _get_credentials_hash()
+    import os
+    use_cache = os.getenv("CACHE_DRIVE_SERVICE", "").strip().lower() in {"1", "true", "yes", "on"}
+
+    if not use_cache:
+        return _get_cached_drive_service(cred_hash)
+
     session_key = f"_drive_service_{cred_hash}"
-    
     if session_key not in st.session_state:
         st.session_state[session_key] = _get_cached_drive_service(cred_hash)
-        
     return st.session_state[session_key]
 
 

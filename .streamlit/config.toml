@@ -4,6 +4,9 @@ address = "0.0.0.0"
 enableCORS = false
 enableXsrfProtection = false
 
+[global]
+dataFrameSerialization = "legacy"
+
 [browser]
 gatherUsageStats = false
 
