@@ -1296,7 +1296,7 @@ def advising_history_panel():
     chosen = index[choice_idx]
     sid = str(chosen.get("id", ""))
     
-    if st.button("📂 View Session", width="stretch", key="sess_open"):
+    if st.button("📂 View Session", use_container_width=True, key="sess_open"):
         payload = _load_session_payload_by_id(sid)
         if payload:
             st.session_state["advising_loaded_payload"] = payload

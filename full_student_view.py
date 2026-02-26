@@ -370,10 +370,10 @@ def _render_all_students():
             col_apply, col_clear = st.columns(2)
             with col_apply:
                 apply_clicked = st.form_submit_button(
-                    "✅ Apply", type="primary", width="stretch"
+                    "✅ Apply", type="primary", use_container_width=True
                 )
             with col_clear:
-                clear_clicked = st.form_submit_button("🔄 Clear", width="stretch")
+                clear_clicked = st.form_submit_button("🔄 Clear", use_container_width=True)
 
         if apply_clicked:
             st.session_state.simulated_courses = selected_sim_courses
@@ -686,7 +686,7 @@ def _render_all_students():
 
                 col1, col2 = st.columns([1, 5])
                 with col1:
-                    confirm = st.form_submit_button("✓ Confirm", width="stretch")
+                    confirm = st.form_submit_button("✓ Confirm", use_container_width=True)
                 with col2:
                     st.caption("Select courses then click Confirm to update the table")
 
