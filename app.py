@@ -115,7 +115,7 @@ def _render_header():
     """Render the persistent header with major/period selection."""
     from advising_period import get_current_period
     
-    header_cols = st.columns([1, 2, 3, 2])
+    header_cols = st.columns([1, 2, 4, 1])
     
     with header_cols[0]:
         if os.path.exists("pu_logo.png"):
@@ -144,10 +144,10 @@ def _render_header():
     with header_cols[2]:
         if st.session_state.get("current_major") in MAJORS:
             current_period = get_current_period()
-            period_text = f"📅 {current_period.get('semester', 'No period')} {current_period.get('year', '')} — {current_period.get('advisor_name', 'Not set')}"
-            st.markdown(f"**{period_text}**")
+            period_text = f"{current_period.get('semester', 'No period')} {current_period.get('year', '')} · {current_period.get('advisor_name', 'Not set')}"
+            st.caption(period_text)
         else:
-            st.markdown("*Select a major to begin*")
+            st.caption("Select a major to begin")
     
     with header_cols[3]:
         if st.session_state.get("current_major") in MAJORS:
@@ -167,34 +167,31 @@ def _render_header():
                 advised = _count_advised_from_index(progress_ids)
                     
                 pct = int(advised / total * 100) if total > 0 else 0
-                st.markdown(f"**Progress:** {advised}/{total} ({pct}%)")
+                st.progress(pct / 100)
+                st.caption(f"{advised}/{total}")
 
 def _render_navigation():
-    """Render the main navigation tabs."""
-    
+    """Render the main navigation."""
     nav_options = ["Home", "Setup", "Workspace", "Insights", "Master Plan", "Settings"]
     
     if "nav_selection" not in st.session_state:
         st.session_state["nav_selection"] = "Home"
     
-    cols = st.columns(len(nav_options))
+    current = st.session_state.get("nav_selection", "Home")
+    if current not in nav_options:
+        current = "Home"
     
-    for i, option in enumerate(nav_options):
-        with cols[i]:
-            is_active = st.session_state.get("nav_selection") == option
-            btn_type = "primary" if is_active else "secondary"
-            
-            icons = {"Home": "🏠", "Setup": "⚙️", "Workspace": "👤", "Insights": "📊", "Master Plan": "🌐", "Settings": "🔧"}
-            
-            if st.button(
-                f"{icons.get(option, '')} {option}",
-                key=f"nav_{option}",
-                type=btn_type
-            ):
-                st.session_state["nav_selection"] = option
-                st.rerun()
+    selected = st.radio(
+        "Navigation",
+        nav_options,
+        index=nav_options.index(current),
+        horizontal=True,
+        label_visibility="collapsed",
+        key=f"_nav_{current}",
+    )
     
-    return st.session_state.get("nav_selection", "Home")
+    st.session_state["nav_selection"] = selected
+    return selected
 
 def _render_period_gate():
     """Render period selection gate for first-time setup."""
@@ -328,11 +325,11 @@ def main():
     # 2. Render Header (now has access to synced data)
     _render_header()
     
-    st.markdown("---")
+    st.write("")
     
     if selected_major not in MAJORS:
-        st.markdown("## 🎓 Advising Dashboard")
-        st.info("👆 Please select a major from the dropdown above to get started.")
+        st.markdown("## Advising Dashboard")
+        st.info("Select a major from the dropdown above to get started.")
         
         st.markdown("### Quick Start")
         st.markdown("""
@@ -352,7 +349,7 @@ def main():
     
     active_nav = _render_navigation()
     
-    st.markdown("---")
+    st.write("")
     
     if active_nav == "Home":
         from pages.home import render_home

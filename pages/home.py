@@ -72,7 +72,7 @@ def render_home():
         pct = int((advised_count / total_students * 100)) if total_students > 0 else 0
         st.metric("Progress", f"{pct}%")
     
-    st.markdown("---")
+    st.write("")
     
     col_left, col_right = st.columns([2, 1])
     
@@ -126,7 +126,7 @@ def render_home():
         else:
             st.info("No remaining credits data")
     
-    st.markdown("---")
+    st.write("")
     
     st.markdown("### Recent Activity")
     
