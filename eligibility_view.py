@@ -24,8 +24,6 @@ from advising_utils import (
     get_student_selections,
     get_student_bypasses,
     get_mutual_pairs_cached,
-    get_courses_df_indexed,
-    get_progress_lookup,
 )
 from reporting import apply_excel_formatting
 from course_exclusions import (
@@ -37,7 +35,6 @@ from advising_history import save_session_for_student, _load_session_and_apply
 from student_search import render_student_search
 from notification_system import show_notification, show_action_feedback
 from advising_period import get_current_period
-from perf import perf_span
 
 
 # ---------- helpers ----------
@@ -56,15 +53,11 @@ def _sum_credits(codes: List[str]) -> int:
     cdf = st.session_state.courses_df
     if cdf is None or cdf.empty or "Credits" not in cdf.columns:
         return 0
-    indexed = get_courses_df_indexed(cdf)
+    lookup = cdf.set_index(cdf["Course Code"].astype(str))["Credits"]
     total = 0.0
     for c in codes:
         try:
-            if str(c) in indexed.index:
-                row = indexed.loc[str(c)]
-                if isinstance(row, pd.DataFrame):
-                    row = row.iloc[0]
-                total += float(row.get("Credits", 0) or 0)
+            total += float(lookup.get(str(c), 0) or 0)
         except Exception:
             pass
     return int(total)
@@ -138,13 +131,11 @@ def _format_course_option(course_code: str, courses_df: pd.DataFrame) -> str:
     if courses_df is None or courses_df.empty:
         return course_code
     
-    courses_idx = get_courses_df_indexed(courses_df)
-    if courses_idx.empty or str(course_code) not in courses_idx.index:
+    course_info = courses_df[courses_df["Course Code"] == course_code]
+    if course_info.empty:
         return course_code
-
-    row = courses_idx.loc[str(course_code)]
-    if isinstance(row, pd.DataFrame):
-        row = row.iloc[0]
+    
+    row = course_info.iloc[0]
     title = str(row.get("Title", "")).strip()
     credits = row.get("Credits", 0)
     
@@ -163,18 +154,14 @@ def _sum_credits_from_list(course_list: list, courses_df: pd.DataFrame) -> float
     """Sum credits from a list of course codes."""
     if not course_list or courses_df is None:
         return 0
-    courses_idx = get_courses_df_indexed(courses_df)
     total = 0
     for course in course_list:
-        if str(course) not in courses_idx.index:
-            continue
-        row = courses_idx.loc[str(course)]
-        if isinstance(row, pd.DataFrame):
-            row = row.iloc[0]
-        try:
-            total += float(row.get("Credits", 0) or 0)
-        except Exception:
-            pass
+        course_info = courses_df[courses_df["Course Code"] == course]
+        if not course_info.empty:
+            try:
+                total += float(course_info.iloc[0].get("Credits", 0) or 0)
+            except:
+                pass
     return total
 
 
@@ -233,29 +220,28 @@ def student_eligibility_view():
     repeat_key = f"repeat_ms_{norm_sid}"
     note_key = f"note_{norm_sid}"
     
-    # Track student changes for local UI state only.
+    # Track if student has changed to force refresh from Drive
     prev_student_key = "_prev_student_id_eligibility"
     prev_student = st.session_state.get(prev_student_key)
     student_changed = (prev_student != norm_sid)
     st.session_state[prev_student_key] = norm_sid
 
-    with perf_span("workspace.lookup_student_row", {"student_id": str(norm_sid)}):
-        pdf = st.session_state.progress_df
-        progress_lookup = get_progress_lookup(pdf)
-        student_row = progress_lookup.get(norm_sid) or progress_lookup.get(str(norm_sid))
-    if student_row is None:
+    # robust row fetch
+    pdf = st.session_state.progress_df
+    row = pdf.loc[pdf["ID"] == norm_sid]
+    if row.empty:
+        row = pdf.loc[pdf["ID"].astype(str) == str(norm_sid)]
+    if row.empty:
         st.error(f"Student ID {norm_sid} not found in progress report. Please verify the ID or re-upload the progress report.")
         return
+    student_row = row.iloc[0]
 
     hidden_for_student = set(map(str, get_for_student(norm_sid)))
 
-    refresh_col, _ = st.columns([1, 5])
-    with refresh_col:
-        if st.button("Refresh Student from Drive", key=f"refresh_drive_{norm_sid}"):
-            from advising_history import reload_student_session_from_drive
-            reload_student_session_from_drive(norm_sid)
-            st.success("Student session refreshed")
-            st.rerun()
+    # If student changed, force reload their latest session from Drive
+    if student_changed:
+        from advising_history import reload_student_session_from_drive
+        reload_student_session_from_drive(norm_sid)
 
     # per-student advising slot and bypasses
     slot = get_student_selections(norm_sid)

@@ -2,8 +2,6 @@
 
 import streamlit as st
 import pandas as pd
-import hashlib
-import json
 from io import BytesIO
 from typing import List, Dict, Any, Tuple, Optional, Union
 from advising_utils import (
@@ -21,7 +19,6 @@ from advising_utils import (
     log_error,
     get_student_selections,
     get_student_bypasses,
-    _hash_dataframe,
 )
 from reporting import (
     add_summary_sheet,
@@ -29,7 +26,6 @@ from reporting import (
     apply_individual_compact_formatting,
 )
 from advising_history import load_all_sessions_for_period
-from perf import perf_span, record_perf_counter
 
 
 def _get_drive_module():
@@ -265,57 +261,46 @@ def full_student_view():
       - All Students (wide table with compact status codes)
       - Individual Student (subset + export)
     """
-    with perf_span("insights.full_student_view"):
-        if "courses_df" not in st.session_state or st.session_state.courses_df.empty:
-            st.warning("Courses table not loaded.")
-            return
-        if "progress_df" not in st.session_state or st.session_state.progress_df.empty:
-            st.warning("Progress report not loaded.")
-            return
-        if "advising_selections" not in st.session_state:
-            st.session_state.advising_selections = {}
+    if "courses_df" not in st.session_state or st.session_state.courses_df.empty:
+        st.warning("Courses table not loaded.")
+        return
+    if "progress_df" not in st.session_state or st.session_state.progress_df.empty:
+        st.warning("Progress report not loaded.")
+        return
+    if "advising_selections" not in st.session_state:
+        st.session_state.advising_selections = {}
 
-        major = st.session_state.get("current_major", "")
-        from advising_period import get_current_period
+    major = st.session_state.get("current_major", "")
+    from advising_period import get_current_period
 
-        current_period = get_current_period()
-        period_id = current_period.get("period_id", "")
-        sessions_loaded_key = f"_sessions_loaded_{major}_{period_id}"
+    current_period = get_current_period()
+    period_id = current_period.get("period_id", "")
+    sessions_loaded_key = f"_sessions_loaded_{major}_{period_id}"
+    
+    # Check if sessions need to be loaded
+    # Also reload if advising_selections is empty but we think sessions were loaded
+    needs_load = sessions_loaded_key not in st.session_state
+    if not needs_load and not st.session_state.get("advising_selections"):
+        # Flag is set but no selections - force reload
+        needs_load = True
+        log_info("Sessions flag set but no selections - forcing reload")
+    
+    if needs_load:
+        with st.spinner("Loading advising sessions..."):
+            load_all_sessions_for_period()
+        st.session_state[sessions_loaded_key] = True
 
-        needs_load = sessions_loaded_key not in st.session_state
-        if not needs_load and not st.session_state.get("advising_selections"):
-            needs_load = True
-            log_info("Sessions flag set but no selections - forcing reload")
-
-        if needs_load:
-            with st.spinner("Loading advising sessions..."):
-                load_all_sessions_for_period(source="auto")
-            st.session_state[sessions_loaded_key] = True
-
-        sections = ["All Students", "Individual Student", "QAA Sheet", "Schedule Conflict"]
-        default_section = st.session_state.get("insights_section", "All Students")
-        if st.session_state.get("insights_tab") == "Planner":
-            default_section = "All Students"
-            st.session_state.pop("insights_tab", None)
-        if default_section not in sections:
-            default_section = "All Students"
-        active_section = st.radio(
-            "Insights Section",
-            options=sections,
-            horizontal=True,
-            index=sections.index(default_section),
-            label_visibility="collapsed",
-        )
-        st.session_state["insights_section"] = active_section
-
-        if active_section == "All Students":
-            _render_all_students()
-        elif active_section == "Individual Student":
-            _render_individual_student()
-        elif active_section == "QAA Sheet":
-            _render_qaa_sheet()
-        else:
-            _render_schedule_conflict()
+    tab = st.tabs(
+        ["All Students", "Individual Student", "QAA Sheet", "Schedule Conflict"]
+    )
+    with tab[0]:
+        _render_all_students()
+    with tab[1]:
+        _render_individual_student()
+    with tab[2]:
+        _render_qaa_sheet()
+    with tab[3]:
+        _render_schedule_conflict()
 
 
 def _get_fsv_cache(major: str = None) -> dict:
@@ -340,22 +325,21 @@ def _get_fsv_cache(major: str = None) -> dict:
 
 
 def _render_all_students():
-    with perf_span("insights.render_all_students"):
-        if "simulated_courses" not in st.session_state:
-            st.session_state.simulated_courses = []
+    if "simulated_courses" not in st.session_state:
+        st.session_state.simulated_courses = []
 
-        # Get or create cache for expensive calculations
-        major = st.session_state.get("current_major", "")
-        cached = _get_fsv_cache(major)
+    # Get or create cache for expensive calculations
+    major = st.session_state.get("current_major", "")
+    cached = _get_fsv_cache(major)
 
-        # Legacy support for old cache key
-        if "coreq_concurrent_courses" not in st.session_state:
-            st.session_state.coreq_concurrent_courses = cached["coreq_concurrent_courses"]
+    # Legacy support for old cache key
+    if "coreq_concurrent_courses" not in st.session_state:
+        st.session_state.coreq_concurrent_courses = cached["coreq_concurrent_courses"]
 
-        st.markdown("### 🎯 Course Offering Simulation")
-        st.caption(
-            "Select co-requisite or concurrent courses you plan to offer. The table will show eligibility assuming eligible students register for these courses."
-        )
+    st.markdown("### 🎯 Course Offering Simulation")
+    st.caption(
+        "Select co-requisite or concurrent courses you plan to offer. The table will show eligibility assuming eligible students register for these courses."
+    )
 
     with st.form("simulation_form"):
         col_select, col_actions = st.columns([3, 1])
@@ -399,7 +383,6 @@ def _render_all_students():
             st.rerun()
 
     if st.session_state.simulated_courses:
-        record_perf_counter("insights_simulation_runs")
         st.info(
             f"🎬 **Simulation Active:** {len(st.session_state.simulated_courses)} course(s) selected - {', '.join(st.session_state.simulated_courses[:5])}{' ...' if len(st.session_state.simulated_courses) > 5 else ''}"
         )
@@ -416,8 +399,6 @@ def _render_all_students():
 
     # Get courses_df from session state first
     courses_df = st.session_state.courses_df
-    from advising_period import get_current_period
-    period_id = get_current_period().get("period_id", "")
 
     # Compute derived columns
     df["Total Credits Completed"] = (
@@ -721,50 +702,28 @@ def _render_all_students():
             )
             return None, []
 
-        selection_snapshot = json.dumps(st.session_state.get("advising_selections", {}), sort_keys=True, default=str)
-        selection_hash = hashlib.md5(selection_snapshot.encode("utf-8")).hexdigest()
-        simulation_hash = hashlib.md5(",".join(sorted(map(str, simulated_courses))).encode("utf-8")).hexdigest()
-        cache_bucket = st.session_state.setdefault(f"_eligibility_cache_{major}", {})
-        cache_key = "|".join(
-            [
-                major,
-                period_id,
-                key_suffix,
-                _hash_dataframe(courses_df),
-                _hash_dataframe(df[["ID"]]),
-                selection_hash,
-                simulation_hash,
-            ]
-        )
+        table_df = df[base_display_cols].copy()
+        student_ids = table_df["ID"].astype(int).tolist()
 
-        cached_table = cache_bucket.get(cache_key)
-        if cached_table is not None:
-            record_perf_counter("insights_eligibility_cache_hit")
-            table_df = cached_table.copy()
-            student_ids = table_df["ID"].astype(int).tolist()
-            course_status_data = {c: table_df[c].tolist() for c in selected if c in table_df.columns}
-        else:
-            table_df = df[base_display_cols].copy()
-            student_ids = table_df["ID"].astype(int).tolist()
-            course_status_data = {}
-            for course in selected:
-                statuses = []
-                for sid in student_ids:
-                    row_original = original_rows.get(int(sid))
-                    if row_original is None:
-                        statuses.append("")
-                        continue
-                    student_simulated = simulated_completions.get(sid, [])
-                    statuses.append(
-                        status_code(
-                            row_original, sid, course, student_simulated,
-                            _student_selections_cache=all_student_selections,
-                            _student_bypasses_cache=all_student_bypasses,
-                        )
+        # Track statuses for summary calculation
+        course_status_data = {}
+        for course in selected:
+            statuses = []
+            for sid in student_ids:
+                row_original = original_rows.get(int(sid))
+                if row_original is None:
+                    statuses.append("")
+                    continue
+                student_simulated = simulated_completions.get(sid, [])
+                statuses.append(
+                    status_code(
+                        row_original, sid, course, student_simulated,
+                        _student_selections_cache=all_student_selections,
+                        _student_bypasses_cache=all_student_bypasses,
                     )
-                table_df[course] = statuses
-                course_status_data[course] = statuses
-            cache_bucket[cache_key] = table_df.copy()
+                )
+            table_df[course] = statuses
+            course_status_data[course] = statuses
 
         # Build requisites and summary data
         requisites_data = {}
