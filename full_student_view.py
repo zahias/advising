@@ -917,14 +917,18 @@ def _render_all_students():
 
 
 def _render_individual_student():
-    from student_search import render_student_search
-    sid = render_student_search("full_individual")
-    if sid is None:
-        return
+    students_df = st.session_state.progress_df.copy()
+    students_df["DISPLAY"] = (
+        students_df["NAME"].astype(str) + " — " + students_df["ID"].astype(str)
+    )
+    choice = st.selectbox(
+        "Select a student", students_df["DISPLAY"].tolist(), key="full_single_select"
+    )
+    sid = int(students_df.loc[students_df["DISPLAY"] == choice, "ID"].iloc[0])
     row_original = st.session_state.progress_df.loc[
         st.session_state.progress_df["ID"] == sid
     ].iloc[0]
-    row = row_original
+    row = students_df.loc[students_df["ID"] == sid].iloc[0]
 
     # IMPORTANT: do NOT overwrite st.session_state["current_student_id"] here.
     # Eligibility view is the single source of truth for the "current student"

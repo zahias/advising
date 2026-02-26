@@ -290,39 +290,62 @@ def student_eligibility_view():
     repeat_credits = _sum_credits_from_list(repeat_list, st.session_state.courses_df)
     optional_credits = _sum_credits_from_list(optional_list, st.session_state.courses_df)
     
-    # Key metrics
-    metric_col1, metric_col2, metric_col3 = st.columns(3)
+    # Display enhanced metrics
+    metric_col1, metric_col2, metric_col3, metric_col4, metric_col5 = st.columns(5)
     
     with metric_col1:
         st.metric(
-            label="Credits",
-            value=f"{int(total_credits)} / {int(total_credits + cr_remaining)}",
+            label="📚 Total Credits",
+            value=f"{int(total_credits)}",
             delta=f"{int(cr_remaining)} remaining",
             delta_color="inverse",
+            help="Total credits completed / total required"
         )
     
     with metric_col2:
+        standing_emoji = "🎓" if standing == "Senior" else "📖" if standing == "Junior" else "🆕"
         st.metric(
-            label="Standing",
+            label=f"{standing_emoji} Standing",
             value=standing,
+            help="Current academic standing"
         )
     
     with metric_col3:
         total_advised = len(advised_list) + len(repeat_list)
         st.metric(
-            label="Advised This Session",
-            value=f"{total_advised} courses",
+            label="✅ Advised",
+            value=f"{total_advised}",
             delta=f"{int(advised_credits + repeat_credits)} cr",
             delta_color="normal",
+            help="Advised courses + repeats this session"
         )
     
-    # Email status indicator
+    with metric_col4:
+        st.metric(
+            label="📝 Optional",
+            value=f"{len(optional_list)}",
+            delta=f"{int(optional_credits)} cr",
+            delta_color="normal",
+            help="Optional electives available"
+        )
+    
+    with metric_col5:
+        pct_complete = int((total_credits / (total_credits + cr_remaining) * 100)) if (total_credits + cr_remaining) > 0 else 0
+        st.metric(
+            label="📊 Progress",
+            value=f"{pct_complete}%",
+            delta=f"{int(cr_remaining)} to go",
+            delta_color="inverse",
+            help="Percentage of degree completed"
+        )
+    
+    # Email status indicator (compact)
     email_status_key = f"_email_sent_{norm_sid}"
     if email_status_key in st.session_state and st.session_state[email_status_key]:
         email_timestamp = st.session_state.get(f"{email_status_key}_time", "recently")
-        st.caption(f"Email sent {email_timestamp}")
+        st.caption(f"✅ Email sent to student {email_timestamp}")
     
-    st.write("")
+    st.divider()
 
     # ---------- Eligibility map (skip hidden) - with caching ----------
     eligibility_cache_key = f"_eligibility_cache_{norm_sid}"
@@ -446,7 +469,7 @@ def student_eligibility_view():
     default_optional = [c for c in (slot.get("optional", []) or []) if c in optset]
 
     # ---------- Save form (explicit autosave for *this* student) ----------
-    st.write("")
+    st.markdown("---")
     st.markdown("### Advising Recommendations")
     
     def _persist_student_selections(
@@ -566,31 +589,31 @@ def student_eligibility_view():
             options=repeat_opts, 
             default=default_repeat, 
             key=repeat_key,
-            help="Courses to repeat to improve GPA. These count toward semester load but student has already completed them.",
+            help="📝 Courses to repeat to improve GPA. These count toward semester load but student has already completed them.",
             format_func=lambda x: _format_course_option(x, st.session_state.courses_df)
         )
         if repeat_opts:
-            st.caption("Repeating courses replaces prior grades in GPA calculation.")
+            st.caption("💡 **Tip**: Repeating courses replaces prior grades in GPA calculation.")
         
         note_input = st.text_area(
             "Advisor Note (optional)", value=slot.get("note", ""), key=note_key
         )
 
-        # Primary action
-        submitted = st.form_submit_button("Save Selections", type="primary")
-
-        # Secondary actions
-        btn_col1, btn_col2, btn_col3 = st.columns(3)
+        # Four buttons: Save, Email, Recommend, and Show All Courses
+        btn_col1, btn_col2, btn_col3, btn_col4 = st.columns([1.3, 1.3, 1.2, 1.2])
 
         with btn_col1:
-            email_clicked = st.form_submit_button("Email Student")
-        
+            submitted = st.form_submit_button("💾 Save Selections", width="stretch", type="primary")
+
         with btn_col2:
-            recommend_clicked = st.form_submit_button("Recommend", help="Auto-recommend next courses")
+            email_clicked = st.form_submit_button("✉️ Email Student", width="stretch")
         
         with btn_col3:
+            recommend_clicked = st.form_submit_button("🎯 Recommend", width="stretch", type="secondary", help="Auto-recommend next courses")
+        
+        with btn_col4:
             if not st.session_state._show_all_courses and (advised_pages > 1 or optional_pages > 1):
-                show_all_clicked = st.form_submit_button("Show All Courses")
+                show_all_clicked = st.form_submit_button("📋 Show All", width="stretch", type="secondary")
                 if show_all_clicked:
                     st.session_state._show_all_courses = True
                     st.rerun()
