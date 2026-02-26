@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Set, Union, TYPE_CHECKING
 from uuid import uuid4
 from datetime import datetime
 import numpy as np
@@ -26,6 +26,8 @@ from eligibility_utils import (
 from advising_utils import log_info, log_error, style_df
 
 from advising_period import get_current_period
+from drive_context import get_drive_context
+from perf import perf_span, record_perf_counter
 
 # Lazy import for Google Drive to prevent import-time initialization
 _drive_module = None
@@ -111,30 +113,48 @@ def _session_filename(session_id: str) -> str:
     return f"advising_session_{session_id}.json"
 
 
+def _index_version_key(major: str) -> str:
+    return f"_index_version_{major}"
+
+
+def _selection_version_key(major: str) -> str:
+    return f"_selection_version_{major}"
+
+
+def get_index_version(major: Optional[str] = None) -> int:
+    major = major or st.session_state.get("current_major", "DEFAULT")
+    return int(st.session_state.get(_index_version_key(major), 0))
+
+
+def _bump_index_version(major: Optional[str] = None) -> int:
+    major = major or st.session_state.get("current_major", "DEFAULT")
+    key = _index_version_key(major)
+    st.session_state[key] = int(st.session_state.get(key, 0)) + 1
+    return st.session_state[key]
+
+
+def _bump_selection_version(major: Optional[str] = None) -> int:
+    major = major or st.session_state.get("current_major", "DEFAULT")
+    key = _selection_version_key(major)
+    st.session_state[key] = int(st.session_state.get(key, 0)) + 1
+    return st.session_state[key]
+
+
 # ---------- index I/O ----------
 
 def _get_major_folder_id() -> str:
     """Get major-specific folder ID. Returns major-specific folder inside root folder."""
-    from advising_utils import get_major_folder_id_helper
     try:
-        gd = _get_drive_module()
-        service = gd.initialize_drive_service()
-        return get_major_folder_id_helper(service)
+        major = st.session_state.get("current_major", "DEFAULT")
+        return get_drive_context(major).get("major_folder_id", "")
     except Exception:
         return ""
 
 def _get_sessions_folder_id() -> str:
     """Get sessions subfolder ID within the major folder. Creates it if it doesn't exist."""
     try:
-        gd = _get_drive_module()
-        service = gd.initialize_drive_service()
-        major_folder_id = _get_major_folder_id()
-        if not major_folder_id:
-            return ""
-        
-        # Get or create 'sessions' subfolder within major folder
-        sessions_folder_id = gd.get_or_create_folder(service, "sessions", major_folder_id)
-        return sessions_folder_id
+        major = st.session_state.get("current_major", "DEFAULT")
+        return get_drive_context(major).get("sessions_folder_id", "")
     except Exception as e:
         log_error(f"Failed to get/create sessions folder", e)
         return ""
@@ -148,63 +168,70 @@ def _load_index(force_refresh: bool = False) -> List[Dict[str, Any]]:
     major = st.session_state.get("current_major", "DEFAULT")
     cache_key = f"_advising_index_cache_{major}"
     
-    # 1. Use session state cache if available (fastest - in memory)
-    if not force_refresh and cache_key in st.session_state:
-        cached_index = st.session_state[cache_key]
-        if cached_index:
-            return cached_index
+    with perf_span("history.load_index", {"major": major, "force_refresh": force_refresh}):
+        # 1. Use session state cache if available (fastest - in memory)
+        if not force_refresh and cache_key in st.session_state:
+            cached_index = st.session_state[cache_key]
+            if cached_index:
+                record_perf_counter("history_index_session_cache_hit")
+                return cached_index
     
     # 2. Try local file cache (fast - disk read)
-    if not force_refresh:
-        local_path = _get_local_index_path(major)
-        if os.path.exists(local_path):
-            try:
-                with open(local_path, 'r', encoding='utf-8') as f:
-                    local_index = json.load(f)
-                if isinstance(local_index, list) and local_index:
-                    _save_index_local(local_index)
-                    log_info(f"Loaded index from local cache: {len(local_index)} entries")
-                    return local_index
-            except Exception as e:
-                log_error("Failed to read local index cache", e)
+        if not force_refresh:
+            local_path = _get_local_index_path(major)
+            if os.path.exists(local_path):
+                try:
+                    with open(local_path, 'r', encoding='utf-8') as f:
+                        local_index = json.load(f)
+                    if isinstance(local_index, list) and local_index:
+                        _save_index_local(local_index)
+                        record_perf_counter("history_index_local_cache_hit")
+                        log_info(f"Loaded index from local cache: {len(local_index)} entries")
+                        return local_index
+                except Exception as e:
+                    log_error("Failed to read local index cache", e)
     
     # 3. Fall back to Google Drive (slow - network)
-    try:
-        gd = _get_drive_module()
-        service = gd.initialize_drive_service()
-        
-        # Try sessions subfolder first
-        folder_id = _get_sessions_folder_id()
-        if folder_id:
-            fid = gd.find_file_in_drive(service, _index_name(), folder_id)
-            if fid:
-                payload = gd.download_file_from_drive(service, fid)
-                idx = json.loads(payload.decode("utf-8"))
-                result = idx if isinstance(idx, list) else []
-                # Save to both session state AND local file
-                _save_index_local(result)
-                _save_index_to_local_file(result, major)
-                return result
-        
-        # Fall back to major folder root (backward compatibility for legacy sessions)
-        folder_id = _get_major_folder_id()
-        if folder_id:
-            fid = gd.find_file_in_drive(service, _index_name(), folder_id)
-            if fid:
-                payload = gd.download_file_from_drive(service, fid)
-                idx = json.loads(payload.decode("utf-8"))
-                log_info("Loaded legacy advising index from major folder root (consider migrating to sessions/)")
-                result = idx if isinstance(idx, list) else []
-                _save_index_local(result)
-                _save_index_to_local_file(result, major)
-                return result
-        
-        # No index found - initialize empty
-        _save_index_local([])
-        return []
-    except Exception as e:
-        log_error("Failed to load advising index", e)
-        return st.session_state.get(cache_key, [])
+        try:
+            gd = _get_drive_module()
+            ctx = get_drive_context(major, force_refresh=force_refresh)
+            service = ctx.get("service")
+            if not service:
+                record_perf_counter("history_index_drive_miss")
+                return st.session_state.get(cache_key, [])
+
+            # Try sessions subfolder first
+            folder_id = ctx.get("sessions_folder_id") or _get_sessions_folder_id()
+            if folder_id:
+                fid = gd.find_file_in_drive(service, _index_name(), folder_id)
+                if fid:
+                    payload = gd.download_file_from_drive(service, fid)
+                    idx = json.loads(payload.decode("utf-8"))
+                    result = idx if isinstance(idx, list) else []
+                    _save_index_local(result)
+                    _save_index_to_local_file(result, major)
+                    record_perf_counter("history_index_drive_hit")
+                    return result
+
+            # Fall back to major folder root (backward compatibility for legacy sessions)
+            folder_id = ctx.get("major_folder_id") or _get_major_folder_id()
+            if folder_id:
+                fid = gd.find_file_in_drive(service, _index_name(), folder_id)
+                if fid:
+                    payload = gd.download_file_from_drive(service, fid)
+                    idx = json.loads(payload.decode("utf-8"))
+                    log_info("Loaded legacy advising index from major folder root (consider migrating to sessions/)")
+                    result = idx if isinstance(idx, list) else []
+                    _save_index_local(result)
+                    _save_index_to_local_file(result, major)
+                    record_perf_counter("history_index_drive_hit")
+                    return result
+
+            _save_index_local([])
+            return []
+        except Exception as e:
+            log_error("Failed to load advising index", e)
+            return st.session_state.get(cache_key, [])
 
 
 def _save_index_to_local_file(index_items: List[Dict[str, Any]], major: str = None) -> None:
@@ -226,6 +253,7 @@ def _save_index_local(index_items: List[Dict[str, Any]]) -> None:
     major = st.session_state.get("current_major", "DEFAULT")
     cache_key = f"_advising_index_cache_{major}"
     st.session_state[cache_key] = index_items
+    _bump_index_version(major)
 
 def _save_index(index_items: List[Dict[str, Any]]) -> None:
     """Save index to local cache, session state, and Drive."""
@@ -236,8 +264,10 @@ def _save_index(index_items: List[Dict[str, Any]]) -> None:
     # Background save to Drive (best effort)
     try:
         gd = _get_drive_module()
-        service = gd.initialize_drive_service()
-        folder_id = _get_sessions_folder_id()
+        major = st.session_state.get("current_major", "DEFAULT")
+        ctx = get_drive_context(major)
+        service = ctx.get("service")
+        folder_id = ctx.get("sessions_folder_id") or _get_sessions_folder_id()
         if not folder_id:
             return
         # Convert numpy types to native Python types before JSON serialization
@@ -342,44 +372,46 @@ def _delete_sessions(session_ids: List[str]) -> int:
 
 
 def _load_session_payload_by_id(session_id: str) -> Optional[Dict[str, Any]]:
-    # Try local cache first
-    if "advising_sessions_cache" in st.session_state:
-        cached = st.session_state.advising_sessions_cache.get(session_id)
-        if cached:
-            return cached
-    
-    # Fall back to Drive
-    try:
-        gd = _get_drive_module()
-        service = gd.initialize_drive_service()
-        
-        # Try sessions subfolder first
-        folder_id = _get_sessions_folder_id()
-        if folder_id:
-            fid = gd.find_file_in_drive(service, _session_filename(session_id), folder_id)
-            if fid:
-                data = gd.download_file_from_drive(service, fid)
-                payload = json.loads(data.decode("utf-8"))
-                # Cache it locally for next time
-                _save_session_payload_local(session_id, payload.get("snapshot", {}), payload.get("meta", {}))
-                return payload
-        
-        # Fall back to major folder root (backward compatibility for legacy sessions)
-        folder_id = _get_major_folder_id()
-        if folder_id:
-            fid = gd.find_file_in_drive(service, _session_filename(session_id), folder_id)
-            if fid:
-                data = gd.download_file_from_drive(service, fid)
-                payload = json.loads(data.decode("utf-8"))
-                log_info(f"Loaded legacy session {session_id} from major folder root")
-                # Cache it locally for next time
-                _save_session_payload_local(session_id, payload.get("snapshot", {}), payload.get("meta", {}))
-                return payload
-        
-        return None
-    except Exception as e:
-        log_error("Failed to load session payload from Drive", e)
-        return None
+    with perf_span("history.load_session_payload", {"session_id": session_id}):
+        if "advising_sessions_cache" in st.session_state:
+            cached = st.session_state.advising_sessions_cache.get(session_id)
+            if cached:
+                record_perf_counter("history_session_payload_cache_hit")
+                return cached
+
+        try:
+            major = st.session_state.get("current_major", "DEFAULT")
+            gd = _get_drive_module()
+            ctx = get_drive_context(major)
+            service = ctx.get("service")
+            if not service:
+                return None
+
+            folder_id = ctx.get("sessions_folder_id") or _get_sessions_folder_id()
+            if folder_id:
+                fid = gd.find_file_in_drive(service, _session_filename(session_id), folder_id)
+                if fid:
+                    data = gd.download_file_from_drive(service, fid)
+                    payload = json.loads(data.decode("utf-8"))
+                    _save_session_payload_local(session_id, payload.get("snapshot", {}), payload.get("meta", {}))
+                    record_perf_counter("history_session_payload_drive_hit")
+                    return payload
+
+            folder_id = ctx.get("major_folder_id") or _get_major_folder_id()
+            if folder_id:
+                fid = gd.find_file_in_drive(service, _session_filename(session_id), folder_id)
+                if fid:
+                    data = gd.download_file_from_drive(service, fid)
+                    payload = json.loads(data.decode("utf-8"))
+                    log_info(f"Loaded legacy session {session_id} from major folder root")
+                    _save_session_payload_local(session_id, payload.get("snapshot", {}), payload.get("meta", {}))
+                    record_perf_counter("history_session_payload_drive_hit")
+                    return payload
+
+            return None
+        except Exception as e:
+            log_error("Failed to load session payload from Drive", e)
+            return None
 
 
 # ---------- snapshot builders ----------
@@ -553,12 +585,11 @@ def save_session_for_student(student_id: Union[int, str]) -> Optional[str]:
         # best-effort payload save to Drive
         _save_session_payload(sid, snapshot, meta)
 
-        # FIX RACE CONDITION: Force reload index from Drive before appending
-        # This ensures we have the latest entries from other users
-        st.session_state.advising_index = _load_index(force_refresh=True)
-        
+        if "advising_index" not in st.session_state:
+            st.session_state.advising_index = _load_index()
+
         student_data = students[0]
-        st.session_state.advising_index.append({
+        new_entry = {
             "id": sid,
             "title": title,
             "created_at": meta["created_at"],
@@ -574,7 +605,12 @@ def save_session_for_student(student_id: Union[int, str]) -> Optional[str]:
             "advised": student_data.get("advised", []),
             "optional": student_data.get("optional", []),
             "repeat": student_data.get("repeat", []),
-        })
+        }
+        # Optimistic append; manual refresh remains available for reconciliation.
+        st.session_state.advising_index = [
+            r for r in st.session_state.advising_index if str(r.get("id", "")) != sid
+        ]
+        st.session_state.advising_index.append(new_entry)
         _save_index(st.session_state.advising_index)
         
         # Also update local selections cache
@@ -790,7 +826,11 @@ def _load_selections_from_local_file(major: str = None) -> bool:
         return False
 
 
-def load_all_sessions_for_period(period_id: Optional[str] = None, force_refresh: bool = False) -> int:
+def load_all_sessions_for_period(
+    period_id: Optional[str] = None,
+    force_refresh: bool = False,
+    source: str = "auto",
+) -> int:
     """
     Load all saved advising sessions for the current (or specified) period
     and apply them to advising_selections.
@@ -807,111 +847,106 @@ def load_all_sessions_for_period(period_id: Optional[str] = None, force_refresh:
     Returns the number of sessions loaded.
     """
     major = st.session_state.get("current_major", "")
-    
-    # Try local file cache first (fastest - no network)
-    # Only use local cache if NOT force_refresh AND it has actual data
-    if not force_refresh:
-        local_loaded = _load_selections_from_local_file(major)
-        if local_loaded:
-            selections_count = len(st.session_state.get("advising_selections", {}))
-            if selections_count > 0:
-                log_info(f"Using local cache: {selections_count} selections")
-                return selections_count
-            # If local cache returned True but no selections, continue to Drive
-    
-    # Load index (uses local-first approach internally)
-    if "advising_index" not in st.session_state or force_refresh:
-        st.session_state.advising_index = _load_index(force_refresh=force_refresh)
-    
-    index = st.session_state.advising_index or []
-    
-    if period_id is None:
-        current_period = get_current_period()
-        period_id = current_period.get("period_id", "")
-    
-    period_sessions = [
-        r for r in index 
-        if (r.get("period_id", "") == period_id or not r.get("period_id"))
-    ]
-    
-    if not period_sessions:
-        return 0
-    
-    students_with_sessions = {}
-    for session in period_sessions:
-        student_id = session.get("student_id")
-        if not student_id:
-            continue
-        created_at = session.get("created_at", "")
-        if student_id not in students_with_sessions or created_at > students_with_sessions[student_id].get("created_at", ""):
-            students_with_sessions[student_id] = session
-    
-    if "advising_selections" not in st.session_state:
-        st.session_state.advising_selections = {}
-    
-    major = st.session_state.get("current_major", "")
-    bypasses_key = f"bypasses_{major}"
-    if bypasses_key not in st.session_state:
-        st.session_state[bypasses_key] = {}
-    
-    loaded_count = 0
-    for student_id, session_meta in students_with_sessions.items():
-        try:
-            norm_id = int(student_id)
-        except (ValueError, TypeError):
-            norm_id = str(student_id)
-        
-        # Only skip if not force_refresh AND data already loaded
-        if not force_refresh and (norm_id in st.session_state.advising_selections or str(norm_id) in st.session_state.advising_selections):
-            continue
-        
-        session_id = session_meta.get("id")
-        if not session_id:
-            continue
-        
-        # USE INDEX SUMMARY DATA IF AVAILABLE (FAST!)
-        if "advised" in session_meta:
-             st.session_state.advising_selections[norm_id] = {
-                "advised": session_meta.get("advised", []),
-                "optional": session_meta.get("optional", []),
-                "repeat": session_meta.get("repeat", []),
-                "note": session_meta.get("note", ""), # may still be missing in index
+    if source not in {"auto", "local", "drive"}:
+        source = "auto"
+
+    with perf_span("history.load_all_sessions", {"major": major, "force_refresh": force_refresh, "source": source}):
+        if source in {"auto", "local"} and not force_refresh:
+            local_loaded = _load_selections_from_local_file(major)
+            if local_loaded:
+                selections_count = len(st.session_state.get("advising_selections", {}))
+                if selections_count > 0:
+                    record_perf_counter("history_load_sessions_local_hit")
+                    _bump_selection_version(major)
+                    log_info(f"Using local cache: {selections_count} selections")
+                    return selections_count
+
+        if "advising_index" not in st.session_state or force_refresh or source == "drive":
+            st.session_state.advising_index = _load_index(force_refresh=(force_refresh or source == "drive"))
+
+        index = st.session_state.advising_index or []
+
+        if period_id is None:
+            current_period = get_current_period()
+            period_id = current_period.get("period_id", "")
+
+        period_sessions = [
+            r for r in index
+            if (r.get("period_id", "") == period_id or not r.get("period_id"))
+        ]
+
+        if not period_sessions:
+            return 0
+
+        students_with_sessions = {}
+        for session in period_sessions:
+            student_id = session.get("student_id")
+            if not student_id:
+                continue
+            created_at = session.get("created_at", "")
+            if student_id not in students_with_sessions or created_at > students_with_sessions[student_id].get("created_at", ""):
+                students_with_sessions[student_id] = session
+
+        if "advising_selections" not in st.session_state:
+            st.session_state.advising_selections = {}
+
+        bypasses_key = f"bypasses_{major}"
+        if bypasses_key not in st.session_state:
+            st.session_state[bypasses_key] = {}
+
+        loaded_count = 0
+        for student_id, session_meta in students_with_sessions.items():
+            try:
+                norm_id = int(student_id)
+            except (ValueError, TypeError):
+                norm_id = str(student_id)
+
+            if not force_refresh and (norm_id in st.session_state.advising_selections or str(norm_id) in st.session_state.advising_selections):
+                continue
+
+            session_id = session_meta.get("id")
+            if not session_id:
+                continue
+
+            if "advised" in session_meta:
+                st.session_state.advising_selections[norm_id] = {
+                    "advised": session_meta.get("advised", []),
+                    "optional": session_meta.get("optional", []),
+                    "repeat": session_meta.get("repeat", []),
+                    "note": session_meta.get("note", ""),
+                }
+                loaded_count += 1
+                continue
+
+            payload = _load_session_payload_by_id(session_id)
+            if not payload:
+                continue
+
+            snapshot = payload.get("snapshot", {})
+            students = snapshot.get("students", [])
+            if not students:
+                continue
+
+            student_data = students[0]
+            st.session_state.advising_selections[norm_id] = {
+                "advised": student_data.get("advised", []),
+                "optional": student_data.get("optional", []),
+                "repeat": student_data.get("repeat", []),
+                "note": student_data.get("note", ""),
             }
-             loaded_count += 1
-             continue
-             
-        # FALLBACK: Load from Drive for legacy entries (SLOW)
-        payload = _load_session_payload_by_id(session_id)
-        if not payload:
-            continue
-        
-        snapshot = payload.get("snapshot", {})
-        students = snapshot.get("students", [])
-        
-        if not students:
-            continue
-        
-        student_data = students[0]
-        
-        st.session_state.advising_selections[norm_id] = {
-            "advised": student_data.get("advised", []),
-            "optional": student_data.get("optional", []),
-            "repeat": student_data.get("repeat", []),
-            "note": student_data.get("note", ""),
-        }
-        
-        student_bypasses = student_data.get("bypasses", {})
-        if student_bypasses:
-            st.session_state[bypasses_key][norm_id] = student_bypasses
-        
-        loaded_count += 1
-    
-    if loaded_count > 0:
-        log_info(f"Loaded {loaded_count} advising sessions for period {period_id}")
-        # Save to local cache for faster loading next time
-        _save_selections_to_local_file(major)
-    
-    return loaded_count
+
+            student_bypasses = student_data.get("bypasses", {})
+            if student_bypasses:
+                st.session_state[bypasses_key][norm_id] = student_bypasses
+
+            loaded_count += 1
+
+        if loaded_count > 0:
+            log_info(f"Loaded {loaded_count} advising sessions for period {period_id}")
+            _save_selections_to_local_file(major)
+            _bump_selection_version(major)
+
+        return loaded_count
 
 
 # ---------- bulk restore helpers ----------
@@ -966,20 +1001,27 @@ def get_advised_student_ids(period_id: Optional[str] = None, force_refresh: bool
     Get a set of all student IDs who have at least one session in the specified period.
     This is FAST as it only uses the index.
     """
+    major = st.session_state.get("current_major", "DEFAULT")
+    if period_id is None:
+        current_period = get_current_period()
+        period_id = current_period.get("period_id", "")
+
+    cache_key = f"_advised_ids_{major}_{period_id}_{get_index_version(major)}"
+    if not force_refresh and cache_key in st.session_state:
+        record_perf_counter("history_advised_ids_cache_hit")
+        return st.session_state[cache_key]
+
     index = _load_index(force_refresh=force_refresh)
     if not index:
         return set()
-    
-    if period_id is None:
-        from advising_period import get_current_period
-        current_period = get_current_period()
-        period_id = current_period.get("period_id", "")
-    
-    return {
+
+    advised_ids = {
         entry.get("student_id") 
         for entry in index 
         if str(entry.get("period_id", "")) == str(period_id) and entry.get("student_id")
     }
+    st.session_state[cache_key] = advised_ids
+    return advised_ids
 
 
 def bulk_restore_sessions(student_ids: List[Union[int, str]], force: bool = False) -> Dict[str, Any]:

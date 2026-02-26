@@ -1,17 +1,34 @@
 # app.py - Advising Dashboard with Modern UI
 
 import os
+import sys
 import pandas as pd
 import streamlit as st
 from datetime import datetime
+from importlib import metadata
 
 from visual_theme import apply_visual_theme
-from advising_utils import log_info, log_error, load_progress_excel
+from advising_utils import log_info, log_error, load_progress_excel, load_courses_excel
+from drive_context import get_drive_context, get_root_folder_id
+from perf import perf_span, record_perf_counter
 
 def _get_drive_module():
     """Lazy loader for google_drive module to avoid import-time side effects."""
     import google_drive as gd
     return gd
+
+
+def _log_runtime_diagnostics() -> None:
+    if st.session_state.get("_runtime_diag_logged"):
+        return
+    versions = {}
+    for pkg in ("streamlit", "pandas", "numpy", "pyarrow", "google-api-python-client"):
+        try:
+            versions[pkg] = metadata.version(pkg)
+        except Exception:
+            versions[pkg] = "unknown"
+    log_info(f"Runtime: python={sys.version.split()[0]} packages={versions}")
+    st.session_state["_runtime_diag_logged"] = True
 
 st.set_page_config(
     page_title="Advising Dashboard",
@@ -72,13 +89,16 @@ def _count_advised_from_index(progress_ids = None) -> int:
     """
     try:
         from advising_period import get_current_period
-        from advising_history import _load_index
-        
-        # _load_index() has internal per-major caching via _advising_index_cache_{major}
-        index = _load_index()
-        
+        from advising_history import _load_index, get_index_version
+
         current_period = get_current_period()
         period_id = current_period.get("period_id", "")
+        major = st.session_state.get("current_major", "")
+        cache_key = f"_home_advised_count_{major}_{period_id}_{get_index_version(major)}"
+        if progress_ids is not None and cache_key in st.session_state:
+            return st.session_state[cache_key]
+
+        index = _load_index()
         if not period_id:
             return 0
             
@@ -106,7 +126,10 @@ def _count_advised_from_index(progress_ids = None) -> int:
                     if progress_ids is None or norm_sid in progress_ids:
                         students_with_sessions.add(norm_sid)
         
-        return len(students_with_sessions)
+        count = len(students_with_sessions)
+        if progress_ids is not None:
+            st.session_state[cache_key] = count
+        return count
     except Exception as e:
         log_error("Dashboard count failed", e)
         return 0
@@ -155,13 +178,8 @@ def _render_header():
             
             if not progress_df.empty:
                 total = len(progress_df)
-                # Get student IDs from progress report for filtering
-                progress_ids = set()
-                for _, row in progress_df.iterrows():
-                    try:
-                        progress_ids.add(int(row.get("ID", 0)))
-                    except (ValueError, TypeError):
-                        pass
+                ids = pd.to_numeric(progress_df.get("ID", pd.Series(dtype="float64")), errors="coerce")
+                progress_ids = set(ids.dropna().astype(int).tolist())
                 
                 # Count students with saved sessions (from index, filtered to current roster)
                 advised = _count_advised_from_index(progress_ids)
@@ -258,8 +276,6 @@ def _render_period_gate():
 
 def _auto_load_from_drive(major: str):
     """Auto-load data files from Google Drive for the selected major."""
-    from io import BytesIO
-    
     load_key = f"_loaded_{major}"
     if st.session_state.get(load_key):
         return
@@ -268,44 +284,43 @@ def _auto_load_from_drive(major: str):
         st.session_state[load_key] = True
         return
     
-    root_folder_id = ""
-    try:
-        if "google" in st.secrets:
-            root_folder_id = st.secrets["google"].get("folder_id", "")
-    except:
-        pass
-    if not root_folder_id:
-        root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
+    root_folder_id = get_root_folder_id()
     
     if not root_folder_id:
         return
     
     try:
-        gd = _get_drive_module()
-        service = gd.initialize_drive_service()
-        if not service:
-            return
-        
-        major_folder_id = gd.get_major_folder_id(service, major, root_folder_id)
-        
-        if st.session_state.courses_df.empty:
-            file_id = gd.find_file_in_drive(service, "courses_table.xlsx", major_folder_id)
-            if file_id:
-                data = gd.download_file_from_drive(service, file_id)
-                if data:
-                    st.session_state.courses_df = pd.read_excel(BytesIO(data))
-                    st.session_state.majors[major]["courses_df"] = st.session_state.courses_df
-                    log_info(f"Loaded courses from Drive for {major}")
-        
-        if st.session_state.progress_df.empty:
-            file_id = gd.find_file_in_drive(service, "progress_report.xlsx", major_folder_id)
-            if file_id:
-                data = gd.download_file_from_drive(service, file_id)
-                if data:
-                    st.session_state.progress_df = load_progress_excel(data)
-                    st.session_state.majors[major]["progress_df"] = st.session_state.progress_df
-                    log_info(f"Loaded progress from Drive for {major}")
-        
+        with perf_span("app.auto_load_from_drive", {"major": major}):
+            ctx = get_drive_context(major)
+            gd = _get_drive_module()
+            service = ctx.get("service")
+            major_folder_id = ctx.get("major_folder_id")
+            if service and major_folder_id:
+                record_perf_counter("drive_ctx_hit")
+            else:
+                record_perf_counter("drive_ctx_miss")
+                return
+
+            if st.session_state.courses_df.empty:
+                file_id = gd.find_file_in_drive(service, "courses_table.xlsx", major_folder_id)
+                if file_id:
+                    data = gd.download_file_from_drive(service, file_id)
+                    if data:
+                        record_perf_counter("drive_download_courses")
+                        st.session_state.courses_df = load_courses_excel(data)
+                        st.session_state.majors[major]["courses_df"] = st.session_state.courses_df
+                        log_info(f"Loaded courses from Drive for {major}")
+
+            if st.session_state.progress_df.empty:
+                file_id = gd.find_file_in_drive(service, "progress_report.xlsx", major_folder_id)
+                if file_id:
+                    data = gd.download_file_from_drive(service, file_id)
+                    if data:
+                        record_perf_counter("drive_download_progress")
+                        st.session_state.progress_df = load_progress_excel(data)
+                        st.session_state.majors[major]["progress_df"] = st.session_state.progress_df
+                        log_info(f"Loaded progress from Drive for {major}")
+
         st.session_state[load_key] = True
     except Exception as e:
         log_error(f"Auto-load from Drive failed for {major}", e)
@@ -313,6 +328,7 @@ def _auto_load_from_drive(major: str):
 
 def main():
     """Main application entry point."""
+    _log_runtime_diagnostics()
     
     # 1. Initialize major context and sync data buckets before ANY rendering
     selected_major = st.session_state.get("current_major", "Select major...")

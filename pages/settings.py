@@ -12,7 +12,7 @@ def render_settings():
     
     st.markdown("## Settings")
     
-    tabs = st.tabs(["Sessions", "Exclusions", "Sync", "Email Templates"])
+    tabs = st.tabs(["Sessions", "Exclusions", "Sync", "Performance", "Email Templates"])
     
     with tabs[0]:
         _render_session_management()
@@ -24,6 +24,9 @@ def render_settings():
         _render_sync_settings()
     
     with tabs[3]:
+        _render_performance_settings()
+
+    with tabs[4]:
         _render_email_templates()
 
 def _render_session_management():
@@ -255,7 +258,7 @@ def _render_sync_settings():
             
             # Force reload from Drive
             with st.spinner("Syncing from Google Drive..."):
-                load_all_sessions_for_period(force_refresh=True)
+                load_all_sessions_for_period(force_refresh=True, source="drive")
             
             st.success("✅ Data synced from Google Drive")
             st.rerun()
@@ -324,6 +327,44 @@ def _render_sync_settings():
     else:
         st.warning("No Google Drive folder configured")
         st.caption("Set GOOGLE_FOLDER_ID in your environment or secrets")
+
+
+def _render_performance_settings():
+    """Render performance diagnostics and controls."""
+    from perf import reset_perf
+
+    st.markdown("### Performance")
+    perf_enabled = st.query_params.get("perf", "0") == "1"
+    st.caption("Use `?perf=1` in URL to show inline performance timings.")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Perf Mode", "Enabled" if perf_enabled else "Disabled")
+    with col2:
+        if st.button("Clear Perf Stats"):
+            reset_perf()
+            st.success("Performance stats cleared")
+            st.rerun()
+
+    perf_store = st.session_state.get("_perf", {"spans": [], "counters": {}})
+    spans = perf_store.get("spans", [])
+    counters = perf_store.get("counters", {})
+
+    if counters:
+        st.markdown("#### Counters")
+        counters_df = pd.DataFrame(
+            [{"metric": k, "value": v} for k, v in sorted(counters.items(), key=lambda x: x[0])]
+        )
+        st.dataframe(counters_df, hide_index=True, width="stretch")
+    else:
+        st.info("No counters recorded yet.")
+
+    if spans:
+        st.markdown("#### Recent Spans")
+        spans_df = pd.DataFrame(spans[-100:])
+        st.dataframe(spans_df, hide_index=True, width="stretch")
+    else:
+        st.info("No spans recorded yet.")
 
 
 def _render_email_templates():
@@ -436,5 +477,4 @@ Academic Year: {mock_year}/{int(mock_year) + 1}
 
 Based on your academic progress and requirements, here are your recommended courses for {semester} {year}:"""
             st.rerun()
-
 

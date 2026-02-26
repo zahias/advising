@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 from datetime import datetime
+from advising_utils import load_progress_excel, load_courses_excel
 
 def _get_drive_module():
     """Lazy loader for google_drive module."""
@@ -50,7 +51,7 @@ def _render_data_upload():
         
         if courses_file:
             try:
-                df = pd.read_excel(courses_file)
+                df = load_courses_excel(courses_file.read())
                 st.session_state.courses_df = df
                 st.session_state.majors[major]["courses_df"] = df
                 st.success(f"✓ Loaded {len(df)} courses")
@@ -75,7 +76,6 @@ def _render_data_upload():
         
         if progress_file:
             try:
-                from advising_utils import load_progress_excel
                 df = load_progress_excel(progress_file.read())
                 st.session_state.progress_df = df
                 st.session_state.majors[major]["progress_df"] = df
@@ -149,7 +149,7 @@ def _download_from_drive():
         if courses_id:
             data = gd.download_file_from_drive(service, courses_id)
             if data:
-                df = pd.read_excel(BytesIO(data))
+                df = load_courses_excel(data)
                 st.session_state.courses_df = df
                 st.session_state.majors[major]["courses_df"] = df
                 st.success("✓ Downloaded courses table")
@@ -158,7 +158,6 @@ def _download_from_drive():
         if progress_id:
             data = gd.download_file_from_drive(service, progress_id)
             if data:
-                from advising_utils import load_progress_excel
                 df = load_progress_excel(data)
                 st.session_state.progress_df = df
                 st.session_state.majors[major]["progress_df"] = df

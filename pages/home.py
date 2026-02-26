@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
 from advising_history import get_advised_student_ids, get_students_with_saved_sessions
 
 def render_home():
@@ -31,31 +30,13 @@ def render_home():
     
     # FAST: Get advised count from index
     advised_ids = get_advised_student_ids()
-    if not advised_ids:
-        # Fallback: try one refresh if empty (might be first load of major)
-        advised_ids = get_advised_student_ids(force_refresh=True)
-        
-    # Normalize IDs in set for comparison
-    advised_ids_norm = set()
-    for aid in advised_ids:
-        try:
-            advised_ids_norm.add(int(aid))
-        except:
-            advised_ids_norm.add(str(aid))
-
-    advised_count = 0
-    not_advised_count = 0
-    for _, row in progress_df.iterrows():
-        sid = row.get("ID", 0)
-        try:
-            norm_sid = int(sid)
-        except:
-            norm_sid = str(sid)
-            
-        if norm_sid in advised_ids_norm:
-            advised_count += 1
-        else:
-            not_advised_count += 1
+    advised_ids_int = {int(x) for x in advised_ids if str(x).isdigit()}
+    advised_ids_str = {str(x) for x in advised_ids if not str(x).isdigit()}
+    progress_ids_raw = progress_df.get("ID", pd.Series(dtype="object"))
+    progress_ids_int = pd.to_numeric(progress_ids_raw, errors="coerce")
+    progress_ids_str = progress_ids_raw.astype(str)
+    advised_count = int(progress_ids_int.isin(advised_ids_int).sum() + progress_ids_str.isin(advised_ids_str).sum())
+    not_advised_count = int(total_students - advised_count)
     
     col1, col2, col3, col4 = st.columns(4)
     
@@ -71,6 +52,13 @@ def render_home():
     with col4:
         pct = int((advised_count / total_students * 100)) if total_students > 0 else 0
         st.metric("Progress", f"{pct}%")
+
+    refresh_col, _ = st.columns([1, 4])
+    with refresh_col:
+        if st.button("Refresh from Drive", key="home_refresh_drive"):
+            get_advised_student_ids(force_refresh=True)
+            st.success("Refreshed index from Drive")
+            st.rerun()
     
     st.markdown("---")
     
@@ -104,16 +92,11 @@ def render_home():
             remaining_col = "Remaining Credits" if "Remaining Credits" in progress_df.columns else "# Remaining"
             graduating = progress_df[pd.to_numeric(progress_df[remaining_col], errors="coerce").fillna(999) <= 36]
             
-            graduating_not_advised = []
-            for _, row in graduating.iterrows():
-                sid = row.get("ID", 0)
-                try:
-                    norm_sid = int(sid)
-                except:
-                    norm_sid = str(sid)
-                
-                if norm_sid not in advised_ids_norm:
-                    graduating_not_advised.append(row.get("NAME", "Unknown"))
+            graduating_ids_raw = graduating.get("ID", pd.Series(dtype="object"))
+            graduating_ids_int = pd.to_numeric(graduating_ids_raw, errors="coerce")
+            graduating_ids_str = graduating_ids_raw.astype(str)
+            advised_mask = graduating_ids_int.isin(advised_ids_int) | graduating_ids_str.isin(advised_ids_str)
+            graduating_not_advised = graduating.loc[(~advised_mask).values, "NAME"].fillna("Unknown").tolist()
             
             if graduating_not_advised:
                 st.warning(f"{len(graduating_not_advised)} graduating students need advising")

@@ -56,6 +56,43 @@ def get_coreq_concurrent_cached(courses_df: pd.DataFrame) -> List[str]:
     df_hash = _hash_dataframe(courses_df)
     return get_cached_coreq_concurrent(df_hash, courses_df)
 
+
+def get_courses_df_indexed(courses_df: pd.DataFrame) -> pd.DataFrame:
+    """Return courses dataframe indexed by Course Code and cached by hash."""
+    if courses_df is None or courses_df.empty or "Course Code" not in courses_df.columns:
+        return pd.DataFrame()
+    cache_key = "_courses_df_indexed_cache"
+    df_hash = _hash_dataframe(courses_df)
+    cached = st.session_state.get(cache_key, {})
+    if cached.get("hash") == df_hash:
+        return cached.get("df", pd.DataFrame())
+    indexed = courses_df.copy()
+    indexed["Course Code"] = indexed["Course Code"].astype(str)
+    indexed = indexed.set_index("Course Code", drop=False)
+    st.session_state[cache_key] = {"hash": df_hash, "df": indexed}
+    return indexed
+
+
+def get_progress_lookup(progress_df: pd.DataFrame) -> Dict[Union[int, str], pd.Series]:
+    """Build a robust ID->row lookup cache for the progress dataframe."""
+    if progress_df is None or progress_df.empty or "ID" not in progress_df.columns:
+        return {}
+    cache_key = "_progress_lookup_cache"
+    df_hash = _hash_dataframe(progress_df)
+    cached = st.session_state.get(cache_key, {})
+    if cached.get("hash") == df_hash:
+        return cached.get("lookup", {})
+    lookup: Dict[Union[int, str], pd.Series] = {}
+    for _, row in progress_df.iterrows():
+        sid = row.get("ID")
+        lookup[str(sid)] = row
+        try:
+            lookup[int(sid)] = row
+        except Exception:
+            pass
+    st.session_state[cache_key] = {"hash": df_hash, "lookup": lookup}
+    return lookup
+
 # Re-export for backward compatibility
 __all__ = [
     "check_course_completed",
@@ -77,7 +114,10 @@ __all__ = [
     # Cached versions
     "get_mutual_pairs_cached",
     "get_coreq_concurrent_cached",
+    "get_courses_df_indexed",
+    "get_progress_lookup",
     "_hash_dataframe",
+    "load_courses_excel",
 ]
 
 # ---------------- Logging ----------------
@@ -222,7 +262,15 @@ def load_progress_excel(content: Union[bytes, BytesIO, str]) -> pd.DataFrame:
     Returns a single DataFrame with all course columns merged on (ID, NAME).
     Works with bytes, BytesIO, or a file path.
     """
-    io_obj = BytesIO(content) if isinstance(content, (bytes, bytearray)) else content
+    if isinstance(content, (bytes, bytearray)):
+        cache = st.session_state.setdefault("_progress_excel_cache", {})
+        payload = bytes(content)
+        payload_hash = hashlib.md5(payload).hexdigest()
+        if payload_hash in cache:
+            return cache[payload_hash].copy()
+        io_obj = BytesIO(payload)
+    else:
+        io_obj = content
     sheets = pd.read_excel(io_obj, sheet_name=None)
     # Pick required/intensive by name; fallbacks if names differ slightly
     req_key = next((k for k in sheets.keys() if "required" in k.lower()), None)
@@ -235,6 +283,8 @@ def load_progress_excel(content: Union[bytes, BytesIO, str]) -> pd.DataFrame:
 
     if int_key is None:
         # No Intensive sheet -> return required only
+        if isinstance(content, (bytes, bytearray)):
+            st.session_state["_progress_excel_cache"][payload_hash] = req_df.copy()
         return req_df
 
     int_df = sheets[int_key].copy()
@@ -273,5 +323,20 @@ def load_progress_excel(content: Union[bytes, BytesIO, str]) -> pd.DataFrame:
         if f"{col}_int" in merged.columns:
             merged.drop(columns=[f"{col}_int"], inplace=True, errors="ignore")
 
+    if isinstance(content, (bytes, bytearray)):
+        st.session_state["_progress_excel_cache"][payload_hash] = merged.copy()
     return merged
 
+
+def load_courses_excel(content: Union[bytes, BytesIO, str]) -> pd.DataFrame:
+    """Load courses sheet with checksum-based cache for bytes payloads."""
+    if isinstance(content, (bytes, bytearray)):
+        payload = bytes(content)
+        cache = st.session_state.setdefault("_courses_excel_cache", {})
+        payload_hash = hashlib.md5(payload).hexdigest()
+        if payload_hash in cache:
+            return cache[payload_hash].copy()
+        df = pd.read_excel(BytesIO(payload))
+        cache[payload_hash] = df.copy()
+        return df
+    return pd.read_excel(content)
