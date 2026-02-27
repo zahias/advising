@@ -111,7 +111,7 @@ def render_master_plan():
                 return f"background-color: rgba(65, 105, 225, {opacity}); color: {'white' if opacity > 0.5 else 'black'}"
 
             styled_df = summary_df.style.map(style_heatmap)
-            st.dataframe(styled_df, width='stretch', height=450)
+            st.dataframe(styled_df, width=1200, height=450)
         else:
             st.info("No future demand projected.")
 

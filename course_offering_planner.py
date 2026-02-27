@@ -119,7 +119,7 @@ def _render_course_offering_planner_content():
         })
     
     summary_df = pd.DataFrame(summary_data)
-    st.dataframe(summary_df, height=400)
+    st.dataframe(summary_df, width=1200, height=400)
 
     # --- Course Selection ---
     st.markdown("---")
