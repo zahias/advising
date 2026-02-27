@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "majors": {
+    "PBHL": "replace-with-password",
+    "SPTH-New": "replace-with-password",
+    "SPTH-Old": "replace-with-password",
+    "NURS": "replace-with-password"
+  }
+}
