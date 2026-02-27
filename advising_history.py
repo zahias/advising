@@ -1201,7 +1201,7 @@ def bulk_restore_panel():
         disabled=["ID", "Name", "Saved Sessions", "Latest Save", "Status"],
         hide_index=True,
         key="bulk_restore_editor",
-        width="stretch"
+        use_container_width=True
     )
     
     # Update selection from editor
@@ -1238,7 +1238,7 @@ def bulk_restore_panel():
         if result["details"]:
             with st.expander("View Details"):
                 details_df = pd.DataFrame(result["details"])
-                st.dataframe(details_df, hide_index=True, width="stretch")
+                st.dataframe(details_df, hide_index=True, use_container_width=True)
         
         # Clear selection and refresh
         st.session_state["_bulk_restore_selection"] = []
@@ -1324,6 +1324,6 @@ def advising_history_panel():
             if not df.empty:
                 preferred = ["Course Code","Type","Requisites","Offered","Eligibility Status","Justification","Action"]
                 cols = [c for c in preferred if c in df.columns] + [c for c in df.columns if c not in preferred]
-                st.dataframe(style_df(df[cols]), width="stretch")
+                st.dataframe(style_df(df[cols]), use_container_width=True)
             else:
                 st.info("No course rows stored in this snapshot.")
