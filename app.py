@@ -197,9 +197,11 @@ def _render_header():
 def _render_navigation():
     """Render the main navigation tabs."""
     
-    nav_options = ["Home", "Setup", "Workspace", "Insights", "Master Plan", "Settings"]
+    nav_options = ["Home", "Setup", "Workspace", "Insights", "Settings"]
     
     if "nav_selection" not in st.session_state:
+        st.session_state["nav_selection"] = "Home"
+    elif st.session_state["nav_selection"] not in nav_options:
         st.session_state["nav_selection"] = "Home"
     
     cols = st.columns(len(nav_options))
@@ -209,7 +211,7 @@ def _render_navigation():
             is_active = st.session_state.get("nav_selection") == option
             btn_type = "primary" if is_active else "secondary"
             
-            icons = {"Home": "🏠", "Setup": "⚙️", "Workspace": "👤", "Insights": "📊", "Master Plan": "🌐", "Settings": "🔧"}
+            icons = {"Home": "🏠", "Setup": "⚙️", "Workspace": "👤", "Insights": "📊", "Settings": "🔧"}
             
             if st.button(
                 f"{icons.get(option, '')} {option}",
@@ -400,10 +402,6 @@ def main():
     elif active_nav == "Insights":
         from pages.insights import render_insights
         render_insights()
-    
-    elif active_nav == "Master Plan":
-        from pages.master_plan import render_master_plan
-        render_master_plan()
     
     elif active_nav == "Settings":
         from pages.settings import render_settings
