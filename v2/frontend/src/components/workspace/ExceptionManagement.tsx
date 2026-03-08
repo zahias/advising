@@ -1,11 +1,11 @@
-import { StudentEligibilityItem } from '../../lib/hooks'
+import { StudentEligibility } from '../../lib/api'
 
 interface Props {
     student: {
-        bypasses: Record<string, { note: string; advisor_name: string }>
+        bypasses: Record<string, { note: string; advisor: string }>
         excluded_courses: string[]
     }
-    eligibility: StudentEligibilityItem[]
+    eligibility: StudentEligibility['eligibility']
     hiddenCourseOptions: string[]
     bypassCourse: string
     setBypassCourse: (val: string) => void
@@ -103,7 +103,7 @@ export function ExceptionManagement({
                                     <div className="item-content">
                                         <strong>{courseCode}</strong>
                                         <p className="note-text">{info.note}</p>
-                                        {info.advisor_name && <span className="advisor-tag">by {info.advisor_name}</span>}
+                                        {info.advisor && <span className="advisor-tag">by {info.advisor}</span>}
                                     </div>
                                     <button type="button" className="btn-icon btn-danger" onClick={() => onBypassDelete(courseCode)} title="Remove bypass">
                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>

@@ -1,11 +1,13 @@
-import { StudentEligibilityItem } from '../../lib/hooks'
+import { StudentEligibility } from '../../lib/api'
+
 
 interface Props {
-    requiredCourses: StudentEligibilityItem[]
-    intensiveCourses: StudentEligibilityItem[]
+    eligibility: StudentEligibility['eligibility']
+    intensiveCourses: StudentEligibility['eligibility']
 }
 
-export function EligibilityTables({ requiredCourses, intensiveCourses }: Props) {
+export function EligibilityTables({ eligibility, intensiveCourses }: Props) {
+    const requiredCourses = eligibility.filter(c => c.course_type === 'Required')
     return (
         <div className="eligibility-tables-container stack">
             <div className="panel stack">
@@ -29,7 +31,7 @@ export function EligibilityTables({ requiredCourses, intensiveCourses }: Props) 
                                 </tr>
                             </thead>
                             <tbody>
-                                {requiredCourses.map((course) => (
+                                {requiredCourses.map((course: { course_code: string; title: string; eligibility_status: string; justification: string; action?: string }) => (
                                     <tr key={course.course_code} className={course.eligibility_status === 'Eligible' ? 'row-eligible' : ''}>
                                         <td className="mono font-semibold">{course.course_code}</td>
                                         <td>{course.title}</td>
@@ -69,7 +71,7 @@ export function EligibilityTables({ requiredCourses, intensiveCourses }: Props) 
                                 </tr>
                             </thead>
                             <tbody>
-                                {intensiveCourses.map((course) => (
+                                {intensiveCourses.map((course: { course_code: string; title: string; eligibility_status: string; justification: string; action?: string }) => (
                                     <tr key={course.course_code} className={course.eligibility_status === 'Eligible' ? 'row-eligible' : ''}>
                                         <td className="mono font-semibold">{course.course_code}</td>
                                         <td>{course.title}</td>

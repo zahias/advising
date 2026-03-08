@@ -329,7 +329,7 @@ export function WorkspacePage() {
 
                 {activeTab === 'academic' && (
                   <EligibilityTables
-                    requiredCourses={requiredCourses}
+                    eligibility={student.data.eligibility}
                     intensiveCourses={intensiveCourses}
                   />
                 )}

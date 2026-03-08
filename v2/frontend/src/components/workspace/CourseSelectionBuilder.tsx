@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
-import { StudentEligibilityItem } from '../../lib/hooks'
+import { StudentEligibility } from '../../lib/api'
 
 interface Props {
-    eligibility: StudentEligibilityItem[]
+    eligibility: StudentEligibility['eligibility']
     formState: { advised: string[]; optional: string[]; repeat: string[]; note: string }
     onChange: (state: { advised: string[]; optional: string[]; repeat: string[]; note: string }) => void
     onSave: () => void
