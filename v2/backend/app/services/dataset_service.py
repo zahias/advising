@@ -82,6 +82,14 @@ def _parse_dataset(dataset_type: str, file_bytes: bytes, filename: str) -> tuple
         df = pd.read_csv(BytesIO(file_bytes)) if filename.lower().endswith('.csv') else pd.read_excel(BytesIO(file_bytes))
         return _json_safe_records(df), {'rows': len(df), 'columns': list(map(str, df.columns))}
     if dataset_type == 'email_roster':
+        if filename.lower().endswith('.json'):
+            payload = json.loads(file_bytes.decode('utf-8'))
+            rows = [
+                {'Student ID': str(student_id), 'Email': str(email).strip().lower()}
+                for student_id, email in payload.items()
+                if student_id and email
+            ]
+            return rows, {'rows': len(rows), 'columns': ['Student ID', 'Email']}
         if filename.lower().endswith('.csv'):
             df = pd.read_csv(BytesIO(file_bytes))
         else:

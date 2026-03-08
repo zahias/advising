@@ -29,6 +29,18 @@ export function PeriodsPage() {
     queryClient.invalidateQueries({ queryKey: ['periods', majorCode] })
   }
 
+  async function handleActivate(periodCode: string) {
+    const token = window.localStorage.getItem('advising_v2_token')
+    const response = await fetch(`${API_BASE_URL}/api/periods/${periodCode}/activate`, {
+      method: 'POST',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    })
+    setMessage(response.ok ? 'Period activated.' : await response.text())
+    queryClient.invalidateQueries({ queryKey: ['periods', majorCode] })
+  }
+
   return (
     <section className="stack">
       <div className="page-header"><div><div className="eyebrow">Admin Panel</div><h2>Advising Periods</h2></div></div>
@@ -44,7 +56,7 @@ export function PeriodsPage() {
       </form>
       <div className="panel">
         <h3>Period history</h3>
-        <table><thead><tr><th>Code</th><th>Semester</th><th>Year</th><th>Advisor</th><th>Status</th></tr></thead><tbody>{periods.data?.map((period) => <tr key={period.id}><td>{period.period_code}</td><td>{period.semester}</td><td>{period.year}</td><td>{period.advisor_name}</td><td>{period.is_active ? 'Active' : 'Inactive'}</td></tr>)}</tbody></table>
+        <table><thead><tr><th>Code</th><th>Semester</th><th>Year</th><th>Advisor</th><th>Status</th><th>Action</th></tr></thead><tbody>{periods.data?.map((period) => <tr key={period.id}><td>{period.period_code}</td><td>{period.semester}</td><td>{period.year}</td><td>{period.advisor_name}</td><td>{period.is_active ? 'Active' : 'Inactive'}</td><td>{period.is_active ? 'Current' : <button type="button" onClick={() => handleActivate(period.period_code)}>Activate</button>}</td></tr>)}</tbody></table>
       </div>
     </section>
   )

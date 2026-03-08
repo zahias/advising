@@ -7,13 +7,27 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import ensure_major_access, get_db, require_staff
 from app.models import User
-from app.schemas.advising import BypassRequest, ExclusionRequest, HiddenCoursesRequest, SaveSelectionRequest, SelectionPayload, SessionSummary
+from app.schemas.advising import (
+    BulkRestoreRequest,
+    BypassRequest,
+    ExclusionRequest,
+    ExclusionSummary,
+    HiddenCoursesRequest,
+    RecommendationResponse,
+    SaveSelectionRequest,
+    SessionSummary,
+)
 from app.schemas.common import MessageResponse
 from app.services.student_service import (
+    bulk_restore_sessions,
+    clear_period_selections,
+    list_exclusions,
     list_sessions,
+    recommended_courses,
     remove_bypass,
     replace_exclusions,
     replace_hidden_courses,
+    restore_all_sessions,
     restore_latest_session,
     save_selection,
     set_bypass,
@@ -49,6 +63,33 @@ def restore_session_route(major_code: str, period_code: str, student_id: str, us
     return MessageResponse(message='Latest session restored.')
 
 
+@router.post('/sessions/restore-all', response_model=MessageResponse)
+def restore_all_sessions_route(payload: BulkRestoreRequest, user: User = Depends(require_staff), db: Session = Depends(get_db)):
+    ensure_major_access(payload.major_code, db, user)
+    restored = restore_all_sessions(db, major_code=payload.major_code, period_code=payload.period_code, user_id=user.id)
+    return MessageResponse(message=f'Restored sessions for {restored} students.')
+
+
+@router.post('/sessions/bulk-restore', response_model=MessageResponse)
+def bulk_restore_sessions_route(payload: BulkRestoreRequest, user: User = Depends(require_staff), db: Session = Depends(get_db)):
+    ensure_major_access(payload.major_code, db, user)
+    restored = bulk_restore_sessions(db, major_code=payload.major_code, period_code=payload.period_code, student_ids=payload.student_ids, user_id=user.id)
+    return MessageResponse(message=f'Restored sessions for {restored} students.')
+
+
+@router.delete('/selection/{major_code}/{period_code}', response_model=MessageResponse)
+def clear_selection_route(major_code: str, period_code: str, user: User = Depends(require_staff), db: Session = Depends(get_db)):
+    ensure_major_access(major_code, db, user)
+    deleted = clear_period_selections(db, major_code, period_code)
+    return MessageResponse(message=f'Cleared {deleted} selection records.')
+
+
+@router.get('/recommendations/{major_code}/{student_id}', response_model=RecommendationResponse)
+def recommendations_route(major_code: str, student_id: str, user: User = Depends(require_staff), db: Session = Depends(get_db)):
+    ensure_major_access(major_code, db, user)
+    return RecommendationResponse(courses=recommended_courses(db, major_code, student_id))
+
+
 @router.post('/bypasses', response_model=MessageResponse)
 def set_bypass_route(payload: BypassRequest, user: User = Depends(require_staff), db: Session = Depends(get_db)):
     ensure_major_access(payload.major_code, db, user)
@@ -73,3 +114,9 @@ def hidden_courses_route(payload: HiddenCoursesRequest, user: User = Depends(req
 def exclusions_route(payload: ExclusionRequest, user: User = Depends(require_staff), db: Session = Depends(get_db)):
     ensure_major_access(payload.major_code, db, user)
     return replace_exclusions(db, payload.major_code, payload.student_ids, payload.course_codes)
+
+
+@router.get('/exclusions/{major_code}', response_model=list[ExclusionSummary])
+def list_exclusions_route(major_code: str, user: User = Depends(require_staff), db: Session = Depends(get_db)):
+    ensure_major_access(major_code, db, user)
+    return list_exclusions(db, major_code)

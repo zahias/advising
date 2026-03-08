@@ -18,7 +18,7 @@ from app.models import (
     SessionSnapshot,
     StudentSelection,
 )
-from app.schemas.advising import EligibilityCourse, SelectionPayload, StudentEligibilityResponse
+from app.schemas.advising import CourseCatalogItem, EligibilityCourse, ExclusionSummary, SelectionPayload, StudentEligibilityResponse
 from app.services.dataset_service import dataset_dataframe
 from app.services.period_service import current_period
 
@@ -79,6 +79,27 @@ def search_students(session: Session, major_code: str, query: Optional[str] = No
     return results
 
 
+def course_catalog(session: Session, major_code: str) -> list[CourseCatalogItem]:
+    courses_df = _courses_df(session, major_code)
+    if courses_df.empty:
+        return []
+    items: list[CourseCatalogItem] = []
+    for _, row in courses_df.iterrows():
+        course_code = str(row.get('Course Code', '')).strip()
+        if not course_code:
+            continue
+        items.append(
+            CourseCatalogItem(
+                course_code=course_code,
+                title=str(row.get('Title', '') or row.get('Course Title', '') or course_code),
+                course_type=str(row.get('Type', '')),
+                credits=float(row.get('Credits', 0) or 0),
+                offered=str(row.get('Offered', '')).strip().lower() == 'yes',
+            )
+        )
+    return items
+
+
 def _student_row(progress_df: pd.DataFrame, student_id: str) -> pd.Series:
     match = progress_df.loc[progress_df['ID'].astype(str) == str(student_id)]
     if match.empty:
@@ -109,6 +130,18 @@ def _selection_for_student(session: Session, major_id: int, period_id: int, stud
     session.add(selection)
     session.flush()
     return selection
+
+
+def _period_for_code(session: Session, major_id: int, period_code: str) -> AdvisingPeriod:
+    period = session.scalar(
+        select(AdvisingPeriod).where(
+            AdvisingPeriod.period_code == period_code,
+            AdvisingPeriod.major_id == major_id,
+        )
+    )
+    if not period:
+        raise ValueError(f'Unknown period: {period_code}')
+    return period
 
 
 def _bypass_map(session: Session, major_id: int, student_id: str) -> dict[str, dict[str, Any]]:
@@ -143,7 +176,8 @@ def student_eligibility(session: Session, major_code: str, student_id: str) -> S
         repeat=[str(x) for x in selection.repeat],
         note=selection.note or '',
     )
-    hidden_courses = _hidden_courses(session, major.id, student_id) | _excluded_courses(session, major.id, student_id)
+    hidden_courses = _hidden_courses(session, major.id, student_id)
+    excluded_courses = _excluded_courses(session, major.id, student_id)
     bypass_map = _bypass_map(session, major.id, student_id)
     mutual_pairs = get_mutual_concurrent_pairs(courses_df)
 
@@ -154,8 +188,10 @@ def student_eligibility(session: Session, major_code: str, student_id: str) -> S
 
     for _, info in courses_df.iterrows():
         code = str(info.get('Course Code', ''))
-        if not code or code in hidden_courses:
+        if not code or code in hidden_courses or code in excluded_courses:
             continue
+        completed = check_course_completed(student_row, code)
+        registered = check_course_registered(student_row, code)
         status, justification = check_eligibility(
             student_row,
             code,
@@ -189,6 +225,8 @@ def student_eligibility(session: Session, major_code: str, student_id: str) -> S
                 eligibility_status=status,
                 justification=justification,
                 offered=str(info.get('Offered', '')).strip().lower() == 'yes',
+                completed=completed,
+                registered=registered,
                 action=action,
             )
         )
@@ -212,39 +250,81 @@ def student_eligibility(session: Session, major_code: str, student_id: str) -> S
         selection=selection_payload,
         bypasses=bypass_map,
         hidden_courses=sorted(hidden_courses),
+        excluded_courses=sorted(excluded_courses),
     )
 
 
-def save_selection(session: Session, *, major_code: str, period_code: str, student_id: str, student_name: str, payload: SelectionPayload, user_id: Optional[int]) -> StudentSelection:
-    major = _major(session, major_code)
-    period = session.scalar(select(AdvisingPeriod).where(AdvisingPeriod.period_code == period_code, AdvisingPeriod.major_id == major.id))
-    if not period:
-        raise ValueError(f'Unknown period: {period_code}')
+def _write_selection(
+    session: Session,
+    *,
+    major: Major,
+    period: AdvisingPeriod,
+    student_id: str,
+    student_name: str,
+    payload: SelectionPayload,
+    user_id: Optional[int],
+    create_snapshot: bool,
+) -> StudentSelection:
+    normalized_advised = [str(x) for x in payload.advised]
+    normalized_repeat = [str(x) for x in payload.repeat]
+    normalized_optional = [
+        str(x)
+        for x in payload.optional
+        if str(x) not in normalized_advised and str(x) not in normalized_repeat
+    ]
     selection = _selection_for_student(session, major.id, period.id, student_id, student_name)
-    selection.advised = [str(x) for x in payload.advised]
-    selection.optional = [str(x) for x in payload.optional if str(x) not in selection.advised]
-    selection.repeat = [str(x) for x in payload.repeat]
+    selection.advised = normalized_advised
+    selection.optional = normalized_optional
+    selection.repeat = normalized_repeat
     selection.note = payload.note
     selection.last_saved_by_user_id = user_id
-    snapshot = SessionSnapshot(
-        major_id=major.id,
-        period_id=period.id,
+    if create_snapshot:
+        snapshot = SessionSnapshot(
+            major_id=major.id,
+            period_id=period.id,
+            student_id=student_id,
+            title=f'{student_name} ({student_id}) - {period.semester} {period.year}',
+            payload={
+                'selection': {
+                    'advised': normalized_advised,
+                    'optional': normalized_optional,
+                    'repeat': normalized_repeat,
+                    'note': payload.note,
+                },
+                'student_id': student_id,
+                'student_name': student_name,
+                'period_code': period.period_code,
+                'semester': period.semester,
+                'year': period.year,
+                'advisor_name': period.advisor_name,
+                'bypasses': _bypass_map(session, major.id, student_id),
+                'hidden_courses': sorted(_hidden_courses(session, major.id, student_id)),
+                'excluded_courses': sorted(_excluded_courses(session, major.id, student_id)),
+            },
+            summary={
+                'advised': normalized_advised,
+                'optional': normalized_optional,
+                'repeat': normalized_repeat,
+            },
+            created_by_user_id=user_id,
+        )
+        session.add(snapshot)
+    return selection
+
+
+def save_selection(session: Session, *, major_code: str, period_code: str, student_id: str, student_name: str, payload: SelectionPayload, user_id: Optional[int], create_snapshot: bool = True) -> StudentSelection:
+    major = _major(session, major_code)
+    period = _period_for_code(session, major.id, period_code)
+    selection = _write_selection(
+        session,
+        major=major,
+        period=period,
         student_id=student_id,
-        title=f'{student_name} ({student_id}) - {period.semester} {period.year}',
-        payload={
-            'selection': payload.model_dump(),
-            'student_id': student_id,
-            'student_name': student_name,
-            'period_code': period.period_code,
-        },
-        summary={
-            'advised': payload.advised,
-            'optional': payload.optional,
-            'repeat': payload.repeat,
-        },
-        created_by_user_id=user_id,
+        student_name=student_name,
+        payload=payload,
+        user_id=user_id,
+        create_snapshot=create_snapshot,
     )
-    session.add(snapshot)
     session.commit()
     session.refresh(selection)
     return selection
@@ -276,6 +356,7 @@ def restore_latest_session(session: Session, major_code: str, period_code: str, 
         student_name=latest.payload.get('student_name', student_id),
         payload=payload,
         user_id=user_id,
+        create_snapshot=False,
     )
 
 
@@ -321,6 +402,79 @@ def replace_exclusions(session: Session, major_code: str, student_ids: list[str]
             result[str(student_id)].append(code)
     session.commit()
     return result
+
+
+def list_exclusions(session: Session, major_code: str) -> list[ExclusionSummary]:
+    major = _major(session, major_code)
+    progress_df = _progress_df(session, major_code)
+    name_by_id = {
+        str(row.get('ID')): str(row.get('NAME', row.get('ID')))
+        for _, row in progress_df.iterrows()
+    }
+    items = session.scalars(
+        select(CourseExclusion)
+        .where(CourseExclusion.major_id == major.id)
+        .order_by(CourseExclusion.student_id.asc(), CourseExclusion.course_code.asc())
+    ).all()
+    grouped: dict[str, list[str]] = {}
+    for item in items:
+        grouped.setdefault(str(item.student_id), []).append(str(item.course_code))
+    return [
+        ExclusionSummary(
+            student_id=student_id,
+            student_name=name_by_id.get(student_id, student_id),
+            course_codes=course_codes,
+        )
+        for student_id, course_codes in grouped.items()
+    ]
+
+
+def clear_period_selections(session: Session, major_code: str, period_code: str) -> int:
+    major = _major(session, major_code)
+    period = _period_for_code(session, major.id, period_code)
+    deleted = (
+        session.query(StudentSelection)
+        .filter(StudentSelection.major_id == major.id, StudentSelection.period_id == period.id)
+        .delete()
+    )
+    session.commit()
+    return int(deleted or 0)
+
+
+def bulk_restore_sessions(session: Session, *, major_code: str, period_code: str, student_ids: list[str], user_id: Optional[int]) -> int:
+    restored = 0
+    for student_id in dict.fromkeys(str(item) for item in student_ids if str(item).strip()):
+        try:
+            restore_latest_session(session, major_code, period_code, student_id, user_id)
+        except ValueError:
+            continue
+        restored += 1
+    return restored
+
+
+def restore_all_sessions(session: Session, *, major_code: str, period_code: str, user_id: Optional[int]) -> int:
+    progress_df = _progress_df(session, major_code)
+    if progress_df.empty:
+        return 0
+    student_ids = [str(item) for item in progress_df.get('ID', pd.Series(dtype=str)).dropna().tolist()]
+    return bulk_restore_sessions(session, major_code=major_code, period_code=period_code, student_ids=student_ids, user_id=user_id)
+
+
+def recommended_courses(session: Session, major_code: str, student_id: str, max_recommendations: int = 3) -> list[str]:
+    payload = student_eligibility(session, major_code, student_id)
+    already_selected = {
+        *payload.selection.advised,
+        *payload.selection.optional,
+        *payload.selection.repeat,
+    }
+    available = [
+        item.course_code
+        for item in payload.eligibility
+        if item.offered
+        and item.eligibility_status in {'Eligible', 'Eligible (Bypass)'}
+        and item.course_code not in already_selected
+    ]
+    return sorted(available)[:max_recommendations]
 
 
 def export_student_report(session: Session, major_code: str, student_id: str) -> tuple[str, bytes]:

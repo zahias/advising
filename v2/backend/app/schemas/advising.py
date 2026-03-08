@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import BaseModel
 
@@ -12,6 +12,14 @@ class StudentSearchItem(BaseModel):
     standing: str
     total_credits: float
     remaining_credits: float
+
+
+class CourseCatalogItem(BaseModel):
+    course_code: str
+    title: str
+    course_type: str
+    credits: float
+    offered: bool
 
 
 class SelectionPayload(BaseModel):
@@ -29,6 +37,8 @@ class EligibilityCourse(BaseModel):
     eligibility_status: str
     justification: str
     offered: bool
+    completed: bool
+    registered: bool
     action: str
 
 
@@ -46,6 +56,7 @@ class StudentEligibilityResponse(BaseModel):
     selection: SelectionPayload
     bypasses: dict[str, dict[str, Any]]
     hidden_courses: list[str]
+    excluded_courses: list[str]
 
 
 class SaveSelectionRequest(BaseModel):
@@ -83,3 +94,26 @@ class ExclusionRequest(BaseModel):
     major_code: str
     student_ids: list[str]
     course_codes: list[str]
+
+
+class BulkRestoreRequest(BaseModel):
+    major_code: str
+    period_code: str
+    student_ids: list[str] = []
+
+
+class RecommendationResponse(BaseModel):
+    courses: list[str]
+
+
+class ExclusionSummary(BaseModel):
+    student_id: str
+    student_name: str
+    course_codes: list[str]
+
+
+class TemplatePreviewResponse(BaseModel):
+    template_key: str
+    subject: str
+    preview_body: str
+    variables: dict[str, Optional[str]]

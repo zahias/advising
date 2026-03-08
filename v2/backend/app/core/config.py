@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     database_url: str = Field(default='sqlite:///./advising_v2.db', alias='DATABASE_URL')
     jwt_secret: str = Field(default='change-me', alias='JWT_SECRET')
     jwt_expiry_minutes: int = Field(default=480, alias='JWT_EXPIRY_MINUTES')
-    cors_origins_raw: str = Field(default='http://localhost:5173', alias='CORS_ORIGINS')
+    cors_origins_raw: str = Field(default='http://localhost:5173,http://127.0.0.1:5173', alias='CORS_ORIGINS')
     smtp_email: Optional[str] = Field(default=None, alias='SMTP_EMAIL')
     smtp_password: Optional[str] = Field(default=None, alias='SMTP_PASSWORD')
     r2_account_id: Optional[str] = Field(default=None, alias='R2_ACCOUNT_ID')
@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     r2_public_base_url: Optional[str] = Field(default=None, alias='R2_PUBLIC_BASE_URL')
     local_storage_path: str = Field(default='./local-storage', alias='LOCAL_STORAGE_PATH')
     legacy_imports_path: str = Field(default='../../', alias='LEGACY_IMPORTS_PATH')
+    legacy_snapshot_export_path: str = Field(default='./legacy-snapshots', alias='LEGACY_SNAPSHOT_EXPORT_PATH')
+    google_client_id: Optional[str] = Field(default=None, alias='GOOGLE_CLIENT_ID')
+    google_client_secret: Optional[str] = Field(default=None, alias='GOOGLE_CLIENT_SECRET')
+    google_refresh_token: Optional[str] = Field(default=None, alias='GOOGLE_REFRESH_TOKEN')
+    google_folder_id: Optional[str] = Field(default=None, alias='GOOGLE_FOLDER_ID')
 
     @property
     def cors_origins(self) -> List[str]:

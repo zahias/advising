@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { apiFetch, AppTemplate, BackupRun, CurrentUser, DashboardMetrics, DatasetVersion, Major, Period, StudentEligibility, StudentSearchItem, UserRecord } from './api'
+import { apiFetch, AppTemplate, BackupRun, CourseCatalogItem, CurrentUser, DashboardMetrics, DatasetVersion, ExclusionSummary, Major, Period, SessionSummary, StudentEligibility, StudentSearchItem, UserRecord } from './api'
 
 export function useCurrentUser() {
   return useQuery({
@@ -37,6 +37,14 @@ export function useStudentEligibility(majorCode?: string, studentId?: string) {
   })
 }
 
+export function useCourseCatalog(majorCode?: string) {
+  return useQuery({
+    queryKey: ['course-catalog', majorCode],
+    queryFn: () => apiFetch<CourseCatalogItem[]>(`/students/${majorCode}/catalog`),
+    enabled: Boolean(majorCode),
+  })
+}
+
 export function useDatasetVersions(majorCode?: string) {
   return useQuery({
     queryKey: ['dataset-versions', majorCode],
@@ -66,4 +74,24 @@ export function useUsers() {
 
 export function useBackups() {
   return useQuery({ queryKey: ['backups'], queryFn: () => apiFetch<BackupRun[]>('/backups') })
+}
+
+export function useSessions(majorCode?: string, periodCode?: string, studentId?: string) {
+  const params = new URLSearchParams()
+  if (periodCode) params.set('period_code', periodCode)
+  if (studentId) params.set('student_id', studentId)
+  const query = params.toString()
+  return useQuery({
+    queryKey: ['sessions', majorCode, periodCode, studentId],
+    queryFn: () => apiFetch<SessionSummary[]>(`/advising/sessions/${majorCode}${query ? `?${query}` : ''}`),
+    enabled: Boolean(majorCode),
+  })
+}
+
+export function useExclusions(majorCode?: string) {
+  return useQuery({
+    queryKey: ['exclusions', majorCode],
+    queryFn: () => apiFetch<ExclusionSummary[]>(`/advising/exclusions/${majorCode}`),
+    enabled: Boolean(majorCode),
+  })
 }

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import BaseModel
 
@@ -29,3 +29,18 @@ class ScheduleConflictGroup(BaseModel):
     student_count: int
     courses: list[str]
     student_ids: list[str]
+
+
+class PlannerSelectionRequest(BaseModel):
+    selected_courses: list[str]
+    graduation_threshold: int = 30
+    min_eligible_students: int = 3
+
+
+class PlannerSelectionResponse(BaseModel):
+    selected_courses: list[str]
+    graduation_threshold: int
+    min_eligible_students: int
+    total_eligible: int
+    total_graduating: int
+    saved_at: Optional[str] = None

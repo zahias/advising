@@ -81,10 +81,11 @@ class DatasetVersion(TimestampMixin, Base):
 
 class AdvisingPeriod(TimestampMixin, Base):
     __tablename__ = 'advising_periods'
+    __table_args__ = (UniqueConstraint('major_id', 'period_code', name='uq_advising_period_scope'),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     major_id: Mapped[int] = mapped_column(ForeignKey('majors.id', ondelete='CASCADE'), index=True)
-    period_code: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    period_code: Mapped[str] = mapped_column(String(128), index=True)
     semester: Mapped[str] = mapped_column(String(32))
     year: Mapped[int] = mapped_column(Integer)
     advisor_name: Mapped[str] = mapped_column(String(255))

@@ -12,6 +12,7 @@ import { PeriodsPage } from './pages/admin/PeriodsPage'
 import { TemplatesPage } from './pages/admin/TemplatesPage'
 import { UsersPage } from './pages/admin/UsersPage'
 import { DashboardPage } from './pages/adviser/DashboardPage'
+import { AdviserSettingsPage } from './pages/adviser/AdviserSettingsPage'
 import { InsightsPage } from './pages/adviser/InsightsPage'
 import { WorkspacePage } from './pages/adviser/WorkspacePage'
 
@@ -59,6 +60,7 @@ function AdviserLayout() {
         { to: '/adviser', label: 'Dashboard' },
         { to: '/adviser/workspace', label: 'Workspace' },
         { to: '/adviser/insights', label: 'Insights' },
+        { to: '/adviser/settings', label: 'Settings' },
       ]}
     >
       <Outlet />
@@ -90,6 +92,7 @@ export default function App() {
         <Route index element={<DashboardPage />} />
         <Route path="workspace" element={<WorkspacePage />} />
         <Route path="insights" element={<InsightsPage />} />
+        <Route path="settings" element={<AdviserSettingsPage />} />
       </Route>
     </Routes>
   )
