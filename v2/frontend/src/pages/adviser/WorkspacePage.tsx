@@ -1,12 +1,14 @@
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { API_BASE_URL, apiFetch } from '../../lib/api'
 import { useCourseCatalog, useMajors, usePeriods, useSessions, useStudentEligibility, useStudents, useTemplates } from '../../lib/hooks'
 
-function getSelectedValues(event: ChangeEvent<HTMLSelectElement>) {
-  return Array.from(event.target.selectedOptions).map((option) => option.value)
-}
+// New modular components
+import { StudentProfileHeader } from '../../components/workspace/StudentProfileHeader'
+import { CourseSelectionBuilder } from '../../components/workspace/CourseSelectionBuilder'
+import { EligibilityTables } from '../../components/workspace/EligibilityTables'
+import { ExceptionManagement } from '../../components/workspace/ExceptionManagement'
 
 async function authedFetch(path: string, init?: RequestInit) {
   const token = window.localStorage.getItem('advising_v2_token')
@@ -25,6 +27,10 @@ export function WorkspacePage() {
   const [query, setQuery] = useState('')
   const [selectedStudentId, setSelectedStudentId] = useState<string | undefined>()
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  // Tabs: 'schedule', 'academic', 'exceptions'
+  const [activeTab, setActiveTab] = useState<'schedule' | 'academic' | 'exceptions'>('schedule')
+
   const [templateKey, setTemplateKey] = useState('default')
   const [bypassCourse, setBypassCourse] = useState('')
   const [bypassNote, setBypassNote] = useState('')
@@ -49,6 +55,8 @@ export function WorkspacePage() {
       note: student.data.selection.note,
     })
     setHiddenCourses(student.data.hidden_courses)
+    // Reset tab on student change
+    setActiveTab('schedule')
   }, [student.data])
 
   useEffect(() => {
@@ -57,25 +65,6 @@ export function WorkspacePage() {
     }
   }, [templateKey, templates.data])
 
-  const eligibleSelectable = useMemo(() => {
-    if (!student.data) return []
-    const selected = new Set([...formState.advised, ...formState.optional])
-    return student.data.eligibility.filter((course) => (
-      selected.has(course.course_code)
-      || (
-        course.offered
-        && !course.completed
-        && !course.registered
-        && (course.eligibility_status === 'Eligible' || course.eligibility_status === 'Eligible (Bypass)')
-      )
-    ))
-  }, [formState.advised, formState.optional, student.data])
-
-  const repeatSelectable = useMemo(() => {
-    if (!student.data) return []
-    const selected = new Set(formState.repeat)
-    return student.data.eligibility.filter((course) => selected.has(course.course_code) || course.completed || course.registered)
-  }, [formState.repeat, student.data])
 
   const requiredCourses = useMemo(
     () => student.data?.eligibility.filter((course) => course.course_type.toLowerCase() === 'required') ?? [],
@@ -91,8 +80,7 @@ export function WorkspacePage() {
     [courseCatalog.data],
   )
 
-  async function handleSave(event: FormEvent) {
-    event.preventDefault()
+  async function handleSaveSelection() {
     if (!student.data || !activePeriod) return
     const response = await authedFetch('/advising/selection', {
       method: 'POST',
@@ -109,7 +97,7 @@ export function WorkspacePage() {
       setMessage({ type: 'error', text: await response.text() })
       return
     }
-    setMessage({ type: 'success', text: 'Selection saved.' })
+    setMessage({ type: 'success', text: 'Schedule saved.' })
     queryClient.invalidateQueries({ queryKey: ['student-eligibility', majorCode, selectedStudentId] })
     queryClient.invalidateQueries({ queryKey: ['sessions', majorCode, activePeriod.period_code, selectedStudentId] })
     queryClient.invalidateQueries({ queryKey: ['dashboard', majorCode] })
@@ -139,7 +127,7 @@ export function WorkspacePage() {
       optional: current.optional.filter((course) => !response.courses.includes(course)),
       repeat: current.repeat.filter((course) => !response.courses.includes(course)),
     }))
-    setMessage({ type: 'success', text: `Recommended: ${response.courses.join(', ')}` })
+    setMessage({ type: 'success', text: `Recommended ${response.courses.length} courses.` })
   }
 
   async function handleDownloadReport() {
@@ -215,182 +203,158 @@ export function WorkspacePage() {
   }
 
   return (
-    <section className="stack">
-      <div className="page-header">
+    <section className="workspace-container stack">
+      <div className="page-header flex-between">
         <div>
-          <div className="eyebrow">Adviser Interface</div>
-          <h2>Workspace</h2>
+          <div className="eyebrow text-muted">Adviser Interface</div>
+          <h2>Advising Workspace</h2>
         </div>
-        <label>
-          <span>Major</span>
-          <select value={majorCode} onChange={(event) => { setMajorCode(event.target.value); setSelectedStudentId(undefined); setMessage(null) }}>
-            {majors.data?.map((major) => <option key={major.code}>{major.code}</option>)}
-          </select>
-        </label>
+        <div className="header-actions">
+          <label className="inline-select">
+            <span className="text-muted">Master Program:</span>
+            <select className="select-input" value={majorCode} onChange={(event) => { setMajorCode(event.target.value); setSelectedStudentId(undefined); setMessage(null) }}>
+              {majors.data?.map((major) => <option key={major.code}>{major.code}</option>)}
+            </select>
+          </label>
+        </div>
       </div>
-      {message ? <div className={`alert ${message.type === 'error' ? 'error' : ''}`}>{message.text}</div> : null}
-      <div className="two-column workspace-layout">
-        <div className="stack">
-          <div className="panel stack">
-            <label><span>Student search</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name or ID" /></label>
-            <div className="student-list">{students.data?.map((item) => <button type="button" key={item.student_id} className={`student-pill ${selectedStudentId === item.student_id ? 'active' : ''}`} onClick={() => setSelectedStudentId(item.student_id)}>{item.student_name} · {item.student_id}</button>)}</div>
+
+      {message && (
+        <div className={`alert ${message.type === 'error' ? 'alert-error' : 'alert-success'}`}>
+          {message.text}
+          <button type="button" className="close-btn" onClick={() => setMessage(null)}>&times;</button>
+        </div>
+      )}
+
+      <div className="workspace-layout">
+        <aside className="workspace-sidebar stack">
+          <div className="student-search-panel panel stack">
+            <div className="search-box">
+              <svg className="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
+              <input
+                type="search"
+                className="search-input"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search students..."
+              />
+            </div>
+            <div className="student-list scrollable">
+              {students.data?.map((item) => (
+                <button
+                  type="button"
+                  key={item.student_id}
+                  className={`student-nav-item ${selectedStudentId === item.student_id ? 'active' : ''}`}
+                  onClick={() => setSelectedStudentId(item.student_id)}
+                >
+                  <span className="student-name">{item.student_name}</span>
+                  <span className="student-id mono text-muted">{item.student_id}</span>
+                </button>
+              ))}
+            </div>
           </div>
-          {student.data ? (
-            <>
-              <div className="panel stack compact-panel">
-                <div className="field-row">
-                  <div><div className="eyebrow">Standing</div><strong>{student.data.standing}</strong></div>
-                  <div><div className="eyebrow">Remaining</div><strong>{student.data.credits_remaining}</strong></div>
-                  <div><div className="eyebrow">Current Period</div><strong>{activePeriod ? `${activePeriod.semester} ${activePeriod.year}` : 'Missing'}</strong></div>
-                </div>
-                <div className="button-row wrap-row">
-                  <button type="button" onClick={handleRestoreLatest} disabled={!activePeriod}>Restore latest</button>
-                  <button type="button" onClick={handleRecommend}>Recommend</button>
-                  <button type="button" onClick={handleDownloadReport}>Download report</button>
-                </div>
-                <div className="field-row">
-                  <label>
-                    <span>Email template</span>
-                    <select value={templateKey} onChange={(event) => setTemplateKey(event.target.value)}>
-                      {templates.data?.map((template) => <option key={template.id} value={template.template_key}>{template.display_name}</option>)}
-                    </select>
-                  </label>
-                  <div className="button-slot"><button type="button" onClick={handleSendEmail}>Email student</button></div>
-                </div>
-              </div>
-              <div className="panel stack compact-panel">
-                <h3>Saved sessions</h3>
-                <div className="session-list">
-                  {sessions.data?.length ? sessions.data.map((item) => (
-                    <div key={item.id} className="session-item">
-                      <strong>{item.title}</strong>
-                      <span>{new Date(item.created_at).toLocaleString()}</span>
-                    </div>
-                  )) : <p>No saved sessions for this student yet.</p>}
-                </div>
-              </div>
-            </>
-          ) : null}
-        </div>
-        <div className="stack">
-          {student.data ? (
-            <>
-              <div className="panel stack">
-                <div>
-                  <h3>{student.data.student_name}</h3>
-                  <p>ID {student.data.student_id}</p>
-                </div>
-                <form className="stack" onSubmit={handleSave}>
-                  <div className="field-row">
-                    <label>
-                      <span>Advised courses</span>
-                      <select multiple size={8} value={formState.advised} onChange={(event) => {
-                        const next = getSelectedValues(event)
-                        setFormState((current) => ({
-                          ...current,
-                          advised: next,
-                          optional: current.optional.filter((course) => !next.includes(course)),
-                          repeat: current.repeat.filter((course) => !next.includes(course)),
-                        }))
-                      }}>
-                        {eligibleSelectable.map((course) => <option key={course.course_code} value={course.course_code}>{course.course_code} · {course.title}</option>)}
-                      </select>
-                    </label>
-                    <label>
-                      <span>Optional courses</span>
-                      <select multiple size={8} value={formState.optional} onChange={(event) => {
-                        const next = getSelectedValues(event).filter((course) => !formState.advised.includes(course))
-                        setFormState((current) => ({
-                          ...current,
-                          optional: next,
-                          repeat: current.repeat.filter((course) => !next.includes(course)),
-                        }))
-                      }}>
-                        {eligibleSelectable.filter((course) => !formState.advised.includes(course.course_code) || formState.optional.includes(course.course_code)).map((course) => <option key={course.course_code} value={course.course_code}>{course.course_code} · {course.title}</option>)}
-                      </select>
-                    </label>
-                    <label>
-                      <span>Repeat courses</span>
-                      <select multiple size={8} value={formState.repeat} onChange={(event) => {
-                        const next = getSelectedValues(event).filter((course) => !formState.advised.includes(course) && !formState.optional.includes(course))
-                        setFormState((current) => ({ ...current, repeat: next }))
-                      }}>
-                        {repeatSelectable.map((course) => <option key={course.course_code} value={course.course_code}>{course.course_code} · {course.title}</option>)}
-                      </select>
-                    </label>
+
+          {student.data && sessions.data && sessions.data.length > 0 && (
+            <div className="sessions-panel panel stack compact-panel">
+              <h4 className="panel-title text-muted">Recent Sessions</h4>
+              <div className="session-history list-minimal">
+                {sessions.data.slice(0, 5).map((item) => (
+                  <div key={item.id} className="history-item">
+                    <span className="history-title">{item.title}</span>
+                    <span className="history-time text-muted">{new Date(item.created_at).toLocaleDateString()}</span>
                   </div>
-                  <label><span>Advisor note</span><textarea rows={5} value={formState.note} onChange={(event) => setFormState({ ...formState, note: event.target.value })} /></label>
-                  <button type="submit">Save selections</button>
-                </form>
+                ))}
               </div>
-              <div className="field-row three-col-layout">
-                <div className="panel stack compact-panel">
-                  <h3>Requisite bypasses</h3>
-                  <label>
-                    <span>Course</span>
-                    <select value={bypassCourse} onChange={(event) => setBypassCourse(event.target.value)}>
-                      <option value="">Select a course</option>
-                      {student.data.eligibility.map((course) => <option key={course.course_code} value={course.course_code}>{course.course_code}</option>)}
-                    </select>
-                  </label>
-                  <label><span>Note</span><textarea rows={3} value={bypassNote} onChange={(event) => setBypassNote(event.target.value)} /></label>
-                  <button type="button" onClick={handleBypassSave}>Save bypass</button>
-                  <div className="mini-list">
-                    {Object.entries(student.data.bypasses).map(([courseCode, info]) => (
-                      <div key={courseCode} className="mini-item">
-                        <div>
-                          <strong>{courseCode}</strong>
-                          <p>{info.note}</p>
-                        </div>
-                        <button type="button" onClick={() => handleBypassDelete(courseCode)}>Remove</button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="panel stack compact-panel">
-                  <h3>Hidden courses</h3>
-                  <label>
-                    <span>Per-student hidden courses</span>
-                    <select multiple size={10} value={hiddenCourses} onChange={(event) => setHiddenCourses(getSelectedValues(event))}>
-                      {hiddenCourseOptions.map((courseCode) => <option key={courseCode} value={courseCode}>{courseCode}</option>)}
-                    </select>
-                  </label>
-                  <button type="button" onClick={handleHiddenCoursesSave}>Save hidden courses</button>
-                  <p>Excluded by admin: {student.data.excluded_courses.length ? student.data.excluded_courses.join(', ') : 'None'}</p>
-                </div>
-                <div className="panel stack compact-panel">
-                  <h3>Eligibility summary</h3>
-                  <p>Advised credits: {student.data.advised_credits + student.data.repeat_credits}</p>
-                  <p>Optional credits: {student.data.optional_credits}</p>
-                  <p>Visible required: {requiredCourses.length}</p>
-                  <p>Visible intensive: {intensiveCourses.length}</p>
-                </div>
+            </div>
+          )}
+        </aside>
+
+        <main className="workspace-main">
+          {!student.data ? (
+            <div className="blank-slate-panel panel">
+              <div className="blank-slate-content">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" className="text-muted"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+                <h3>Select a Student</h3>
+                <p className="text-muted">Search and select a student from the sidebar to begin advising, view their eligibility, or manage course exceptions.</p>
               </div>
-              <div className="panel stack">
-                <h3>Required courses</h3>
-                <div className="scroll-table">
-                  <table>
-                    <thead><tr><th>Code</th><th>Title</th><th>Status</th><th>Action</th><th>Justification</th></tr></thead>
-                    <tbody>
-                      {requiredCourses.map((course) => <tr key={course.course_code}><td>{course.course_code}</td><td>{course.title}</td><td>{course.eligibility_status}</td><td>{course.action || '—'}</td><td>{course.justification}</td></tr>)}
-                    </tbody>
-                  </table>
-                </div>
+            </div>
+          ) : (
+            <div className="student-workspace stack">
+
+              <StudentProfileHeader
+                student={student.data}
+                activePeriod={activePeriod}
+                templateKey={templateKey}
+                templates={templates.data || []}
+                onTemplateChange={setTemplateKey}
+                onEmail={handleSendEmail}
+                onRestoreLatest={handleRestoreLatest}
+                onRecommend={handleRecommend}
+                onDownloadReport={handleDownloadReport}
+              />
+
+              <div className="workspace-tabs-nav">
+                <button
+                  type="button"
+                  className={`tab-btn ${activeTab === 'schedule' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('schedule')}
+                >
+                  Schedule Builder
+                </button>
+                <button
+                  type="button"
+                  className={`tab-btn ${activeTab === 'academic' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('academic')}
+                >
+                  Academic Record
+                </button>
+                <button
+                  type="button"
+                  className={`tab-btn ${activeTab === 'exceptions' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('exceptions')}
+                >
+                  Exceptions & Overrides
+                </button>
               </div>
-              <div className="panel stack">
-                <h3>Intensive courses</h3>
-                <div className="scroll-table">
-                  <table>
-                    <thead><tr><th>Code</th><th>Title</th><th>Status</th><th>Action</th><th>Justification</th></tr></thead>
-                    <tbody>
-                      {intensiveCourses.map((course) => <tr key={course.course_code}><td>{course.course_code}</td><td>{course.title}</td><td>{course.eligibility_status}</td><td>{course.action || '—'}</td><td>{course.justification}</td></tr>)}
-                    </tbody>
-                  </table>
-                </div>
+
+              <div className="workspace-tab-content">
+                {activeTab === 'schedule' && (
+                  <CourseSelectionBuilder
+                    eligibility={student.data.eligibility}
+                    formState={formState}
+                    onChange={setFormState}
+                    onSave={handleSaveSelection}
+                  />
+                )}
+
+                {activeTab === 'academic' && (
+                  <EligibilityTables
+                    requiredCourses={requiredCourses}
+                    intensiveCourses={intensiveCourses}
+                  />
+                )}
+
+                {activeTab === 'exceptions' && (
+                  <ExceptionManagement
+                    student={student.data}
+                    eligibility={student.data.eligibility}
+                    hiddenCourseOptions={hiddenCourseOptions}
+                    bypassCourse={bypassCourse}
+                    setBypassCourse={setBypassCourse}
+                    bypassNote={bypassNote}
+                    setBypassNote={setBypassNote}
+                    onBypassSave={handleBypassSave}
+                    onBypassDelete={handleBypassDelete}
+                    hiddenCourses={hiddenCourses}
+                    setHiddenCourses={setHiddenCourses}
+                    onHiddenCoursesSave={handleHiddenCoursesSave}
+                  />
+                )}
               </div>
-            </>
-          ) : <div className="panel"><p>Select a student to load eligibility, selections, sessions, bypasses, and hidden-course settings.</p></div>}
-        </div>
+
+            </div>
+          )}
+        </main>
       </div>
     </section>
   )
