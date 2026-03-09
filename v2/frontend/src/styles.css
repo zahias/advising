@@ -1188,7 +1188,7 @@ h1, h2, h3, h4 {
   background: white;
   border-radius: 16px;
   border: 1px solid var(--line);
-  overflow: hidden;
+  overflow: auto;
   box-shadow: 0 4px 12px rgba(0,0,0,0.02);
 }
 

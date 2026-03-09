@@ -14,7 +14,7 @@ import {
 } from '../../lib/api'
 import { useMajors, useStudents, useTemplates } from '../../lib/hooks'
 
-type InsightTab = 'all' | 'individual' | 'qaa' | 'conflicts' | 'degree'
+type InsightTab = 'all' | 'individual' | 'qaa' | 'conflicts' | 'planner' | 'degree'
 type MatrixTab = 'required' | 'intensive' | 'all-courses'
 
 function getSelectedValues(event: ChangeEvent<HTMLSelectElement>) {
@@ -270,6 +270,7 @@ export function InsightsPage() {
       <div className="workspace-tabs-nav mb-4">
         <button type="button" className={`tab-btn ${tab === 'all' ? 'active' : ''}`} onClick={() => setTab('all')}>All Students Report</button>
         <button type="button" className={`tab-btn ${tab === 'individual' ? 'active' : ''}`} onClick={() => setTab('individual')}>Deep Dive: Individual</button>
+        <button type="button" className={`tab-btn ${tab === 'planner' ? 'active' : ''}`} onClick={() => setTab('planner')}>Course Offering Planner</button>
         <button type="button" className={`tab-btn ${tab === 'qaa' ? 'active' : ''}`} onClick={() => setTab('qaa')}>QAA Projections</button>
         <button type="button" className={`tab-btn ${tab === 'conflicts' ? 'active' : ''}`} onClick={() => setTab('conflicts')}>Schedule Conflicts</button>
         <button type="button" className={`tab-btn ${tab === 'degree' ? 'active' : ''}`} onClick={() => setTab('degree')}>Degree Plan Maps</button>
@@ -277,77 +278,29 @@ export function InsightsPage() {
 
       {tab === 'all' && (
         <div className="stack">
-          {/* SIMULATION & PLANNER CARDS DE-CLUTTERED */}
-          <div className="grid-2">
-            <div className="panel stack">
-              <h3>Simulation Engine</h3>
-              <p className="text-muted text-sm">Simulate corequisite or concurrent course offerings to project eligibility impacts instantly.</p>
-
-              {/* Auto-suggestions */}
+          {/* Compact Simulation Engine */}
+          <div className="panel" style={{ padding: '16px', display: 'flex', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <div style={{ flex: '1', minWidth: '200px' }}>
+              <h4 style={{ margin: '0 0 4px 0', fontSize: '14px' }}>Simulation Engine</h4>
+              <p className="text-muted" style={{ fontSize: '11px', margin: 0 }}>Simulate course offerings to project eligibility changes in the matrix below.</p>
               {planner.data && planner.data.length > 0 && pendingSimulatedCourses.length === 0 && appliedSimulatedCourses.length === 0 && (
-                <div style={{ padding: '8px 12px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', marginBottom: '8px', fontSize: '12px', color: '#1e40af' }}>
-                  <strong>💡 Suggestion:</strong> Try simulating <strong>{planner.data.slice(0, 3).map(i => i.course).join(', ')}</strong> — top bottleneck courses by priority score.
-                </div>
-              )}
-
-              <div className="form-group mb-4">
-                <label className="text-muted font-semibold text-sm mb-2 block">Available courses to simulate</label>
-                <select className="select-input" multiple size={5} value={pendingSimulatedCourses} onChange={(event) => setPendingSimulatedCourses(getSelectedValues(event))}>
-                  {allStudents.data?.simulation_options.map((course) => <option key={course} value={course}>{course}</option>)}
-                </select>
-              </div>
-
-              <div className="flex-gap-4">
-                <button type="button" className="btn-primary" onClick={() => setAppliedSimulatedCourses(pendingSimulatedCourses)}>Run Simulation</button>
-                <button type="button" className="btn-secondary" onClick={() => { setPendingSimulatedCourses([]); setAppliedSimulatedCourses([]) }}>Clear</button>
-              </div>
-
-              {appliedSimulatedCourses.length > 0 && (
-                <div className="success-banner mt-4 text-sm">
-                  <strong>Active Simulation:</strong> {appliedSimulatedCourses.join(', ')}
-                  {allStudents.data && (
-                    <div style={{ marginTop: '6px', padding: '6px 10px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', fontSize: '11px', color: '#166534' }}>
-                      Matrix below now reflects projected eligibility changes from offering {appliedSimulatedCourses.join(' + ')}.
-                    </div>
-                  )}
+                <div style={{ marginTop: '6px', padding: '4px 8px', background: '#eff6ff', borderRadius: '6px', fontSize: '11px', color: '#1e40af' }}>
+                  💡 Try: <strong>{planner.data.slice(0, 3).map(i => i.course).join(', ')}</strong>
                 </div>
               )}
             </div>
-
-            <div className="panel stack">
-              <div className="flex-between">
-                <h3>Course Offering Planner</h3>
-                <button type="button" className="btn-secondary btn-sm" onClick={handleSavePlanner}>Save Plan</button>
-              </div>
-              <p className="text-muted text-sm">Target offerings based on bottleneck scores and graduating thresholds.</p>
-
-              <div className="filter-bar mb-4 p-0 border-none justify-start">
-                <div className="filter-group">
-                  <label>Grad. Threshold</label>
-                  <input type="number" value={plannerThreshold} onChange={(event) => setPlannerThreshold(Number(event.target.value || 30))} />
-                </div>
-                <div className="filter-group">
-                  <label>Min Eligible</label>
-                  <input type="number" value={plannerMinEligible} onChange={(event) => setPlannerMinEligible(Number(event.target.value || 3))} />
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label className="text-muted font-semibold text-sm mb-2 block">Select Offerings to commit</label>
-                <select className="select-input" multiple size={4} value={plannerSelection} onChange={(event) => setPlannerSelection(getSelectedValues(event))}>
-                  {planner.data?.map((item) => {
-                    const maxScore = Math.max(...(planner.data ?? []).map(i => i.priority_score), 1)
-                    const barWidth = Math.round((item.priority_score / maxScore) * 100)
-                    return <option key={item.course} value={item.course}>{item.course} (Score: {item.priority_score.toFixed(1)}) {'█'.repeat(Math.max(1, Math.round(barWidth / 10)))}</option>
-                  })}
-                </select>
-              </div>
-
-              <div className="text-sm text-muted mt-2 border-t pt-2 border-gray-100">
-                Plan Impact: Serves <strong>{plannerImpact.eligible}</strong> globally eligible students, including <strong>{plannerImpact.graduating}</strong> graduating seniors.
-                {plannerMessage && <div className="text-accent font-semibold mt-1">{plannerMessage}</div>}
-              </div>
+            <select className="select-input" multiple size={3} style={{ flex: '1', minWidth: '180px', fontSize: '12px' }} value={pendingSimulatedCourses} onChange={(event) => setPendingSimulatedCourses(getSelectedValues(event))}>
+              {allStudents.data?.simulation_options.map((course) => <option key={course} value={course}>{course}</option>)}
+            </select>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <button type="button" className="btn-primary btn-sm" onClick={() => setAppliedSimulatedCourses(pendingSimulatedCourses)}>Run Simulation</button>
+              <button type="button" className="btn-outline btn-sm" onClick={() => { setPendingSimulatedCourses([]); setAppliedSimulatedCourses([]) }}>Clear</button>
             </div>
+            {appliedSimulatedCourses.length > 0 && (
+              <div style={{ width: '100%', padding: '6px 10px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', fontSize: '11px', color: '#166534' }}>
+                <strong>Active:</strong> {appliedSimulatedCourses.join(', ')} — matrix below reflects projected changes.
+              </div>
+            )}
           </div>
 
           <div className="panel stack mt-4">
@@ -436,6 +389,123 @@ export function InsightsPage() {
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'planner' && (
+        <div className="stack">
+          <div className="panel">
+            <div className="flex-between mb-4">
+              <div>
+                <h3 style={{ margin: 0 }}>Course Offering Planner</h3>
+                <p className="text-muted text-sm" style={{ margin: '4px 0 0' }}>Decide which courses to offer based on student demand, bottleneck analysis, and graduation impact. Intensive courses are excluded.</p>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button type="button" className="btn-primary" onClick={handleSavePlanner}>Save Plan</button>
+                <button type="button" className="btn-outline btn-sm" onClick={() => download(`/reports/${majorCode}/all-advised`, `Planner_${majorCode}.xlsx`)}>Export</button>
+              </div>
+            </div>
+
+            <div className="filter-bar mb-4 p-0 border-none justify-start">
+              <div className="filter-group">
+                <label>Graduating Threshold (Cr. Remaining)</label>
+                <input type="number" value={plannerThreshold} onChange={(event) => setPlannerThreshold(Number(event.target.value || 30))} />
+              </div>
+              <div className="filter-group">
+                <label>Min Eligible Students</label>
+                <input type="number" value={plannerMinEligible} onChange={(event) => setPlannerMinEligible(Number(event.target.value || 3))} />
+              </div>
+            </div>
+
+            {/* Summary stats */}
+            {(() => {
+              const meta = allStudents.data?.course_metadata ?? {}
+              const items = (planner.data ?? []).filter(item => {
+                const m = meta[item.course]
+                return !m || m.course_type?.toLowerCase() !== 'intensive'
+              })
+              const selectedItems = items.filter(item => plannerSelection.includes(item.course))
+              const totalEligible = selectedItems.reduce((s, i) => s + i.currently_eligible, 0)
+              const totalGrad = selectedItems.reduce((s, i) => s + i.graduating_students, 0)
+              return (
+                <>
+                  {plannerSelection.length > 0 && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', padding: '12px 16px', background: '#f0fdf4', borderRadius: '10px', border: '1px solid #bbf7d0', marginBottom: '16px' }}>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '20px', fontWeight: 700, color: '#166534' }}>{plannerSelection.length}</div>
+                        <div style={{ fontSize: '10px', color: '#166534', textTransform: 'uppercase', fontWeight: 600 }}>Selected Courses</div>
+                      </div>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '20px', fontWeight: 700, color: '#166534' }}>{totalEligible}</div>
+                        <div style={{ fontSize: '10px', color: '#166534', textTransform: 'uppercase', fontWeight: 600 }}>Students Served</div>
+                      </div>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '20px', fontWeight: 700, color: '#166534' }}>{totalGrad}</div>
+                        <div style={{ fontSize: '10px', color: '#166534', textTransform: 'uppercase', fontWeight: 600 }}>Graduating Impacted</div>
+                      </div>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '20px', fontWeight: 700, color: '#166534' }}>{items.length - selectedItems.length}</div>
+                        <div style={{ fontSize: '10px', color: '#166534', textTransform: 'uppercase', fontWeight: 600 }}>Not Selected</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {plannerMessage && <div style={{ padding: '8px 12px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', marginBottom: '12px', fontSize: '12px', color: '#1e40af', fontWeight: 600 }}>{plannerMessage}</div>}
+
+                  <div className="premium-table-wrapper">
+                    <table className="premium-table">
+                      <thead>
+                        <tr>
+                          <th style={{ width: '40px' }}></th>
+                          <th>Course</th>
+                          <th>Priority Score</th>
+                          <th>Eligible Students</th>
+                          <th>Graduating Students</th>
+                          <th>Bottleneck Score</th>
+                          <th>Cascading Eligible</th>
+                          <th>Reason</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {items.length === 0 ? (
+                          <tr><td colSpan={8} className="text-center p-8 text-muted">No course offering recommendations available. Adjust the thresholds above.</td></tr>
+                        ) : (
+                          items.map((item) => {
+                            const maxScore = Math.max(...items.map(i => i.priority_score), 1)
+                            const barPct = Math.round((item.priority_score / maxScore) * 100)
+                            const isSelected = plannerSelection.includes(item.course)
+                            return (
+                              <tr key={item.course} style={{ background: isSelected ? '#f0fdf4' : undefined }}>
+                                <td className="text-center">
+                                  <input type="checkbox" checked={isSelected} onChange={() => {
+                                    setPlannerSelection(prev => prev.includes(item.course) ? prev.filter(c => c !== item.course) : [...prev, item.course])
+                                  }} />
+                                </td>
+                                <td className="font-semibold font-mono">{item.course}</td>
+                                <td>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <div style={{ flex: 1, height: '8px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+                                      <div style={{ height: '100%', width: `${barPct}%`, background: barPct > 70 ? '#22c55e' : barPct > 40 ? '#f59e0b' : '#94a3b8', borderRadius: '4px', transition: 'width 0.3s' }} />
+                                    </div>
+                                    <span style={{ fontSize: '12px', fontWeight: 600, minWidth: '36px' }}>{item.priority_score.toFixed(1)}</span>
+                                  </div>
+                                </td>
+                                <td className="text-center text-lg font-semibold">{item.currently_eligible}</td>
+                                <td className="text-center" style={{ color: item.graduating_students > 0 ? '#dc2626' : undefined, fontWeight: item.graduating_students > 0 ? 700 : undefined }}>{item.graduating_students}</td>
+                                <td className="text-center font-mono text-sm">{item.bottleneck_score.toFixed(1)}</td>
+                                <td className="text-center font-mono text-sm">{item.cascading_eligible}</td>
+                                <td className="text-sm text-muted" style={{ maxWidth: '250px' }}>{item.reason}</td>
+                              </tr>
+                            )
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )
+            })()}
           </div>
         </div>
       )}
