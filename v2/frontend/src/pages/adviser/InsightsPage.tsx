@@ -298,7 +298,14 @@ export function InsightsPage() {
 
             <div className="legend-row mb-4 p-4 bg-gray-50 rounded-xl text-sm border">
               <span className="font-semibold text-muted mr-4">Legend:</span>
-              {allStudents.data?.legend.map((item) => <span key={item.code} className="flex items-center gap-1"><span className={`status-pill w-8 status-${item.code}`}></span> {item.label}</span>)}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
+                {allStudents.data?.legend.map((item) => (
+                  <span key={item.code} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    <span className={`status-pill status-${item.code}`} style={{ minWidth: '1.75rem', textAlign: 'center', fontWeight: 700, fontSize: '0.7rem' }}>{item.code}</span>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{item.label}</span>
+                  </span>
+                ))}
+              </div>
             </div>
 
             <div className="flex-between items-end mb-2">

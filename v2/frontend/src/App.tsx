@@ -5,9 +5,9 @@ import { AppFrame } from './components/AppFrame'
 import { useCurrentUser } from './lib/hooks'
 import { LoginPage } from './pages/LoginPage'
 import { AdminOverviewPage } from './pages/admin/AdminOverviewPage'
+import { AuditLogPage } from './pages/admin/AuditLogPage'
 import { BackupsPage } from './pages/admin/BackupsPage'
 import { DatasetsPage } from './pages/admin/DatasetsPage'
-import { ImportsPage } from './pages/admin/ImportsPage'
 import { PeriodsPage } from './pages/admin/PeriodsPage'
 import { TemplatesPage } from './pages/admin/TemplatesPage'
 import { UsersPage } from './pages/admin/UsersPage'
@@ -39,8 +39,8 @@ function AdminLayout() {
         { to: '/admin/periods', label: 'Periods' },
         { to: '/admin/users', label: 'Users' },
         { to: '/admin/templates', label: 'Templates' },
-        { to: '/admin/imports', label: 'Imports' },
         { to: '/admin/backups', label: 'Backups' },
+        { to: '/admin/audit', label: 'Audit Log' },
       ]}
     >
       <Outlet />
@@ -85,8 +85,8 @@ export default function App() {
         <Route path="periods" element={<PeriodsPage />} />
         <Route path="users" element={<UsersPage />} />
         <Route path="templates" element={<TemplatesPage />} />
-        <Route path="imports" element={<ImportsPage />} />
         <Route path="backups" element={<BackupsPage />} />
+        <Route path="audit" element={<AuditLogPage />} />
       </Route>
       <Route path="/adviser" element={<RequireRole role="adviser"><AdviserLayout /></RequireRole>}>
         <Route index element={<DashboardPage />} />

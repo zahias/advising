@@ -160,6 +160,17 @@ export type BackupRun = {
   created_at: string
 }
 
+export type AuditEventRecord = {
+  id: number
+  actor_user_id: number | null
+  actor_name: string | null
+  event_type: string
+  entity_type: string
+  entity_id: string
+  payload: Record<string, unknown>
+  created_at: string
+}
+
 export type AllStudentsRow = {
   student_id: string
   student_name: string

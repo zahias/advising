@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { apiFetch, AppTemplate, BackupRun, CourseCatalogItem, CurrentUser, DashboardMetrics, DatasetVersion, ExclusionSummary, Major, Period, SessionSummary, StudentEligibility, StudentSearchItem, UserRecord } from './api'
+import { apiFetch, AppTemplate, AuditEventRecord, BackupRun, CourseCatalogItem, CurrentUser, DashboardMetrics, DatasetVersion, ExclusionSummary, Major, Period, SessionSummary, StudentEligibility, StudentSearchItem, UserRecord } from './api'
 
 export function useCurrentUser() {
   return useQuery({
@@ -93,5 +93,13 @@ export function useExclusions(majorCode?: string) {
     queryKey: ['exclusions', majorCode],
     queryFn: () => apiFetch<ExclusionSummary[]>(`/advising/exclusions/${majorCode}`),
     enabled: Boolean(majorCode),
+  })
+}
+
+export function useAuditLog(eventType?: string) {
+  const params = eventType ? `?event_type=${encodeURIComponent(eventType)}` : ''
+  return useQuery({
+    queryKey: ['audit-log', eventType],
+    queryFn: () => apiFetch<AuditEventRecord[]>(`/audit-events${params}`),
   })
 }

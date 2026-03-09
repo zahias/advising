@@ -28,7 +28,7 @@ async def upload_dataset_route(
     major_code: str = Form(...),
     dataset_type: str = Form(...),
     file: UploadFile = File(...),
-    user: User = Depends(require_admin),
+    user: User = Depends(require_staff),
     db: Session = Depends(get_db),
 ) -> DatasetVersion:
     try:
@@ -42,6 +42,8 @@ async def upload_dataset_route(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # Store uploader info in metadata so it surfaces in the version list
+    version.metadata_json = {**version.metadata_json, 'uploaded_by': user.full_name or user.email}
     log_event(db, user.id, 'dataset.uploaded', 'dataset_version', str(version.id), {'major_code': major_code, 'dataset_type': dataset_type})
     db.commit()
     db.refresh(version)

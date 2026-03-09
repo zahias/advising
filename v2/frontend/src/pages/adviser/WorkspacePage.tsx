@@ -22,6 +22,29 @@ async function authedFetch(path: string, init?: RequestInit) {
   })
 }
 
+const STATUS_DOT: Record<string, string> = {
+  completed: '#22c55e',
+  registered: '#eab308',
+  available: '#3b82f6',
+  advised: '#f97316',
+  not_eligible: '#cbd5e1',
+  failed: '#ef4444',
+}
+const STATUS_BG: Record<string, string> = {
+  completed: '#f0fdf4',
+  registered: '#fefce8',
+  available: '#eff6ff',
+  advised: '#fff7ed',
+  failed: '#fef2f2',
+}
+const STATUS_BORDER: Record<string, string> = {
+  completed: '#bbf7d0',
+  registered: '#fde68a',
+  available: '#bfdbfe',
+  advised: '#fed7aa',
+  failed: '#fecaca',
+}
+
 export function WorkspacePage() {
   const queryClient = useQueryClient()
   const [majorCode, setMajorCode] = useState('PBHL')
@@ -37,6 +60,7 @@ export function WorkspacePage() {
   const [bypassNote, setBypassNote] = useState('')
   const [hiddenCourses, setHiddenCourses] = useState<string[]>([])
   const [excludedCourses, setExcludedCourses] = useState<string[]>([])
+  const [originalExcludedCourses, setOriginalExcludedCourses] = useState<string[]>([])
   const [formState, setFormState] = useState({ advised: [] as string[], optional: [] as string[], repeat: [] as string[], note: '' })
 
   const majors = useMajors()
@@ -64,6 +88,7 @@ export function WorkspacePage() {
     })
     setHiddenCourses(student.data.hidden_courses)
     setExcludedCourses(student.data.excluded_courses)
+    setOriginalExcludedCourses(student.data.excluded_courses)
     // Reset tab on student change
     setActiveTab('schedule')
   }, [student.data])
@@ -372,9 +397,12 @@ export function WorkspacePage() {
                         <div className="flex-between">
                           <div>
                             <h3 style={{ margin: 0 }}>Intensive Course Placement <Tooltip text="Intensive courses require manual placement decisions. Mark a course as 'Excluded' to prevent it from appearing in this student's eligible list during intensive semesters." /></h3>
-                            <p className="text-muted text-sm" style={{ margin: '4px 0 0' }}>Select which intensive course(s) apply to this student based on their placement level. Deselected courses will be excluded from their plan.</p>
+                            <p className="text-muted text-sm" style={{ margin: '4px 0 0' }}>Select which intensive course(s) apply to this student. Excluded courses are removed from their eligible course list.</p>
                           </div>
-                          <button type="button" className="btn-primary btn-sm" onClick={handleSavePlacements} title="Save the intensive course placement for this student">Save Placement</button>
+                          <div style={{ display: 'flex', gap: '0.5rem' }}>
+                            <button type="button" className="btn-sm btn-outline" onClick={() => setExcludedCourses(originalExcludedCourses)} title="Reset to last saved placement">Reset</button>
+                            <button type="button" className="btn-primary btn-sm" onClick={handleSavePlacements} title="Save the intensive course placement for this student">Save Placement</button>
+                          </div>
                         </div>
                         <div className="placement-grid">
                           {intensiveCourses.map((course) => {
@@ -415,10 +443,11 @@ export function WorkspacePage() {
                     )}
                     {degreePlan.data && (
                       <>
-                        <div className="legend-row bg-white p-3 rounded-xl border flex justify-center" style={{ flexWrap: 'wrap', gap: '1.5rem' }}>
+                        <div className="legend-row bg-white p-3 rounded-xl border" style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '1.25rem' }}>
                           {degreePlan.data.legend.map((item) => (
-                            <span key={item.status} className="text-sm font-medium" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                              <span style={{ fontSize: '1.1rem' }}>{item.icon}</span> {item.label}
+                            <span key={item.status} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', fontWeight: 500 }}>
+                              <span style={{ width: '11px', height: '11px', borderRadius: '50%', background: STATUS_DOT[item.status] ?? '#cbd5e1', display: 'inline-block', flexShrink: 0 }} />
+                              {item.label}
                             </span>
                           ))}
                         </div>
@@ -439,16 +468,14 @@ export function WorkspacePage() {
                                       {semester.courses.map((course) => (
                                         <div
                                           key={course.code}
-                                          style={{ background: '#f8f9fa', borderRadius: '8px', padding: '0.5rem 0.75rem', border: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                                          title={`${course.code} — ${course.status}`}
+                                          style={{ background: STATUS_BG[course.status] ?? '#f8f9fa', borderRadius: '8px', padding: '0.5rem 0.75rem', border: `1px solid ${STATUS_BORDER[course.status] ?? 'var(--line)'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                                          title={`${course.code} — ${course.status.replace('_', ' ')}`}
                                         >
                                           <div>
                                             <div style={{ fontWeight: 700, fontSize: '0.75rem', fontFamily: 'monospace' }}>{course.code}</div>
                                             <div style={{ fontSize: '0.7rem', color: 'var(--muted)', maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{course.title}</div>
                                           </div>
-                                          <span style={{ fontSize: '1rem' }}>
-                                            {course.status.toLowerCase().includes('complet') ? '✅' : course.status.toLowerCase().includes('register') ? '🔄' : '📝'}
-                                          </span>
+                                          <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: STATUS_DOT[course.status] ?? '#cbd5e1', flexShrink: 0, display: 'inline-block' }} />
                                         </div>
                                       ))}
                                     </div>

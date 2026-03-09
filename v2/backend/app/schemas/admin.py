@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, computed_field
 
 from app.schemas.common import ORMModel
 
@@ -65,6 +65,11 @@ class DatasetVersionResponse(ORMModel):
     metadata_json: dict[str, Any]
     created_at: datetime
 
+    @computed_field
+    @property
+    def uploaded_by(self) -> Optional[str]:
+        return self.metadata_json.get('uploaded_by')
+
 
 class TemplateUpdateRequest(BaseModel):
     major_code: Optional[str] = None
@@ -93,4 +98,15 @@ class BackupRunResponse(ORMModel):
     storage_key: Optional[str]
     manifest: dict[str, Any]
     notes: Optional[str]
+    created_at: datetime
+
+
+class AuditEventResponse(BaseModel):
+    id: int
+    actor_user_id: Optional[int]
+    actor_name: Optional[str]
+    event_type: str
+    entity_type: str
+    entity_id: str
+    payload: dict[str, Any]
     created_at: datetime

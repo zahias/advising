@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import ensure_major_access, get_db, require_staff
 from app.models import User
 from app.schemas.common import MessageResponse
+from app.services.audit import log_event
 from app.services.email_service import send_student_email
 
 router = APIRouter(prefix='/emails', tags=['emails'])
@@ -17,4 +18,6 @@ def send_email_route(major_code: str, student_id: str, template_key: str = Query
     result = send_student_email(db, major_code=major_code, student_id=student_id, template_key=template_key)
     if not result['success']:
         raise HTTPException(status_code=400, detail=result['message'])
+    log_event(db, user.id, 'email.sent', 'student', student_id, {'major_code': major_code, 'template_key': template_key, 'recipient': result.get('recipient')})
+    db.commit()
     return MessageResponse(message=result['message'])

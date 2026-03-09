@@ -27,22 +27,22 @@ def current_period_route(major_code: str, user: User = Depends(require_staff), d
 
 
 @router.post('', response_model=PeriodResponse)
-def create_period_route(payload: PeriodCreateRequest, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+def create_period_route(payload: PeriodCreateRequest, user: User = Depends(require_staff), db: Session = Depends(get_db)):
     try:
         period = create_period(db, major_code=payload.major_code, semester=payload.semester, year=payload.year, advisor_name=payload.advisor_name)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    log_event(db, admin.id, 'period.created', 'period', str(period.id), {'major_code': payload.major_code, 'period_code': period.period_code})
+    log_event(db, user.id, 'period.created', 'period', str(period.id), {'major_code': payload.major_code, 'period_code': period.period_code})
     db.commit()
     return period
 
 
 @router.post('/{period_code}/activate', response_model=PeriodResponse)
-def activate_period_route(period_code: str, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+def activate_period_route(period_code: str, user: User = Depends(require_staff), db: Session = Depends(get_db)):
     try:
         period = activate_period(db, period_code)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    log_event(db, admin.id, 'period.activated', 'period', str(period.id), {'period_code': period.period_code})
+    log_event(db, user.id, 'period.activated', 'period', str(period.id), {'period_code': period.period_code})
     db.commit()
     return period

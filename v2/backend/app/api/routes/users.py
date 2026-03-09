@@ -37,3 +37,29 @@ def create_user(payload: UserCreateRequest, admin: User = Depends(require_admin)
     db.commit()
     db.refresh(user)
     return user
+
+
+@router.patch('/{user_id}/deactivate', response_model=UserResponse)
+def deactivate_user(user_id: int, admin: User = Depends(require_admin), db: Session = Depends(get_db)) -> User:
+    user = db.scalar(select(User).where(User.id == user_id))
+    if not user:
+        raise HTTPException(status_code=404, detail='User not found')
+    if user.id == admin.id:
+        raise HTTPException(status_code=400, detail='Cannot deactivate yourself')
+    user.is_active = False
+    log_event(db, admin.id, 'user.deactivated', 'user', str(user.id), {})
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@router.patch('/{user_id}/activate', response_model=UserResponse)
+def activate_user(user_id: int, admin: User = Depends(require_admin), db: Session = Depends(get_db)) -> User:
+    user = db.scalar(select(User).where(User.id == user_id))
+    if not user:
+        raise HTTPException(status_code=404, detail='User not found')
+    user.is_active = True
+    log_event(db, admin.id, 'user.activated', 'user', str(user.id), {})
+    db.commit()
+    db.refresh(user)
+    return user

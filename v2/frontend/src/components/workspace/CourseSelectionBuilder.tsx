@@ -166,7 +166,7 @@ export function CourseSelectionBuilder({ eligibility, remainingCredits = 0, form
                                         const isIneligible = status === 'ineligible'
                                         const isCompleted = status === 'completed'
                                         const isRegistered = status === 'registered'
-                                        const reason = (course as any).ineligibility_reason as string | undefined
+                                        const reason = course.justification
                                         return (
                                             <div key={course.course_code} className={`course-card${isIneligible ? ' course-card-ineligible' : ''}`}>
                                                 <div className="course-info">
