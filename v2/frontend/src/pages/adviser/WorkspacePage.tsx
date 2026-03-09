@@ -284,6 +284,7 @@ export function WorkspacePage() {
               <StudentProfileHeader
                 student={student.data}
                 activePeriod={activePeriod}
+                majorCode={majorCode}
                 templateKey={templateKey}
                 templates={templates.data || []}
                 onTemplateChange={setTemplateKey}
@@ -321,6 +322,7 @@ export function WorkspacePage() {
                 {activeTab === 'schedule' && (
                   <CourseSelectionBuilder
                     eligibility={student.data.eligibility}
+                    remainingCredits={student.data.credits_remaining}
                     formState={formState}
                     onChange={setFormState}
                     onSave={handleSaveSelection}

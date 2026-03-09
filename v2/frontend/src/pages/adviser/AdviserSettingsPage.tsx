@@ -65,14 +65,16 @@ export function AdviserSettingsPage() {
       setMessage({ type: 'error', text: body || 'Request failed.' })
       return null
     }
-    setMessage({ type: 'success', text: body ? (() => {
-      try {
-        const parsed = JSON.parse(body)
-        return parsed.message || 'Saved.'
-      } catch {
-        return 'Saved.'
-      }
-    })() : 'Saved.' })
+    setMessage({
+      type: 'success', text: body ? (() => {
+        try {
+          const parsed = JSON.parse(body)
+          return parsed.message || 'Saved.'
+        } catch {
+          return 'Saved.'
+        }
+      })() : 'Saved.'
+    })
     return body
   }
 
@@ -137,99 +139,131 @@ export function AdviserSettingsPage() {
   }
 
   return (
-    <section className="stack">
-      <div className="page-header">
+    <section className="settings-container stack max-w-5xl mx-auto">
+      <div className="page-header flex-between mb-4">
         <div>
-          <div className="eyebrow">Adviser Interface</div>
-          <h2>Settings</h2>
+          <div className="eyebrow text-muted">Admin & Configuration</div>
+          <h2>Adviser Settings</h2>
         </div>
-        <label>
-          <span>Major</span>
-          <select value={majorCode} onChange={(event) => setMajorCode(event.target.value)}>
-            {majors.data?.map((major) => <option key={major.code}>{major.code}</option>)}
-          </select>
-        </label>
-      </div>
-      {message ? <div className={`alert ${message.type === 'error' ? 'error' : ''}`}>{message.text}</div> : null}
-      <div className="field-row three-col-layout">
-        <div className="panel stack compact-panel">
-          <h3>Session management</h3>
-          <p>Current period: {activePeriod ? `${activePeriod.semester} ${activePeriod.year} · ${activePeriod.advisor_name}` : 'No active period'}</p>
-          <div className="button-row wrap-row">
-            <button type="button" onClick={handleClearSelections} disabled={!activePeriod}>Clear all selections</button>
-            <button type="button" onClick={handleRestoreAll} disabled={!activePeriod}>Restore all sessions</button>
-          </div>
-          <p>Saved sessions in this period: {sessions.data?.length ?? 0}</p>
-        </div>
-        <div className="panel stack compact-panel">
-          <h3>Bulk restore</h3>
-          <label><span>Filter students</span><input value={studentQuery} onChange={(event) => setStudentQuery(event.target.value)} placeholder="Name or ID" /></label>
-          <label>
-            <span>Select students to restore</span>
-            <select multiple size={10} value={bulkStudentIds} onChange={(event) => setBulkStudentIds(getSelectedValues(event))}>
-              {students.data?.map((student) => <option key={student.student_id} value={student.student_id}>{student.student_name} · {student.student_id}</option>)}
+        <div className="header-actions">
+          <label className="inline-select">
+            <span className="text-muted">Master Program:</span>
+            <select className="select-input" value={majorCode} onChange={(event) => setMajorCode(event.target.value)}>
+              {majors.data?.map((major) => <option key={major.code}>{major.code}</option>)}
             </select>
           </label>
-          <button type="button" onClick={handleBulkRestore} disabled={!activePeriod || !bulkStudentIds.length}>Restore selected students</button>
-        </div>
-        <div className="panel stack compact-panel">
-          <h3>Runtime storage</h3>
-          <p>Drive sync is intentionally removed in v2 runtime.</p>
-          <p>Authoritative data lives in the app database and uploaded datasets.</p>
-          <p>Legacy import remains an admin-only migration action.</p>
         </div>
       </div>
-      <div className="two-column settings-layout">
+      {message && (
+        <div className={`alert mb-4 ${message.type === 'error' ? 'alert-error' : 'alert-success'}`}>
+          {message.text}
+          <button type="button" className="close-btn" onClick={() => setMessage(null)}>&times;</button>
+        </div>
+      )}
+
+      <div className="grid-3 mb-6">
         <div className="panel stack">
-          <h3>Intensive-course exclusions</h3>
-          <div className="field-row">
-            <label>
-              <span>Courses</span>
-              <select multiple size={8} value={exclusionCourses} onChange={(event) => setExclusionCourses(getSelectedValues(event))}>
+          <h3 className="mb-2">Session Management</h3>
+          <p className="text-sm text-muted mb-4">Current period: <strong>{activePeriod ? `${activePeriod.semester} ${activePeriod.year} · ${activePeriod.advisor_name}` : 'No active period'}</strong></p>
+          <div className="flex-gap-4 mb-2">
+            <button type="button" className="btn-secondary w-full" onClick={handleClearSelections} disabled={!activePeriod}>Clear All Selections</button>
+          </div>
+          <div className="flex-gap-4">
+            <button type="button" className="btn-secondary w-full" onClick={handleRestoreAll} disabled={!activePeriod}>Restore All Sessions</button>
+          </div>
+          <p className="text-xs text-muted mt-2 border-t pt-2 border-gray-100">Saved sessions in this period: {sessions.data?.length ?? 0}</p>
+        </div>
+        <div className="panel stack">
+          <h3 className="mb-2">Bulk Restore</h3>
+          <p className="text-sm text-muted mb-4">Restore prior advising selections for specific students.</p>
+          <div className="form-group mb-4">
+            <label className="text-muted font-semibold text-xs uppercase tracking-wider mb-2 block">Filter Directory</label>
+            <input className="w-full" value={studentQuery} onChange={(event) => setStudentQuery(event.target.value)} placeholder="Name or ID" />
+          </div>
+          <div className="form-group mb-4">
+            <label className="text-muted font-semibold text-xs uppercase tracking-wider mb-2 block">Select Profiles</label>
+            <select className="select-input" multiple size={6} value={bulkStudentIds} onChange={(event) => setBulkStudentIds(getSelectedValues(event))}>
+              {students.data?.map((student) => <option key={student.student_id} value={student.student_id}>{student.student_name} · {student.student_id}</option>)}
+            </select>
+          </div>
+          <button type="button" className="btn-primary" onClick={handleBulkRestore} disabled={!activePeriod || !bulkStudentIds.length}>Restore Selected</button>
+        </div>
+        <div className="panel stack bg-gray-50 border border-gray-100">
+          <h3 className="mb-2">Runtime Storage</h3>
+          <div className="text-sm text-gray-600 space-y-4">
+            <p>Drive sync is intentionally removed in the V2 runtime environment.</p>
+            <p>Authoritative data lives exclusively in the app database and uploaded raw datasets.</p>
+            <p>Legacy import tools remain an admin-only migration action via the CLI.</p>
+          </div>
+        </div>
+      </div>
+      <div className="grid-2">
+        <div className="panel stack">
+          <h3 className="mb-2">Intensive Course Exclusions</h3>
+          <p className="text-sm text-muted mb-4">Prevent intensive courses from appearing in specific student templates.</p>
+          <div className="grid-2 gap-4 mb-4">
+            <div className="form-group">
+              <label className="text-muted font-semibold text-xs uppercase tracking-wider mb-2 block">Intensive Courses</label>
+              <select className="select-input" multiple size={8} value={exclusionCourses} onChange={(event) => setExclusionCourses(getSelectedValues(event))}>
                 {intensiveCourses.map((course) => <option key={course.course_code} value={course.course_code}>{course.course_code} · {course.title}</option>)}
               </select>
-            </label>
-            <label>
-              <span>Students</span>
-              <select multiple size={8} value={exclusionStudentIds} onChange={(event) => setExclusionStudentIds(getSelectedValues(event))}>
+            </div>
+            <div className="form-group">
+              <label className="text-muted font-semibold text-xs uppercase tracking-wider mb-2 block">Target Students</label>
+              <select className="select-input" multiple size={8} value={exclusionStudentIds} onChange={(event) => setExclusionStudentIds(getSelectedValues(event))}>
                 {allStudents.data?.map((student) => <option key={student.student_id} value={student.student_id}>{student.student_name} · {student.student_id}</option>)}
               </select>
-            </label>
+            </div>
           </div>
-          <button type="button" onClick={handleSaveExclusions} disabled={!exclusionCourses.length || !exclusionStudentIds.length}>Save exclusions</button>
-          <div className="scroll-table">
-            <table>
-              <thead><tr><th>Student</th><th>Excluded courses</th></tr></thead>
+          <button type="button" className="btn-secondary mb-4" onClick={handleSaveExclusions} disabled={!exclusionCourses.length || !exclusionStudentIds.length}>Save Exclusions</button>
+
+          <div className="premium-table-wrapper max-h-64">
+            <table className="premium-table">
+              <thead className="sticky top-0 bg-white"><tr><th>Student Profile</th><th>Excluded Course List</th></tr></thead>
               <tbody>
-                {exclusions.data?.map((item) => <tr key={item.student_id}><td>{item.student_name}</td><td>{item.course_codes.join(', ')}</td></tr>)}
+                {exclusions.data?.length === 0 ? (
+                  <tr><td colSpan={2} className="text-center p-4 text-muted">No exclusions configured.</td></tr>
+                ) : (
+                  exclusions.data?.map((item) => <tr key={item.student_id}><td className="font-medium">{item.student_name}</td><td className="text-sm text-muted font-mono">{item.course_codes.join(', ')}</td></tr>)
+                )}
               </tbody>
             </table>
           </div>
         </div>
         <div className="panel stack">
-          <h3>Email template preview</h3>
-          <div className="field-row">
-            <label>
-              <span>Template</span>
-              <select value={templateKey} onChange={(event) => setTemplateKey(event.target.value)}>
+          <h3 className="mb-2">Email Template Preview</h3>
+          <p className="text-sm text-muted mb-4">Simulate how an advising email template resolves for a specific student.</p>
+          <div className="grid-2 gap-4 mb-4">
+            <div className="form-group">
+              <label className="text-muted font-semibold text-xs uppercase tracking-wider mb-2 block">System Template</label>
+              <select className="select-input h-auto p-2" value={templateKey} onChange={(event) => setTemplateKey(event.target.value)}>
                 {templates.data?.map((template) => <option key={template.id} value={template.template_key}>{template.display_name}</option>)}
               </select>
-            </label>
-            <label>
-              <span>Student</span>
-              <select value={previewStudentId} onChange={(event) => setPreviewStudentId(event.target.value)}>
+            </div>
+            <div className="form-group">
+              <label className="text-muted font-semibold text-xs uppercase tracking-wider mb-2 block">Simulation Target</label>
+              <select className="select-input h-auto p-2" value={previewStudentId} onChange={(event) => setPreviewStudentId(event.target.value)}>
                 <option value="">Select student</option>
                 {allStudents.data?.map((student) => <option key={student.student_id} value={student.student_id}>{student.student_name}</option>)}
               </select>
-            </label>
+            </div>
           </div>
-          <button type="button" onClick={handlePreview} disabled={!previewStudentId}>Refresh preview</button>
-          {preview ? (
-            <>
-              <label><span>Subject</span><input value={preview.subject} readOnly /></label>
-              <div className="code-block">{preview.preview_body}</div>
-            </>
-          ) : <p>Choose a student and template to preview the outgoing email.</p>}
+          <button type="button" className="btn-secondary mb-4" onClick={handlePreview} disabled={!previewStudentId}>Generate Preview Runtime</button>
+
+          <div className="bg-gray-50 rounded-lg border p-4">
+            {preview ? (
+              <div className="stack">
+                <div className="form-group">
+                  <label className="text-muted font-semibold text-xs uppercase tracking-wider mb-1 block">Resolved Subject Line</label>
+                  <input className="w-full font-medium" value={preview.subject} readOnly />
+                </div>
+                <div className="form-group mt-2">
+                  <label className="text-muted font-semibold text-xs uppercase tracking-wider mb-1 block">Resolved HTML Body</label>
+                  <div className="bg-white border rounded-lg p-4 font-mono text-sm whitespace-pre-wrap max-h-96 overflow-y-auto" dangerouslySetInnerHTML={{ __html: preview.preview_body }} />
+                </div>
+              </div>
+            ) : <p className="text-muted text-sm text-center py-8">Select a student and template above to compile the preview.</p>}
+          </div>
         </div>
       </div>
     </section>

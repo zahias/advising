@@ -1,24 +1,50 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { StudentEligibility } from '../../lib/api'
 
 interface Props {
     eligibility: StudentEligibility['eligibility']
+    remainingCredits?: number
     formState: { advised: string[]; optional: string[]; repeat: string[]; note: string }
     onChange: (state: { advised: string[]; optional: string[]; repeat: string[]; note: string }) => void
     onSave: () => void
 }
 
-export function CourseSelectionBuilder({ eligibility, formState, onChange, onSave }: Props) {
+export function CourseSelectionBuilder({ eligibility, remainingCredits = 0, formState, onChange, onSave }: Props) {
     const [search, setSearch] = useState('')
+    const undoStack = useRef<Array<{ advised: string[]; optional: string[]; repeat: string[]; note: string }>>([])
+
+    const getCourseDetails = (code: string) => eligibility.find((c) => c.course_code === code)
+
+    const creditLookup = useMemo(() => {
+        const map: Record<string, number> = {}
+        for (const c of eligibility) {
+            const cr = c.course_code ? (eligibility.find(e => e.course_code === c.course_code) as any)?.credits : 0
+            map[c.course_code] = typeof cr === 'number' ? cr : 0
+        }
+        return map
+    }, [eligibility])
+
+    const advisedCredits = useMemo(() => {
+        return [...formState.advised, ...formState.optional, ...formState.repeat]
+            .reduce((sum, code) => sum + (creditLookup[code] || 3), 0)
+    }, [formState, creditLookup])
+
+    const creditPercent = remainingCredits > 0 ? Math.min(100, Math.round((advisedCredits / remainingCredits) * 100)) : 0
+
+    const pushUndo = useCallback(() => {
+        undoStack.current = [...undoStack.current.slice(-19), { ...formState, advised: [...formState.advised], optional: [...formState.optional], repeat: [...formState.repeat] }]
+    }, [formState])
+
+    const handleUndo = useCallback(() => {
+        const prev = undoStack.current.pop()
+        if (prev) onChange(prev)
+    }, [onChange])
 
     const availableCourses = useMemo(() => {
         const selected = new Set([...formState.advised, ...formState.optional, ...formState.repeat])
         return eligibility.filter((course) => {
-            // Must not be already selected
             if (selected.has(course.course_code)) return false
-            // Basic text search
             if (search && !course.course_code.toLowerCase().includes(search.toLowerCase()) && !course.title.toLowerCase().includes(search.toLowerCase())) return false
-            // Eligible logic for new courses
             if (
                 course.offered &&
                 !course.completed &&
@@ -27,7 +53,6 @@ export function CourseSelectionBuilder({ eligibility, formState, onChange, onSav
             ) {
                 return true
             }
-            // Eligible logic for repeat courses
             if (course.completed || course.registered) {
                 return true
             }
@@ -36,6 +61,7 @@ export function CourseSelectionBuilder({ eligibility, formState, onChange, onSav
     }, [eligibility, formState, search])
 
     const handleAdd = (courseCode: string, type: 'advised' | 'optional' | 'repeat') => {
+        pushUndo()
         onChange({
             ...formState,
             advised: type === 'advised' ? [...formState.advised, courseCode] : formState.advised,
@@ -45,6 +71,7 @@ export function CourseSelectionBuilder({ eligibility, formState, onChange, onSav
     }
 
     const handleRemove = (courseCode: string, type: 'advised' | 'optional' | 'repeat') => {
+        pushUndo()
         onChange({
             ...formState,
             advised: type === 'advised' ? formState.advised.filter((c) => c !== courseCode) : formState.advised,
@@ -53,10 +80,26 @@ export function CourseSelectionBuilder({ eligibility, formState, onChange, onSav
         })
     }
 
-    const getCourseDetails = (code: string) => eligibility.find((c) => c.course_code === code)
-
     return (
         <div className="course-selection-builder">
+            {/* Credit Counter Bar */}
+            <div className="credit-counter-bar" style={{ padding: '12px 16px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <span style={{ fontSize: '13px', fontWeight: 600, color: '#475569' }}>
+                        Advising <strong style={{ color: '#0f172a', fontSize: '16px' }}>{advisedCredits}</strong> of <strong>{remainingCredits}</strong> remaining credits
+                    </span>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <button type="button" onClick={handleUndo} disabled={undoStack.current.length === 0} className="btn-sm btn-outline" style={{ fontSize: '12px', padding: '2px 10px' }} title="Undo last change">
+                            ↩ Undo
+                        </button>
+                        <span style={{ fontSize: '12px', color: '#64748b' }}>{creditPercent}%</span>
+                    </div>
+                </div>
+                <div style={{ height: '6px', background: '#e2e8f0', borderRadius: '3px', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${creditPercent}%`, background: creditPercent > 100 ? '#ef4444' : creditPercent > 75 ? '#f59e0b' : '#22c55e', borderRadius: '3px', transition: 'width 0.3s ease' }} />
+                </div>
+            </div>
+
             <div className="builder-header">
                 <h3>Schedule Builder</h3>
                 <button type="button" className="btn-primary" onClick={onSave}>Save Selections</button>

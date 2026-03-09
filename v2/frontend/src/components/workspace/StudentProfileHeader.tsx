@@ -1,8 +1,10 @@
-import { StudentEligibility } from '../../lib/api'
+import { useState } from 'react'
+import { API_BASE_URL, StudentEligibility, TemplatePreview } from '../../lib/api'
 
 interface Props {
   student: StudentEligibility
   activePeriod?: { semester: string; year: number }
+  majorCode: string
   templateKey: string
   templates: { id: number; template_key: string; display_name: string }[]
   onTemplateChange: (key: string) => void
@@ -15,6 +17,7 @@ interface Props {
 export function StudentProfileHeader({
   student,
   activePeriod,
+  majorCode,
   templateKey,
   templates,
   onTemplateChange,
@@ -23,6 +26,26 @@ export function StudentProfileHeader({
   onRecommend,
   onDownloadReport,
 }: Props) {
+  const [showPreview, setShowPreview] = useState(false)
+  const [preview, setPreview] = useState<TemplatePreview | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+
+  async function loadPreview() {
+    if (showPreview) { setShowPreview(false); return }
+    setPreviewLoading(true)
+    try {
+      const token = window.localStorage.getItem('advising_v2_token')
+      const resp = await fetch(`${API_BASE_URL}/api/templates/preview?major_code=${encodeURIComponent(majorCode)}&student_id=${encodeURIComponent(student.student_id)}&template_key=${encodeURIComponent(templateKey)}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+      if (resp.ok) {
+        setPreview(await resp.json())
+        setShowPreview(true)
+      }
+    } catch { /* ignore */ }
+    setPreviewLoading(false)
+  }
+
   return (
     <div className="student-profile-header">
       <div className="profile-main">
@@ -65,9 +88,20 @@ export function StudentProfileHeader({
           <select value={templateKey} onChange={(e) => onTemplateChange(e.target.value)} className="select-sm">
             {templates.map((t) => <option key={t.id} value={t.template_key}>{t.display_name}</option>)}
           </select>
+          <button type="button" className="btn-outline btn-sm" onClick={loadPreview} disabled={previewLoading}>
+            {previewLoading ? '...' : showPreview ? 'Hide Preview' : '👁 Preview'}
+          </button>
           <button type="button" className="btn-primary" onClick={onEmail}>Email Student</button>
         </div>
       </div>
+
+      {showPreview && preview && (
+        <div style={{ marginTop: '12px', padding: '16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+          <div style={{ fontSize: '11px', textTransform: 'uppercase', fontWeight: 600, color: '#94a3b8', letterSpacing: '0.05em', marginBottom: '6px' }}>Email Preview</div>
+          <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b', marginBottom: '8px' }}>Subject: {preview.subject}</div>
+          <div style={{ fontSize: '12px', color: '#475569', background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px', maxHeight: '200px', overflow: 'auto', fontFamily: 'monospace', whiteSpace: 'pre-wrap' }} dangerouslySetInnerHTML={{ __html: preview.preview_body }} />
+        </div>
+      )}
     </div>
   )
 }

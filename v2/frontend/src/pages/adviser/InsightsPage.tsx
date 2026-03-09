@@ -15,7 +15,7 @@ import {
 import { useMajors, useStudents, useTemplates } from '../../lib/hooks'
 
 type InsightTab = 'all' | 'individual' | 'qaa' | 'conflicts' | 'degree'
-type MatrixTab = 'required' | 'intensive'
+type MatrixTab = 'required' | 'intensive' | 'all-courses'
 
 function getSelectedValues(event: ChangeEvent<HTMLSelectElement>) {
   return Array.from(event.target.selectedOptions).map((option) => option.value)
@@ -87,33 +87,33 @@ export function InsightsPage() {
       return apiFetch<AllStudentsInsightsResponse>(`/insights/${majorCode}/all-students?${params.toString()}`)
     },
   })
-  
+
   const planner = useQuery({
     queryKey: ['planner', majorCode, plannerThreshold, plannerMinEligible],
     queryFn: () => apiFetch<CourseOfferingRecommendation[]>(`/insights/${majorCode}/course-planner?graduation_threshold=${plannerThreshold}&min_eligible_students=${plannerMinEligible}`),
   })
-  
+
   const plannerState = useQuery({
     queryKey: ['planner-state', majorCode],
     queryFn: () => apiFetch<PlannerSelectionState>(`/insights/${majorCode}/course-planner-state`),
   })
-  
+
   const individual = useQuery({
     queryKey: ['individual-student', majorCode, selectedStudentId, selectedCourses],
     queryFn: () => apiFetch<IndividualStudentInsight>(`/insights/${majorCode}/individual/${selectedStudentId}${selectedCourses.length ? `?${selectedCourses.map((course) => `courses=${encodeURIComponent(course)}`).join('&')}` : ''}`),
     enabled: Boolean(selectedStudentId),
   })
-  
+
   const qaa = useQuery({
     queryKey: ['qaa', majorCode, graduatingThreshold],
     queryFn: () => apiFetch<QAARow[]>(`/insights/${majorCode}/qaa?graduating_threshold=${graduatingThreshold}`),
   })
-  
+
   const conflicts = useQuery({
     queryKey: ['schedule-conflicts', majorCode, targetGroups, maxCoursesPerGroup, minStudents, minCourses],
     queryFn: () => apiFetch<ScheduleConflictRow[]>(`/insights/${majorCode}/schedule-conflicts?target_groups=${targetGroups}&max_courses_per_group=${maxCoursesPerGroup}&min_students=${minStudents}&min_courses=${minCourses}`),
   })
-  
+
   const degreePlan = useQuery({
     queryKey: ['degree-plan', majorCode, selectedStudentId],
     queryFn: () => apiFetch<DegreePlanResponse>(`/insights/${majorCode}/degree-plan/${selectedStudentId}`),
@@ -161,8 +161,9 @@ export function InsightsPage() {
   }, [allStudents.data?.rows, remainingMax, remainingMin])
 
   const visibleRows = showAllRows ? filteredRows : filteredRows.slice(0, 80)
-  const matrixColumns = matrixTab === 'required' ? requiredColumns : intensiveColumns
-  const matrixOptions = matrixTab === 'required' ? (allStudents.data?.required_courses ?? []) : (allStudents.data?.intensive_courses ?? [])
+  const matrixColumns = matrixTab === 'all-courses' ? Object.keys(allStudents.data?.course_metadata ?? {}) : matrixTab === 'required' ? requiredColumns : intensiveColumns
+  const matrixOptions = matrixTab === 'all-courses' ? Object.keys(allStudents.data?.course_metadata ?? {}) : matrixTab === 'required' ? (allStudents.data?.required_courses ?? []) : (allStudents.data?.intensive_courses ?? [])
+
   const selectedStudentOptions = searchQuery ? (students.data ?? []) : (allStudentsSearch.data ?? [])
 
   const plannerImpact = useMemo(() => {
@@ -281,22 +282,34 @@ export function InsightsPage() {
             <div className="panel stack">
               <h3>Simulation Engine</h3>
               <p className="text-muted text-sm">Simulate corequisite or concurrent course offerings to project eligibility impacts instantly.</p>
-              
+
+              {/* Auto-suggestions */}
+              {planner.data && planner.data.length > 0 && pendingSimulatedCourses.length === 0 && appliedSimulatedCourses.length === 0 && (
+                <div style={{ padding: '8px 12px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', marginBottom: '8px', fontSize: '12px', color: '#1e40af' }}>
+                  <strong>💡 Suggestion:</strong> Try simulating <strong>{planner.data.slice(0, 3).map(i => i.course).join(', ')}</strong> — top bottleneck courses by priority score.
+                </div>
+              )}
+
               <div className="form-group mb-4">
                 <label className="text-muted font-semibold text-sm mb-2 block">Available courses to simulate</label>
                 <select className="select-input" multiple size={5} value={pendingSimulatedCourses} onChange={(event) => setPendingSimulatedCourses(getSelectedValues(event))}>
                   {allStudents.data?.simulation_options.map((course) => <option key={course} value={course}>{course}</option>)}
                 </select>
               </div>
-              
+
               <div className="flex-gap-4">
                 <button type="button" className="btn-primary" onClick={() => setAppliedSimulatedCourses(pendingSimulatedCourses)}>Run Simulation</button>
                 <button type="button" className="btn-secondary" onClick={() => { setPendingSimulatedCourses([]); setAppliedSimulatedCourses([]) }}>Clear</button>
               </div>
-              
+
               {appliedSimulatedCourses.length > 0 && (
                 <div className="success-banner mt-4 text-sm">
                   <strong>Active Simulation:</strong> {appliedSimulatedCourses.join(', ')}
+                  {allStudents.data && (
+                    <div style={{ marginTop: '6px', padding: '6px 10px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', fontSize: '11px', color: '#166534' }}>
+                      Matrix below now reflects projected eligibility changes from offering {appliedSimulatedCourses.join(' + ')}.
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -307,7 +320,7 @@ export function InsightsPage() {
                 <button type="button" className="btn-secondary btn-sm" onClick={handleSavePlanner}>Save Plan</button>
               </div>
               <p className="text-muted text-sm">Target offerings based on bottleneck scores and graduating thresholds.</p>
-              
+
               <div className="filter-bar mb-4 p-0 border-none justify-start">
                 <div className="filter-group">
                   <label>Grad. Threshold</label>
@@ -318,14 +331,18 @@ export function InsightsPage() {
                   <input type="number" value={plannerMinEligible} onChange={(event) => setPlannerMinEligible(Number(event.target.value || 3))} />
                 </div>
               </div>
-              
+
               <div className="form-group">
                 <label className="text-muted font-semibold text-sm mb-2 block">Select Offerings to commit</label>
                 <select className="select-input" multiple size={4} value={plannerSelection} onChange={(event) => setPlannerSelection(getSelectedValues(event))}>
-                  {planner.data?.map((item) => <option key={item.course} value={item.course}>{item.course} (Score: {item.priority_score.toFixed(1)})</option>)}
+                  {planner.data?.map((item) => {
+                    const maxScore = Math.max(...(planner.data ?? []).map(i => i.priority_score), 1)
+                    const barWidth = Math.round((item.priority_score / maxScore) * 100)
+                    return <option key={item.course} value={item.course}>{item.course} (Score: {item.priority_score.toFixed(1)}) {'█'.repeat(Math.max(1, Math.round(barWidth / 10)))}</option>
+                  })}
                 </select>
               </div>
-              
+
               <div className="text-sm text-muted mt-2 border-t pt-2 border-gray-100">
                 Plan Impact: Serves <strong>{plannerImpact.eligible}</strong> globally eligible students, including <strong>{plannerImpact.graduating}</strong> graduating seniors.
                 {plannerMessage && <div className="text-accent font-semibold mt-1">{plannerMessage}</div>}
@@ -337,11 +354,11 @@ export function InsightsPage() {
             <div className="flex-between items-center mb-4">
               <h3>Global Student Matrix</h3>
               <button type="button" className="btn-secondary" onClick={() => download(`/reports/${majorCode}/all-advised`, 'All_Advised_Students.xlsx')}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="mr-2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="mr-2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" x2="12" y1="15" y2="3" /></svg>
                 Export Excel
               </button>
             </div>
-            
+
             <div className="filter-bar">
               <div className="filter-group">
                 <label>Min Remaining Cr.</label>
@@ -357,23 +374,24 @@ export function InsightsPage() {
                   {allStudents.data?.semester_options.map((option) => <option key={option} value={option}>{option}</option>)}
                 </select>
               </div>
-              
+
               <div className="filter-group ml-auto">
                 <div className="workspace-tabs-nav p-0 border-none gap-0 scale-90 origin-right">
+                  <button type="button" className={`tab-btn bg-white border ${matrixTab === 'all-courses' ? 'active shadow-sm' : ''}`} onClick={() => setMatrixTab('all-courses')}>All Courses</button>
                   <button type="button" className={`tab-btn bg-white border ${matrixTab === 'required' ? 'active shadow-sm' : ''}`} onClick={() => setMatrixTab('required')}>Required</button>
                   <button type="button" className={`tab-btn bg-white border ${matrixTab === 'intensive' ? 'active shadow-sm' : ''}`} onClick={() => setMatrixTab('intensive')}>Intensive</button>
                 </div>
               </div>
             </div>
-            
+
             <div className="legend-row mb-4 p-4 bg-gray-50 rounded-xl text-sm border">
-               <span className="font-semibold text-muted mr-4">Legend:</span>
-               {allStudents.data?.legend.map((item) => <span key={item.code} className="flex items-center gap-1"><span className={`status-pill w-8 status-${item.code}`}></span> {item.label}</span>)}
+              <span className="font-semibold text-muted mr-4">Legend:</span>
+              {allStudents.data?.legend.map((item) => <span key={item.code} className="flex items-center gap-1"><span className={`status-pill w-8 status-${item.code}`}></span> {item.label}</span>)}
             </div>
 
             <div className="flex-between items-end mb-2">
-               <p className="text-sm text-muted">Showing {visibleRows.length} of {filteredRows.length} students.</p>
-               <button type="button" className="btn-outline btn-sm" onClick={() => setShowAllRows((current) => !current)}>{showAllRows ? 'Show Paginated (80 max)' : 'Show Full List'}</button>
+              <p className="text-sm text-muted">Showing {visibleRows.length} of {filteredRows.length} students.</p>
+              <button type="button" className="btn-outline btn-sm" onClick={() => setShowAllRows((current) => !current)}>{showAllRows ? 'Show Paginated (80 max)' : 'Show Full List'}</button>
             </div>
 
             <div className="premium-table-wrapper" style={{ maxHeight: '600px', overflowY: 'auto' }}>
@@ -406,9 +424,9 @@ export function InsightsPage() {
                         {matrixColumns.map((courseCode) => (
                           <td key={`${item.student_id}-${courseCode}`} className="text-center border-l bg-gray-50/30">
                             {item.courses[courseCode] ? (
-                               <span className={`status-pill status-${item.courses[courseCode]}`}>{item.courses[courseCode]}</span>
+                              <span className={`status-pill status-${item.courses[courseCode]}`}>{item.courses[courseCode]}</span>
                             ) : (
-                               <span className="text-gray-300">-</span>
+                              <span className="text-gray-300">-</span>
                             )}
                           </td>
                         ))}
@@ -428,7 +446,7 @@ export function InsightsPage() {
             <div className="filter-group flex-1">
               <label>Search Directory</label>
               <div className="search-box">
-                 <svg className="search-icon h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <svg className="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
                 <input className="w-full pl-10" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Name or ID" />
               </div>
             </div>
@@ -439,22 +457,22 @@ export function InsightsPage() {
                 {selectedStudentOptions.map((student) => <option key={student.student_id} value={student.student_id}>{student.student_name}</option>)}
               </select>
             </div>
-            
+
             <div className="filter-group border-l pl-4 ml-2">
-               <label>Communications</label>
-               <div className="flex-gap-4">
-                 <select value={templateKey} onChange={(event) => setTemplateKey(event.target.value)}>
-                   {templates.data?.map((template) => <option key={template.id} value={template.template_key}>{template.display_name}</option>)}
-                 </select>
-                 <button type="button" className="btn-primary whitespace-nowrap" onClick={handleSendEmail} disabled={!selectedStudentId}>Send Mail</button>
-               </div>
+              <label>Communications</label>
+              <div className="flex-gap-4">
+                <select value={templateKey} onChange={(event) => setTemplateKey(event.target.value)}>
+                  {templates.data?.map((template) => <option key={template.id} value={template.template_key}>{template.display_name}</option>)}
+                </select>
+                <button type="button" className="btn-primary whitespace-nowrap" onClick={handleSendEmail} disabled={!selectedStudentId}>Send Mail</button>
+              </div>
             </div>
           </div>
 
           {!selectedStudentId ? (
             <div className="blank-slate-panel panel rounded-2xl">
               <div className="blank-slate-content">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" className="text-muted"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" className="text-muted"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /></svg>
                 <h3>Select a Student profile</h3>
                 <p className="text-muted">Use the search filters above to drill down into a specific student's eligibility and requisites map.</p>
               </div>
@@ -462,16 +480,16 @@ export function InsightsPage() {
           ) : (
             <div className="panel stack mt-2">
               <div className="flex-between mb-4">
-                 <div>
-                    <h3 className="mb-1">Academic Requisites Map</h3>
-                    <p className="text-muted text-sm">Visualizing specific course overrides and statuses.</p>
-                 </div>
-                 <button type="button" className="btn-secondary" onClick={() => download(`/reports/${majorCode}/individual/${selectedStudentId}${selectedCourses.length ? `?${selectedCourses.map((course) => `courses=${encodeURIComponent(course)}`).join('&')}` : ''}`, `Student_${selectedStudentId}.xlsx`)}>
-                   Export Individual Sheet
-                 </button>
+                <div>
+                  <h3 className="mb-1">Academic Requisites Map</h3>
+                  <p className="text-muted text-sm">Visualizing specific course overrides and statuses.</p>
+                </div>
+                <button type="button" className="btn-secondary" onClick={() => download(`/reports/${majorCode}/individual/${selectedStudentId}${selectedCourses.length ? `?${selectedCourses.map((course) => `courses=${encodeURIComponent(course)}`).join('&')}` : ''}`, `Student_${selectedStudentId}.xlsx`)}>
+                  Export Individual Sheet
+                </button>
               </div>
 
-               <div className="mb-4">
+              <div className="mb-4">
                 <label className="text-muted font-semibold text-xs uppercase tracking-wider mb-2 block">Available Visibility Toggles</label>
                 <div className="course-chip-grid">
                   {Object.keys(allStudents.data?.course_metadata ?? {}).slice(0, 50).map((courseCode) => (
@@ -517,45 +535,75 @@ export function InsightsPage() {
             </div>
             <div className="filter-group ml-auto">
               <button type="button" className="btn-secondary" onClick={() => download(`/reports/${majorCode}/qaa?graduating_threshold=${graduatingThreshold}`, `QAA_Sheet_${majorCode}.xlsx`)}>
-                 Export Workbook
+                Export Workbook
               </button>
             </div>
-          </div>
+          </div>          {/* QAA Summary Banner */}
+          {qaa.data && qaa.data.length > 0 && (() => {
+            const totalCourses = qaa.data.length
+            const totalEligible = qaa.data.reduce((s, i) => s + i.eligibility, 0)
+            const totalAdvised = qaa.data.reduce((s, i) => s + i.advised, 0)
+            const totalSkipped = qaa.data.reduce((s, i) => s + i.skipped_advising, 0)
+            const totalSkipGrad = qaa.data.reduce((s, i) => s + i.skipped_graduating, 0)
+            return (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '12px', padding: '16px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '12px' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a' }}>{totalCourses}</div>
+                  <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Courses</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a' }}>{totalEligible}</div>
+                  <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Total Eligible</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '22px', fontWeight: 700, color: '#22c55e' }}>{totalAdvised}</div>
+                  <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Advised</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '22px', fontWeight: 700, color: '#f59e0b' }}>{totalSkipped}</div>
+                  <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Skipped Advising</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '22px', fontWeight: 700, color: totalSkipGrad > 0 ? '#ef4444' : '#0f172a' }}>{totalSkipGrad}</div>
+                  <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Skipped + Graduating</div>
+                </div>
+              </div>
+            )
+          })()}
 
           <div className="panel premium-table-wrapper">
             <table className="premium-table">
               <thead>
                 <tr>
-                  <th>Course Data</th>
-                  <th>Eligibility Pool</th>
-                  <th className="bg-green-50/30">Advised Alloc.</th>
+                  <th>Course Code</th>
+                  <th>Course Name</th>
+                  <th>Eligibility</th>
+                  <th className="bg-green-50/30">Advised</th>
                   <th className="bg-yellow-50/30">Optional</th>
                   <th className="bg-red-50/30">Not Advised</th>
-                  <th className="border-l">Bottlenecks (Not Advised & Grad)</th>
+                  <th className="border-l">Skipped Advising</th>
+                  <th className="bg-orange-50/10">Attended + Graduating</th>
+                  <th className="bg-red-50/10">Skipped + Graduating</th>
                 </tr>
               </thead>
               <tbody>
                 {qaa.data?.length === 0 ? (
-                  <tr><td colSpan={6} className="text-center p-8 text-muted">No QAA projections generated for this program.</td></tr>
+                  <tr><td colSpan={9} className="text-center p-8 text-muted">No QAA projections generated for this program.</td></tr>
                 ) : (
                   qaa.data?.map((item) => (
-                  <tr key={item.course_code}>
-                    <td>
-                      <div className="font-semibold">{item.course_code}</div>
-                      <div className="text-xs text-muted truncate max-w-xs" title={item.course_name}>{item.course_name}</div>
-                    </td>
-                    <td className="text-center text-lg">{item.eligibility}</td>
-                    <td className="text-center font-medium bg-green-50/10">{item.advised}</td>
-                    <td className="text-center bg-yellow-50/10">{item.optional}</td>
-                    <td className="text-center bg-red-50/10">{item.not_advised}</td>
-                    <td className="text-center border-l">
-                      <div className="flex justify-center gap-4 text-sm">
-                         <span title="Skipped Advising" className="text-gray-500 font-mono">SA:{item.skipped_advising}</span>
-                         <span title="Graduating Warning" className="text-red-600 font-semibold font-mono">W:{item.skipped_graduating}</span>
-                      </div>
-                    </td>
-                  </tr>
-                )))}
+                    <tr key={item.course_code}>
+                      <td className="font-semibold font-mono">{item.course_code}</td>
+                      <td className="text-sm text-muted truncate max-w-xs" title={item.course_name}>{item.course_name}</td>
+                      <td className="text-center text-lg">{item.eligibility}</td>
+                      <td className="text-center font-medium bg-green-50/10">{item.advised}</td>
+                      <td className="text-center bg-yellow-50/10">{item.optional}</td>
+                      <td className="text-center bg-red-50/10">{item.not_advised}</td>
+                      <td className="text-center border-l font-mono text-sm">{item.skipped_advising}</td>
+                      <td className="text-center bg-orange-50/5 font-mono text-sm">{item.attended_graduating}</td>
+                      <td className="text-center font-mono text-sm" style={{ background: item.skipped_graduating > 0 ? '#fef2f2' : undefined, color: item.skipped_graduating > 0 ? '#dc2626' : undefined, fontWeight: item.skipped_graduating > 0 ? 700 : undefined }}>{item.skipped_graduating}</td>
+                    </tr>
+                  )))
+                }
               </tbody>
             </table>
           </div>
@@ -564,6 +612,29 @@ export function InsightsPage() {
 
       {tab === 'conflicts' && (
         <div className="stack">
+          {/* Conflict Summary Card */}
+          {conflicts.data && conflicts.data.length > 0 && (() => {
+            const totalGroups = conflicts.data.length
+            const totalStudents = new Set(conflicts.data.flatMap(i => i.student_ids)).size
+            const totalCourses = new Set(conflicts.data.flatMap(i => i.courses)).size
+            return (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', padding: '16px', background: '#fefce8', borderRadius: '12px', border: '1px solid #fde68a', marginBottom: '12px' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '22px', fontWeight: 700, color: '#92400e' }}>{totalGroups}</div>
+                  <div style={{ fontSize: '11px', color: '#92400e', textTransform: 'uppercase', fontWeight: 600 }}>Conflict Groups</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '22px', fontWeight: 700, color: '#92400e' }}>{totalStudents}</div>
+                  <div style={{ fontSize: '11px', color: '#92400e', textTransform: 'uppercase', fontWeight: 600 }}>Affected Students</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '22px', fontWeight: 700, color: '#92400e' }}>{totalCourses}</div>
+                  <div style={{ fontSize: '11px', color: '#92400e', textTransform: 'uppercase', fontWeight: 600 }}>Courses Involved</div>
+                </div>
+              </div>
+            )
+          })()}
+
           <div className="filter-bar panel">
             <div className="filter-group">
               <label>Target Groups Limit</label>
@@ -576,8 +647,8 @@ export function InsightsPage() {
             <div className="filter-group border-l pl-4 ml-2">
               <label>Minimums</label>
               <div className="flex-gap-4">
-                 <input type="number" placeholder="Students" title="Min Students" className="w-24" value={minStudents} onChange={(event) => setMinStudents(Number(event.target.value || 1))} />
-                 <input type="number" placeholder="Courses" title="Min Courses" className="w-24" value={minCourses} onChange={(event) => setMinCourses(Number(event.target.value || 2))} />
+                <input type="number" placeholder="Students" title="Min Students" className="w-24" value={minStudents} onChange={(event) => setMinStudents(Number(event.target.value || 1))} />
+                <input type="number" placeholder="Courses" title="Min Courses" className="w-24" value={minCourses} onChange={(event) => setMinCourses(Number(event.target.value || 2))} />
               </div>
             </div>
             <div className="filter-group ml-auto">
@@ -587,17 +658,23 @@ export function InsightsPage() {
 
           <div className="panel premium-table-wrapper">
             <table className="premium-table">
-              <thead><tr><th>Identified Conflict Clusters</th><th>At Risk Students</th><th>Course Matrix Count</th><th>Affected Student Roster (IDs)</th></tr></thead>
+              <thead><tr><th>Conflict Cluster</th><th>At Risk Students</th><th>Courses</th><th>Affected Student Roster</th></tr></thead>
               <tbody>
                 {conflicts.data?.length === 0 ? (
                   <tr><td colSpan={4} className="text-center p-8 text-muted">No schedule conflicts detected under the current constraints.</td></tr>
                 ) : (
                   conflicts.data?.map((item) => (
                     <tr key={item.group_name}>
-                      <td className="font-mono text-sm tracking-tighter" style={{ maxWidth: '300px' }}><div className="flex flex-wrap gap-1">{item.group_name.split(', ').map(c => <span key={c} className="bg-gray-100 px-2 py-0.5 rounded text-gray-700">{c}</span>)}</div></td>
-                      <td className="text-center text-lg">{item.student_count}</td>
+                      <td style={{ maxWidth: '300px' }}><div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>{item.courses.map(c => <span key={c} style={{ display: 'inline-block', padding: '2px 8px', background: '#e0e7ff', color: '#3730a3', borderRadius: '12px', fontSize: '11px', fontWeight: 600, fontFamily: 'monospace' }}>{c}</span>)}</div></td>
+                      <td className="text-center text-lg font-semibold">{item.student_count}</td>
                       <td className="text-center text-muted">{item.course_count}</td>
-                      <td className="text-xs text-muted" style={{ maxWidth: '400px' }}>{item.student_ids.join(', ')}</td>
+                      <td className="text-xs" style={{ maxWidth: '400px' }}>
+                        {item.student_ids.slice(0, 8).map(id => {
+                          const stu = allStudentsSearch.data?.find(s => s.student_id === id)
+                          return <span key={id} style={{ display: 'inline-block', margin: '1px 3px', padding: '1px 6px', background: '#f1f5f9', borderRadius: '4px', fontSize: '10px' }}>{stu ? stu.student_name : id}</span>
+                        })}
+                        {item.student_ids.length > 8 && <span style={{ fontSize: '10px', color: '#94a3b8' }}> +{item.student_ids.length - 8} more</span>}
+                      </td>
                     </tr>
                   ))
                 )}
@@ -617,54 +694,54 @@ export function InsightsPage() {
                 {selectedStudentOptions.map((student) => <option key={student.student_id} value={student.student_id}>{student.student_name} - {student.student_id}</option>)}
               </select>
             </div>
-            
+
             {degreePlan.data?.student && (
               <div className="ml-8 border-l pl-4 py-1 flex flex-col justify-center">
-                 <div className="font-semibold">{degreePlan.data.student.student_name}</div>
-                 <div className="text-sm text-muted">{degreePlan.data.student.standing} • {degreePlan.data.student.remaining_credits} Cr. Remaining</div>
+                <div className="font-semibold">{degreePlan.data.student.student_name}</div>
+                <div className="text-sm text-muted">{degreePlan.data.student.standing} • {degreePlan.data.student.remaining_credits} Cr. Remaining</div>
               </div>
             )}
           </div>
 
           {selectedStudentId && degreePlan.data ? (
             <div className="stack">
-               <div className="legend-row bg-white p-3 rounded-xl border flex justify-center">{degreePlan.data?.legend.map((item) => <span key={item.status} className="text-sm font-medium"><span className="text-lg mr-1">{item.icon}</span> {item.label}</span>)}</div>
-               
-               <div className="grid-2">
-                 {degreePlan.data?.years.map((year) => (
-                   <div key={year.year_name} className="panel">
-                     <div className="flex-between border-b pb-2 mb-4">
-                       <h3 className="text-accent mb-0">{year.year_name}</h3>
-                     </div>
-                     <div className="degree-grid">
-                       {year.semesters.map((semester) => (
-                         <div key={semester.semester_key} className="degree-card !gap-2 !p-3">
-                           <div className="flex-between">
-                             <strong className="text-sm">{semester.semester_key}</strong>
-                             <span className="badge badge-info">{semester.total_credits} cr</span>
-                           </div>
-                           <div className="mt-2 space-y-2">
-                             {semester.courses.map((course) => (
-                               <div key={course.code} className="bg-gray-50 rounded-lg p-2 border flex justify-between items-center group hover:bg-white transition-colors">
-                                 <div>
-                                   <div className="font-semibold text-xs mono mb-0.5">{course.code}</div>
-                                   <div className="text-[10px] text-muted truncate max-w-[140px]" title={course.title}>{course.title}</div>
-                                 </div>
-                                 <span className="text-base" title={course.status}>{course.status.includes('Completed') ? '✅' : course.status.includes('Registered') ? '🔄' : '📝'}</span>
-                               </div>
-                             ))}
-                           </div>
-                         </div>
-                       ))}
-                     </div>
-                   </div>
-                 ))}
-               </div>
+              <div className="legend-row bg-white p-3 rounded-xl border flex justify-center">{degreePlan.data?.legend.map((item) => <span key={item.status} className="text-sm font-medium"><span className="text-lg mr-1">{item.icon}</span> {item.label}</span>)}</div>
+
+              <div className="grid-2">
+                {degreePlan.data?.years.map((year) => (
+                  <div key={year.year_name} className="panel">
+                    <div className="flex-between border-b pb-2 mb-4">
+                      <h3 className="text-accent mb-0">{year.year_name}</h3>
+                    </div>
+                    <div className="degree-grid">
+                      {year.semesters.map((semester) => (
+                        <div key={semester.semester_key} className="degree-card !gap-2 !p-3">
+                          <div className="flex-between">
+                            <strong className="text-sm">{semester.semester_key}</strong>
+                            <span className="badge badge-info">{semester.total_credits} cr</span>
+                          </div>
+                          <div className="mt-2 space-y-2">
+                            {semester.courses.map((course) => (
+                              <div key={course.code} className="bg-gray-50 rounded-lg p-2 border flex justify-between items-center group hover:bg-white transition-colors">
+                                <div>
+                                  <div className="font-semibold text-xs mono mb-0.5">{course.code}</div>
+                                  <div className="text-[10px] text-muted truncate max-w-[140px]" title={course.title}>{course.title}</div>
+                                </div>
+                                <span className="text-base" title={course.status}>{course.status.includes('Completed') ? '✅' : course.status.includes('Registered') ? '🔄' : '📝'}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : (
             <div className="blank-slate-panel panel rounded-2xl">
               <div className="blank-slate-content">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" className="text-muted"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" className="text-muted"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" /></svg>
                 <h3>View Degree Maps</h3>
                 <p className="text-muted">Select a student from the dropdown to visually plot out their historic and projected academic term roadmap.</p>
               </div>
