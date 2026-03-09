@@ -1,8 +1,9 @@
-import { ChangeEvent, useEffect, useMemo, useState } from 'react'
+import { ChangeEvent, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { API_BASE_URL, TemplatePreview } from '../../lib/api'
-import { useCourseCatalog, useExclusions, useMajors, usePeriods, useSessions, useStudents, useTemplates } from '../../lib/hooks'
+import { useMajors, usePeriods, useSessions, useStudents, useTemplates } from '../../lib/hooks'
+import { Tooltip } from '../../components/Tooltip'
 
 function getSelectedValues(event: ChangeEvent<HTMLSelectElement>) {
   return Array.from(event.target.selectedOptions).map((option) => option.value)
@@ -24,39 +25,27 @@ export function AdviserSettingsPage() {
   const [majorCode, setMajorCode] = useState('PBHL')
   const [studentQuery, setStudentQuery] = useState('')
   const [bulkStudentIds, setBulkStudentIds] = useState<string[]>([])
-  const [exclusionStudentIds, setExclusionStudentIds] = useState<string[]>([])
-  const [exclusionCourses, setExclusionCourses] = useState<string[]>([])
   const [previewStudentId, setPreviewStudentId] = useState('')
   const [templateKey, setTemplateKey] = useState('default')
   const [preview, setPreview] = useState<TemplatePreview | null>(null)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [expandedStudents, setExpandedStudents] = useState<Set<string>>(new Set())
 
   const majors = useMajors()
   const periods = usePeriods(majorCode)
   const activePeriod = periods.data?.find((period) => period.is_active)
   const students = useStudents(majorCode, studentQuery)
-  const allStudents = useStudents(majorCode, '')
-  const exclusions = useExclusions(majorCode)
   const sessions = useSessions(majorCode, activePeriod?.period_code)
   const templates = useTemplates(majorCode)
-  const catalog = useCourseCatalog(majorCode)
 
-  useEffect(() => {
-    if (!previewStudentId && allStudents.data?.length) {
-      setPreviewStudentId(allStudents.data[0].student_id)
+  // Group sessions by student for the sessions browser
+  const sessionsByStudent = sessions.data?.reduce((acc, session) => {
+    if (!acc[session.student_id]) {
+      acc[session.student_id] = { name: session.student_name, sessions: [] }
     }
-  }, [allStudents.data, previewStudentId])
-
-  useEffect(() => {
-    if (templates.data?.length && !templates.data.some((item) => item.template_key === templateKey)) {
-      setTemplateKey(templates.data[0].template_key)
-    }
-  }, [templateKey, templates.data])
-
-  const intensiveCourses = useMemo(
-    () => catalog.data?.filter((course) => course.course_type.toLowerCase() === 'intensive') ?? [],
-    [catalog.data],
-  )
+    acc[session.student_id].sessions.push(session)
+    return acc
+  }, {} as Record<string, { name: string; sessions: typeof sessions.data }>) ?? {}
 
   async function runJsonAction(path: string, init?: RequestInit) {
     const response = await authedFetch(path, init)
@@ -112,19 +101,15 @@ export function AdviserSettingsPage() {
     queryClient.invalidateQueries({ queryKey: ['sessions', majorCode, activePeriod.period_code] })
   }
 
-  async function handleSaveExclusions() {
-    if (!exclusionStudentIds.length || !exclusionCourses.length) return
-    const response = await authedFetch('/advising/exclusions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ major_code: majorCode, student_ids: exclusionStudentIds, course_codes: exclusionCourses }),
-    })
+  async function handleRestoreSession(_sessionId: number, studentId: string) {
+    if (!activePeriod) return
+    const response = await authedFetch(`/advising/sessions/${majorCode}/${activePeriod.period_code}/${studentId}/restore`, { method: 'POST' })
     if (!response.ok) {
       setMessage({ type: 'error', text: await response.text() })
       return
     }
-    setMessage({ type: 'success', text: 'Exclusions updated.' })
-    queryClient.invalidateQueries({ queryKey: ['exclusions', majorCode] })
+    setMessage({ type: 'success', text: 'Session restored.' })
+    queryClient.invalidateQueries({ queryKey: ['sessions', majorCode, activePeriod.period_code] })
   }
 
   async function handlePreview() {
@@ -161,75 +146,81 @@ export function AdviserSettingsPage() {
         </div>
       )}
 
-      <div className="grid-3 mb-6">
+      <div className="grid-2 mb-6">
+        {/* Session Management */}
         <div className="panel stack">
-          <h3 className="mb-2">Session Management</h3>
-          <p className="text-sm text-muted mb-4">Current period: <strong>{activePeriod ? `${activePeriod.semester} ${activePeriod.year} · ${activePeriod.advisor_name}` : 'No active period'}</strong></p>
-          <div className="flex-gap-4 mb-2">
-            <button type="button" className="btn-secondary w-full" onClick={handleClearSelections} disabled={!activePeriod}>Clear All Selections</button>
+          <div className="flex-between mb-2">
+            <h3 style={{ margin: 0 }}>Session Management</h3>
           </div>
-          <div className="flex-gap-4">
-            <button type="button" className="btn-secondary w-full" onClick={handleRestoreAll} disabled={!activePeriod}>Restore All Sessions</button>
+          <p className="text-sm text-muted mb-4">Active period: <strong>{activePeriod ? `${activePeriod.semester} ${activePeriod.year} · ${activePeriod.advisor_name}` : 'No active period'}</strong></p>
+          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
+            <button type="button" className="btn-secondary" style={{ flex: 1 }} onClick={handleClearSelections} disabled={!activePeriod} title="Remove all saved course selections for all students in the active period">Clear All Selections</button>
+            <button type="button" className="btn-secondary" style={{ flex: 1 }} onClick={handleRestoreAll} disabled={!activePeriod} title="Restore everyone's last saved session for the active period">Restore All Sessions</button>
           </div>
-          <p className="text-xs text-muted mt-2 border-t pt-2 border-gray-100">Saved sessions in this period: {sessions.data?.length ?? 0}</p>
+          <div style={{ borderTop: '1px solid var(--line)', paddingTop: '0.75rem' }}>
+            <div className="form-group mb-3">
+              <label className="text-muted font-semibold text-xs uppercase tracking-wider mb-2 block" style={{ display: 'block', marginBottom: '0.5rem' }}>Bulk Restore — Filter Students</label>
+              <input className="w-full" value={studentQuery} onChange={(event) => setStudentQuery(event.target.value)} placeholder="Name or ID" />
+            </div>
+            <div className="form-group mb-3">
+              <select className="select-input" multiple size={5} value={bulkStudentIds} onChange={(event) => setBulkStudentIds(getSelectedValues(event))}>
+                {students.data?.map((student) => <option key={student.student_id} value={student.student_id}>{student.student_name} · {student.student_id}</option>)}
+              </select>
+            </div>
+            <button type="button" className="btn-primary btn-sm" onClick={handleBulkRestore} disabled={!activePeriod || !bulkStudentIds.length} title="Restore the most recent session for each selected student">Restore Selected ({bulkStudentIds.length})</button>
+          </div>
         </div>
+
+        {/* Sessions Browser */}
         <div className="panel stack">
-          <h3 className="mb-2">Bulk Restore</h3>
-          <p className="text-sm text-muted mb-4">Restore prior advising selections for specific students.</p>
-          <div className="form-group mb-4">
-            <label className="text-muted font-semibold text-xs uppercase tracking-wider mb-2 block">Filter Directory</label>
-            <input className="w-full" value={studentQuery} onChange={(event) => setStudentQuery(event.target.value)} placeholder="Name or ID" />
+          <div className="flex-between mb-2">
+            <h3 style={{ margin: 0 }}>Session History <Tooltip text="All saved advising sessions for the active period. Expand a student to view or restore individual sessions." /></h3>
+            <span className="badge badge-info">{sessions.data?.length ?? 0} sessions</span>
           </div>
-          <div className="form-group mb-4">
-            <label className="text-muted font-semibold text-xs uppercase tracking-wider mb-2 block">Select Profiles</label>
-            <select className="select-input" multiple size={6} value={bulkStudentIds} onChange={(event) => setBulkStudentIds(getSelectedValues(event))}>
-              {students.data?.map((student) => <option key={student.student_id} value={student.student_id}>{student.student_name} · {student.student_id}</option>)}
-            </select>
-          </div>
-          <button type="button" className="btn-primary" onClick={handleBulkRestore} disabled={!activePeriod || !bulkStudentIds.length}>Restore Selected</button>
-        </div>
-        <div className="panel stack bg-gray-50 border border-gray-100">
-          <h3 className="mb-2">Runtime Storage</h3>
-          <div className="text-sm text-gray-600 space-y-4">
-            <p>Drive sync is intentionally removed in the V2 runtime environment.</p>
-            <p>Authoritative data lives exclusively in the app database and uploaded raw datasets.</p>
-            <p>Legacy import tools remain an admin-only migration action via the CLI.</p>
-          </div>
+          <p className="text-sm text-muted mb-3">All saved advising sessions for the active period, organized by student. Click a student to expand their sessions, or restore a specific one.</p>
+          {Object.keys(sessionsByStudent).length === 0 ? (
+            <p className="text-muted text-sm" style={{ textAlign: 'center', padding: '2rem' }}>No sessions saved yet for the active period.</p>
+          ) : (
+            <div className="sessions-browser">
+              {Object.entries(sessionsByStudent).map(([studentId, group]) => (
+                <div key={studentId} className="session-student-group">
+                  <button
+                    type="button"
+                    className="session-student-header"
+                    onClick={() => setExpandedStudents(prev => {
+                      const next = new Set(prev)
+                      next.has(studentId) ? next.delete(studentId) : next.add(studentId)
+                      return next
+                    })}
+                  >
+                    <span>{group!.name} <span className="text-muted" style={{ fontWeight: 400, fontSize: '0.8rem' }}>&middot; {group!.sessions!.length} session{group!.sessions!.length !== 1 ? 's' : ''}</span></span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{expandedStudents.has(studentId) ? '▲' : '▼'}</span>
+                  </button>
+                  {expandedStudents.has(studentId) && (
+                    <div className="session-student-body">
+                      {group!.sessions!.map((session) => (
+                        <div key={session.id} className="session-entry">
+                          <div className="session-entry-info">
+                            <span className="session-entry-title">{session.title}</span>
+                            <span className="session-entry-meta">
+                              {new Date(session.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              {session.summary && typeof session.summary === 'object' && (
+                                <> &middot; {(session.summary as any).advised?.length ?? 0} advised, {(session.summary as any).optional?.length ?? 0} optional</>
+                              )}
+                            </span>
+                          </div>
+                          <button type="button" className="btn-sm btn-secondary" onClick={() => handleRestoreSession(session.id, studentId)} title="Restore this specific session for the student">Restore</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
       <div className="grid-2">
-        <div className="panel stack">
-          <h3 className="mb-2">Intensive Course Exclusions</h3>
-          <p className="text-sm text-muted mb-4">Prevent intensive courses from appearing in specific student templates.</p>
-          <div className="grid-2 gap-4 mb-4">
-            <div className="form-group">
-              <label className="text-muted font-semibold text-xs uppercase tracking-wider mb-2 block">Intensive Courses</label>
-              <select className="select-input" multiple size={8} value={exclusionCourses} onChange={(event) => setExclusionCourses(getSelectedValues(event))}>
-                {intensiveCourses.map((course) => <option key={course.course_code} value={course.course_code}>{course.course_code} · {course.title}</option>)}
-              </select>
-            </div>
-            <div className="form-group">
-              <label className="text-muted font-semibold text-xs uppercase tracking-wider mb-2 block">Target Students</label>
-              <select className="select-input" multiple size={8} value={exclusionStudentIds} onChange={(event) => setExclusionStudentIds(getSelectedValues(event))}>
-                {allStudents.data?.map((student) => <option key={student.student_id} value={student.student_id}>{student.student_name} · {student.student_id}</option>)}
-              </select>
-            </div>
-          </div>
-          <button type="button" className="btn-secondary mb-4" onClick={handleSaveExclusions} disabled={!exclusionCourses.length || !exclusionStudentIds.length}>Save Exclusions</button>
-
-          <div className="premium-table-wrapper max-h-64">
-            <table className="premium-table">
-              <thead className="sticky top-0 bg-white"><tr><th>Student Profile</th><th>Excluded Course List</th></tr></thead>
-              <tbody>
-                {exclusions.data?.length === 0 ? (
-                  <tr><td colSpan={2} className="text-center p-4 text-muted">No exclusions configured.</td></tr>
-                ) : (
-                  exclusions.data?.map((item) => <tr key={item.student_id}><td className="font-medium">{item.student_name}</td><td className="text-sm text-muted font-mono">{item.course_codes.join(', ')}</td></tr>)
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
         <div className="panel stack">
           <h3 className="mb-2">Email Template Preview</h3>
           <p className="text-sm text-muted mb-4">Simulate how an advising email template resolves for a specific student.</p>
@@ -244,7 +235,7 @@ export function AdviserSettingsPage() {
               <label className="text-muted font-semibold text-xs uppercase tracking-wider mb-2 block">Simulation Target</label>
               <select className="select-input h-auto p-2" value={previewStudentId} onChange={(event) => setPreviewStudentId(event.target.value)}>
                 <option value="">Select student</option>
-                {allStudents.data?.map((student) => <option key={student.student_id} value={student.student_id}>{student.student_name}</option>)}
+                {students.data?.map((student: { student_id: string; student_name: string }) => <option key={student.student_id} value={student.student_id}>{student.student_name}</option>)}
               </select>
             </div>
           </div>

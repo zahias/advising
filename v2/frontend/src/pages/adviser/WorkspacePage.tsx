@@ -1,7 +1,7 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useEffect, useMemo, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { API_BASE_URL, apiFetch } from '../../lib/api'
+import { API_BASE_URL, DegreePlanResponse, apiFetch } from '../../lib/api'
 import { useCourseCatalog, useMajors, usePeriods, useSessions, useStudentEligibility, useStudents, useTemplates } from '../../lib/hooks'
 
 // New modular components
@@ -9,6 +9,7 @@ import { StudentProfileHeader } from '../../components/workspace/StudentProfileH
 import { CourseSelectionBuilder } from '../../components/workspace/CourseSelectionBuilder'
 import { EligibilityTables } from '../../components/workspace/EligibilityTables'
 import { ExceptionManagement } from '../../components/workspace/ExceptionManagement'
+import { Tooltip } from '../../components/Tooltip'
 
 async function authedFetch(path: string, init?: RequestInit) {
   const token = window.localStorage.getItem('advising_v2_token')
@@ -28,13 +29,14 @@ export function WorkspacePage() {
   const [selectedStudentId, setSelectedStudentId] = useState<string | undefined>()
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
-  // Tabs: 'schedule', 'academic', 'exceptions'
-  const [activeTab, setActiveTab] = useState<'schedule' | 'academic' | 'exceptions'>('schedule')
+  // Tabs: 'schedule', 'academic', 'exceptions', 'degree'
+  const [activeTab, setActiveTab] = useState<'schedule' | 'academic' | 'exceptions' | 'degree'>('schedule')
 
   const [templateKey, setTemplateKey] = useState('default')
   const [bypassCourse, setBypassCourse] = useState('')
   const [bypassNote, setBypassNote] = useState('')
   const [hiddenCourses, setHiddenCourses] = useState<string[]>([])
+  const [excludedCourses, setExcludedCourses] = useState<string[]>([])
   const [formState, setFormState] = useState({ advised: [] as string[], optional: [] as string[], repeat: [] as string[], note: '' })
 
   const majors = useMajors()
@@ -46,6 +48,12 @@ export function WorkspacePage() {
   const templates = useTemplates(majorCode)
   const activePeriod = periods.data?.find((period) => period.is_active)
 
+  const degreePlan = useQuery({
+    queryKey: ['degree-plan', majorCode, selectedStudentId],
+    queryFn: () => apiFetch<DegreePlanResponse>(`/insights/${majorCode}/degree-plan/${selectedStudentId}`),
+    enabled: Boolean(selectedStudentId),
+  })
+
   useEffect(() => {
     if (!student.data) return
     setFormState({
@@ -55,6 +63,7 @@ export function WorkspacePage() {
       note: student.data.selection.note,
     })
     setHiddenCourses(student.data.hidden_courses)
+    setExcludedCourses(student.data.excluded_courses)
     // Reset tab on student change
     setActiveTab('schedule')
   }, [student.data])
@@ -171,6 +180,21 @@ export function WorkspacePage() {
       return
     }
     setMessage({ type: 'success', text: 'Hidden courses updated.' })
+    queryClient.invalidateQueries({ queryKey: ['student-eligibility', majorCode, selectedStudentId] })
+  }
+
+  async function handleSavePlacements() {
+    if (!selectedStudentId) return
+    const response = await authedFetch('/advising/exclusions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ major_code: majorCode, student_ids: [selectedStudentId], course_codes: excludedCourses }),
+    })
+    if (!response.ok) {
+      setMessage({ type: 'error', text: await response.text() })
+      return
+    }
+    setMessage({ type: 'success', text: 'Intensive placement saved.' })
     queryClient.invalidateQueries({ queryKey: ['student-eligibility', majorCode, selectedStudentId] })
   }
 
@@ -299,6 +323,7 @@ export function WorkspacePage() {
                   type="button"
                   className={`tab-btn ${activeTab === 'schedule' ? 'active' : ''}`}
                   onClick={() => setActiveTab('schedule')}
+                  title="Build this student's course schedule for the semester. Select advised, optional, and repeat courses."
                 >
                   Schedule Builder
                 </button>
@@ -306,13 +331,23 @@ export function WorkspacePage() {
                   type="button"
                   className={`tab-btn ${activeTab === 'academic' ? 'active' : ''}`}
                   onClick={() => setActiveTab('academic')}
+                  title="View the student's full eligibility record, including why courses are ineligible, and manage intensive course placement."
                 >
                   Academic Record
                 </button>
                 <button
                   type="button"
+                  className={`tab-btn ${activeTab === 'degree' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('degree')}
+                  title="View the student's full degree plan map showing completed, registered, and remaining courses by year and semester."
+                >
+                  Degree Plan
+                </button>
+                <button
+                  type="button"
                   className={`tab-btn ${activeTab === 'exceptions' ? 'active' : ''}`}
                   onClick={() => setActiveTab('exceptions')}
+                  title="Grant requisite bypasses for specific courses or hide courses from the student's view."
                 >
                   Exceptions & Overrides
                 </button>
@@ -330,10 +365,111 @@ export function WorkspacePage() {
                 )}
 
                 {activeTab === 'academic' && (
-                  <EligibilityTables
-                    eligibility={student.data.eligibility}
-                    intensiveCourses={intensiveCourses}
-                  />
+                  <div className="stack">
+                    {/* Intensive Course Placement */}
+                    {intensiveCourses.length > 0 && (
+                      <div className="panel stack">
+                        <div className="flex-between">
+                          <div>
+                            <h3 style={{ margin: 0 }}>Intensive Course Placement <Tooltip text="Intensive courses require manual placement decisions. Mark a course as 'Excluded' to prevent it from appearing in this student's eligible list during intensive semesters." /></h3>
+                            <p className="text-muted text-sm" style={{ margin: '4px 0 0' }}>Select which intensive course(s) apply to this student based on their placement level. Deselected courses will be excluded from their plan.</p>
+                          </div>
+                          <button type="button" className="btn-primary btn-sm" onClick={handleSavePlacements} title="Save the intensive course placement for this student">Save Placement</button>
+                        </div>
+                        <div className="placement-grid">
+                          {intensiveCourses.map((course) => {
+                            const isExcluded = excludedCourses.includes(course.course_code)
+                            return (
+                              <button
+                                key={course.course_code}
+                                type="button"
+                                className={`placement-card ${isExcluded ? 'excluded' : 'active'}`}
+                                onClick={() => setExcludedCourses(prev =>
+                                  isExcluded ? prev.filter(c => c !== course.course_code) : [...prev, course.course_code]
+                                )}
+                                title={isExcluded ? 'Click to include this course for the student' : 'Click to exclude this course for the student'}
+                              >
+                                <span className="placement-card-code">{course.course_code}</span>
+                                <span className="placement-card-title">{course.title}</span>
+                                <span className="placement-card-status">{isExcluded ? '✗ Excluded' : '✓ Active'}</span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    <EligibilityTables
+                      eligibility={student.data.eligibility}
+                      intensiveCourses={intensiveCourses}
+                    />
+                  </div>
+                )}
+
+                {activeTab === 'degree' && (
+                  <div className="stack">
+                    {degreePlan.isLoading && (
+                      <div className="panel" style={{ textAlign: 'center', padding: '3rem', color: 'var(--muted)' }}>Loading degree plan…</div>
+                    )}
+                    {degreePlan.isError && (
+                      <div className="panel" style={{ textAlign: 'center', padding: '3rem', color: '#dc2626' }}>Could not load degree plan. The degree plan dataset may not be configured for this major.</div>
+                    )}
+                    {degreePlan.data && (
+                      <>
+                        <div className="legend-row bg-white p-3 rounded-xl border flex justify-center" style={{ flexWrap: 'wrap', gap: '1.5rem' }}>
+                          {degreePlan.data.legend.map((item) => (
+                            <span key={item.status} className="text-sm font-medium" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                              <span style={{ fontSize: '1.1rem' }}>{item.icon}</span> {item.label}
+                            </span>
+                          ))}
+                        </div>
+                        <div className="grid-2">
+                          {degreePlan.data.years.map((year) => (
+                            <div key={year.year_name} className="panel">
+                              <div className="flex-between" style={{ borderBottom: '1px solid var(--line)', paddingBottom: '0.75rem', marginBottom: '1rem' }}>
+                                <h3 style={{ margin: 0, color: 'var(--accent)' }}>{year.year_name}</h3>
+                              </div>
+                              <div className="degree-grid">
+                                {year.semesters.map((semester) => (
+                                  <div key={semester.semester_key} className="degree-card">
+                                    <div className="flex-between">
+                                      <strong style={{ fontSize: '0.85rem' }}>{semester.semester_key}</strong>
+                                      <span className="badge badge-info">{semester.total_credits} cr</span>
+                                    </div>
+                                    <div style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                      {semester.courses.map((course) => (
+                                        <div
+                                          key={course.code}
+                                          style={{ background: '#f8f9fa', borderRadius: '8px', padding: '0.5rem 0.75rem', border: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                                          title={`${course.code} — ${course.status}`}
+                                        >
+                                          <div>
+                                            <div style={{ fontWeight: 700, fontSize: '0.75rem', fontFamily: 'monospace' }}>{course.code}</div>
+                                            <div style={{ fontSize: '0.7rem', color: 'var(--muted)', maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{course.title}</div>
+                                          </div>
+                                          <span style={{ fontSize: '1rem' }}>
+                                            {course.status.toLowerCase().includes('complet') ? '✅' : course.status.toLowerCase().includes('register') ? '🔄' : '📝'}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                    {!degreePlan.data && !degreePlan.isLoading && !degreePlan.isError && (
+                      <div className="blank-slate-panel panel">
+                        <div className="blank-slate-content">
+                          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" className="text-muted"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" /></svg>
+                          <h3>Degree Plan Unavailable</h3>
+                          <p className="text-muted">No degree plan data found for this student.</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 {activeTab === 'exceptions' && (

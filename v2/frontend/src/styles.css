@@ -1356,3 +1356,527 @@ thead .sticky-col {
   border-radius: 8px;
   border: 1px solid rgba(30,111,92,0.2);
 }
+
+/* ====== TOP NAV BAR LAYOUT (replaces sidebar) ====== */
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 200;
+  background: white;
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0 1.25rem;
+  height: 56px;
+  flex-shrink: 0;
+}
+
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--accent);
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  font-size: 0.95rem;
+  padding-right: 1.25rem;
+  border-right: 1px solid var(--line);
+  margin-right: 0.5rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.topbar-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  flex-shrink: 0;
+}
+
+.topbar-link {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 10px;
+  color: var(--muted);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.topbar-link:hover {
+  background: rgba(22, 34, 24, 0.05);
+  color: var(--ink);
+}
+
+.topbar-link.active {
+  background: rgba(30, 111, 92, 0.08);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.topbar-link .nav-icon {
+  flex-shrink: 0;
+}
+
+.task-shortcuts {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+  padding-left: 1rem;
+  border-left: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.shortcuts-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-weight: 600;
+  margin-right: 0.2rem;
+}
+
+.shortcut-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid rgba(22, 34, 24, 0.12);
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  box-shadow: none;
+}
+
+.shortcut-btn:hover {
+  background: rgba(30, 111, 92, 0.06);
+  color: var(--accent);
+  border-color: rgba(30, 111, 92, 0.3);
+}
+
+.topbar-user {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding-left: 1rem;
+  border-left: 1px solid var(--line);
+  margin-left: 0.5rem;
+  flex-shrink: 0;
+}
+
+.topbar-username {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--ink);
+  white-space: nowrap;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Override old grid-based app-shell */
+.content {
+  flex: 1;
+  padding: 1.5rem 2rem 2rem 2rem;
+  max-width: 1800px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.app-footer {
+  text-align: center;
+  padding: 0.6rem 1rem;
+  font-size: 0.72rem;
+  color: rgba(22, 34, 24, 0.35);
+  border-top: 1px solid var(--line);
+  background: white;
+  letter-spacing: 0.04em;
+}
+
+/* ====== TOOLTIP COMPONENT ====== */
+
+.tooltip-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.tooltip-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 99px;
+  background: rgba(22, 34, 24, 0.1);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: default;
+  line-height: 1;
+  padding: 0;
+  border: none;
+  box-shadow: none;
+  flex-shrink: 0;
+  margin-left: 0.35rem;
+}
+
+.tooltip-trigger:hover {
+  background: rgba(30, 111, 92, 0.15);
+  color: var(--accent);
+}
+
+.tooltip-bubble {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--ink);
+  color: white;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  white-space: normal;
+  min-width: 180px;
+  max-width: 280px;
+  z-index: 500;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+  pointer-events: none;
+  text-align: left;
+  font-weight: 400;
+}
+
+.tooltip-bubble::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--ink);
+}
+
+.tooltip-wrapper:hover .tooltip-bubble {
+  display: block;
+}
+
+/* ====== ALERT REFINEMENTS ====== */
+
+.alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  font-size: 0.9rem;
+}
+
+.alert-success {
+  background: rgba(30, 111, 92, 0.08);
+  border: 1px solid rgba(30, 111, 92, 0.2);
+  color: #1a4f38;
+}
+
+.alert-error {
+  background: rgba(217, 96, 64, 0.08);
+  border: 1px solid rgba(217, 96, 64, 0.2);
+  color: #7b2718;
+}
+
+.close-btn {
+  background: transparent;
+  border: none;
+  font-size: 1.2rem;
+  line-height: 1;
+  padding: 0 0.25rem;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.close-btn:hover {
+  opacity: 1;
+}
+
+/* ====== SELECT INPUT OVERRIDE ====== */
+
+.select-input {
+  width: auto;
+  padding: 0.5rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: white;
+  font-size: 0.9rem;
+}
+
+/* ====== GRID 3 FOR SETTINGS ====== */
+
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.5rem;
+}
+
+/* ====== SESSIONS BROWSER ====== */
+
+.sessions-browser {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 480px;
+  overflow-y: auto;
+}
+
+.session-student-group {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.session-student-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: #fafafa;
+  cursor: pointer;
+  border: none;
+  width: 100%;
+  text-align: left;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: background 0.15s;
+  color: var(--ink);
+  box-shadow: none;
+  border-radius: 0;
+}
+
+.session-student-header:hover {
+  background: #f0f0f0;
+}
+
+.session-student-body {
+  padding: 0.5rem;
+  background: white;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  border-top: 1px solid var(--line);
+}
+
+.session-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.75rem;
+  background: #fafafa;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  gap: 0.75rem;
+}
+
+.session-entry-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 1;
+}
+
+.session-entry-title {
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.session-entry-meta {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+/* ====== INTENSIVE PLACEMENT ====== */
+
+.placement-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.placement-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  border: 2px solid var(--line);
+  background: white;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+  box-shadow: none;
+  color: var(--ink);
+}
+
+.placement-card:hover {
+  border-color: rgba(30, 111, 92, 0.4);
+  background: rgba(30, 111, 92, 0.03);
+}
+
+.placement-card.active {
+  border-color: var(--accent);
+  background: rgba(30, 111, 92, 0.06);
+}
+
+.placement-card.excluded {
+  background: #fafafa;
+  border-color: rgba(22, 34, 24, 0.08);
+  opacity: 0.55;
+}
+
+.placement-card-code {
+  font-weight: 700;
+  font-family: monospace;
+  font-size: 0.9rem;
+}
+
+.placement-card-title {
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.3;
+}
+
+.placement-card-status {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 0.25rem;
+}
+
+.placement-card.active .placement-card-status {
+  color: var(--accent);
+}
+
+.placement-card.excluded .placement-card-status {
+  color: var(--muted);
+}
+
+/* ====== COURSE BUILDER REDESIGN ====== */
+
+.course-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 99px;
+  white-space: nowrap;
+}
+
+.status-eligible {
+  background: rgba(30, 111, 92, 0.1);
+  color: var(--accent);
+}
+
+.status-ineligible {
+  background: rgba(220, 38, 38, 0.08);
+  color: #dc2626;
+}
+
+.status-completed {
+  background: rgba(100, 116, 139, 0.1);
+  color: #475569;
+}
+
+.status-registered {
+  background: rgba(232, 173, 34, 0.15);
+  color: #805f00;
+}
+
+.course-card-ineligible {
+  opacity: 0.6;
+}
+
+.course-card-ineligible:hover {
+  opacity: 0.85;
+}
+
+.ineligible-reason {
+  font-size: 0.75rem;
+  color: #dc2626;
+  margin-top: 0.15rem;
+  font-style: italic;
+}
+
+.show-ineligible-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0.25rem 0;
+}
+
+.show-ineligible-toggle:hover {
+  color: var(--ink);
+}
+
+/* Course group headers in Schedule Builder */
+.course-group {
+  margin-bottom: 0.25rem;
+}
+
+.course-group-header {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  padding: 6px 4px 2px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+  margin-top: 8px;
+}
+
+.course-group:first-child .course-group-header {
+  margin-top: 0;
+}
+
+/* Responsive adjustments */
+@media (max-width: 900px) {
+  .task-shortcuts .shortcut-btn span { display: none; }
+  .topbar-username { display: none; }
+  .topbar { padding: 0 0.75rem; }
+  .content { padding: 1rem; }
+}

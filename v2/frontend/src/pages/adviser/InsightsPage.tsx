@@ -1,20 +1,20 @@
 import { ChangeEvent, useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 
 import {
   API_BASE_URL,
   AllStudentsInsightsResponse,
   CourseOfferingRecommendation,
-  DegreePlanResponse,
-  IndividualStudentInsight,
   PlannerSelectionState,
   QAARow,
   ScheduleConflictRow,
   apiFetch,
 } from '../../lib/api'
-import { useMajors, useStudents, useTemplates } from '../../lib/hooks'
+import { useMajors, useStudents } from '../../lib/hooks'
+import { Tooltip } from '../../components/Tooltip'
 
-type InsightTab = 'all' | 'individual' | 'qaa' | 'conflicts' | 'planner' | 'degree'
+type InsightTab = 'all' | 'qaa' | 'conflicts' | 'planner'
 type MatrixTab = 'required' | 'intensive' | 'all-courses'
 
 function getSelectedValues(event: ChangeEvent<HTMLSelectElement>) {
@@ -47,13 +47,13 @@ function summarizeStatuses(rows: AllStudentsInsightsResponse['rows'], courseCode
 
 export function InsightsPage() {
   const queryClient = useQueryClient()
+  const [searchParams] = useSearchParams()
   const [majorCode, setMajorCode] = useState('PBHL')
-  const [tab, setTab] = useState<InsightTab>('all')
+  const [tab, setTab] = useState<InsightTab>(() => {
+    const t = searchParams.get('tab')
+    return (t === 'planner' || t === 'qaa' || t === 'conflicts' || t === 'all') ? t as InsightTab : 'all'
+  })
   const [matrixTab, setMatrixTab] = useState<MatrixTab>('required')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [selectedStudentId, setSelectedStudentId] = useState<string>('')
-  const [selectedCourses, setSelectedCourses] = useState<string[]>([])
-  const [templateKey, setTemplateKey] = useState('default')
   const [graduatingThreshold, setGraduatingThreshold] = useState(36)
   const [targetGroups, setTargetGroups] = useState(10)
   const [maxCoursesPerGroup, setMaxCoursesPerGroup] = useState(10)
@@ -74,9 +74,7 @@ export function InsightsPage() {
   const [pageMessage, setPageMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const majors = useMajors()
-  const students = useStudents(majorCode, searchQuery)
   const allStudentsSearch = useStudents(majorCode, '')
-  const templates = useTemplates(majorCode)
 
   const allStudents = useQuery({
     queryKey: ['all-students', majorCode, semesterFilter, appliedSimulatedCourses],
@@ -98,12 +96,6 @@ export function InsightsPage() {
     queryFn: () => apiFetch<PlannerSelectionState>(`/insights/${majorCode}/course-planner-state`),
   })
 
-  const individual = useQuery({
-    queryKey: ['individual-student', majorCode, selectedStudentId, selectedCourses],
-    queryFn: () => apiFetch<IndividualStudentInsight>(`/insights/${majorCode}/individual/${selectedStudentId}${selectedCourses.length ? `?${selectedCourses.map((course) => `courses=${encodeURIComponent(course)}`).join('&')}` : ''}`),
-    enabled: Boolean(selectedStudentId),
-  })
-
   const qaa = useQuery({
     queryKey: ['qaa', majorCode, graduatingThreshold],
     queryFn: () => apiFetch<QAARow[]>(`/insights/${majorCode}/qaa?graduating_threshold=${graduatingThreshold}`),
@@ -113,19 +105,6 @@ export function InsightsPage() {
     queryKey: ['schedule-conflicts', majorCode, targetGroups, maxCoursesPerGroup, minStudents, minCourses],
     queryFn: () => apiFetch<ScheduleConflictRow[]>(`/insights/${majorCode}/schedule-conflicts?target_groups=${targetGroups}&max_courses_per_group=${maxCoursesPerGroup}&min_students=${minStudents}&min_courses=${minCourses}`),
   })
-
-  const degreePlan = useQuery({
-    queryKey: ['degree-plan', majorCode, selectedStudentId],
-    queryFn: () => apiFetch<DegreePlanResponse>(`/insights/${majorCode}/degree-plan/${selectedStudentId}`),
-    enabled: Boolean(selectedStudentId),
-  })
-
-  useEffect(() => {
-    if (!templates.data?.length) return
-    if (!templates.data.some((item) => item.template_key === templateKey)) {
-      setTemplateKey(templates.data[0].template_key)
-    }
-  }, [templateKey, templates.data])
 
   useEffect(() => {
     if (!plannerState.data) return
@@ -164,8 +143,6 @@ export function InsightsPage() {
   const matrixColumns = matrixTab === 'all-courses' ? Object.keys(allStudents.data?.course_metadata ?? {}) : matrixTab === 'required' ? requiredColumns : intensiveColumns
   const matrixOptions = matrixTab === 'all-courses' ? Object.keys(allStudents.data?.course_metadata ?? {}) : matrixTab === 'required' ? (allStudents.data?.required_courses ?? []) : (allStudents.data?.intensive_courses ?? [])
 
-  const selectedStudentOptions = searchQuery ? (students.data ?? []) : (allStudentsSearch.data ?? [])
-
   const plannerImpact = useMemo(() => {
     const selected = new Set(plannerSelection)
     const matching = (planner.data ?? []).filter((item) => selected.has(item.course))
@@ -174,10 +151,6 @@ export function InsightsPage() {
       graduating: matching.reduce((sum, item) => sum + item.graduating_students, 0),
     }
   }, [planner.data, plannerSelection])
-
-  function toggleCourse(courseCode: string) {
-    setSelectedCourses((current) => current.includes(courseCode) ? current.filter((item) => item !== courseCode) : [...current, courseCode])
-  }
 
   function updateMatrixColumns(event: ChangeEvent<HTMLSelectElement>) {
     const next = getSelectedValues(event)
@@ -224,17 +197,6 @@ export function InsightsPage() {
     queryClient.invalidateQueries({ queryKey: ['planner-state', majorCode] })
   }
 
-  async function handleSendEmail() {
-    if (!selectedStudentId) return
-    const response = await authedFetch(`/emails/${majorCode}/${selectedStudentId}?template_key=${encodeURIComponent(templateKey)}`, { method: 'POST' })
-    const body = await response.json().catch(() => null)
-    if (!response.ok) {
-      setPageMessage({ type: 'error', text: body?.detail || 'Email failed.' })
-      return
-    }
-    setPageMessage({ type: 'success', text: body?.message || 'Email sent.' })
-  }
-
   return (
     <section className="insights-container stack">
       <div className="page-header flex-between mb-4">
@@ -247,8 +209,6 @@ export function InsightsPage() {
             <span className="text-muted">Master Program:</span>
             <select className="select-input" value={majorCode} onChange={(event) => {
               setMajorCode(event.target.value)
-              setSelectedStudentId('')
-              setSelectedCourses([])
               setSemesterFilter('All Courses')
               setPendingSimulatedCourses([])
               setAppliedSimulatedCourses([])
@@ -268,21 +228,20 @@ export function InsightsPage() {
       )}
 
       <div className="workspace-tabs-nav mb-4">
-        <button type="button" className={`tab-btn ${tab === 'all' ? 'active' : ''}`} onClick={() => setTab('all')}>All Students Report</button>
-        <button type="button" className={`tab-btn ${tab === 'individual' ? 'active' : ''}`} onClick={() => setTab('individual')}>Deep Dive: Individual</button>
-        <button type="button" className={`tab-btn ${tab === 'planner' ? 'active' : ''}`} onClick={() => setTab('planner')}>Course Offering Planner</button>
-        <button type="button" className={`tab-btn ${tab === 'qaa' ? 'active' : ''}`} onClick={() => setTab('qaa')}>QAA Projections</button>
-        <button type="button" className={`tab-btn ${tab === 'conflicts' ? 'active' : ''}`} onClick={() => setTab('conflicts')}>Schedule Conflicts</button>
-        <button type="button" className={`tab-btn ${tab === 'degree' ? 'active' : ''}`} onClick={() => setTab('degree')}>Degree Plan Maps</button>
+        <button type="button" className={`tab-btn ${tab === 'all' ? 'active' : ''}`} onClick={() => setTab('all')} title="View the eligibility matrix for all students and run what-if simulations">All Students Report</button>
+        <button type="button" className={`tab-btn ${tab === 'planner' ? 'active' : ''}`} onClick={() => setTab('planner')} title="Prioritize which courses to offer this semester based on demand and graduation impact">Course Offering Planner</button>
+        <button type="button" className={`tab-btn ${tab === 'qaa' ? 'active' : ''}`} onClick={() => setTab('qaa')} title="Generate QAA-style projections showing advised vs skipped students per course">QAA Projections</button>
+        <button type="button" className={`tab-btn ${tab === 'conflicts' ? 'active' : ''}`} onClick={() => setTab('conflicts')} title="Detect groups of courses where many students are eligible for all but can only take some">Schedule Conflicts</button>
       </div>
 
       {tab === 'all' && (
         <div className="stack">
           {/* Compact Simulation Engine */}
           <div className="panel" style={{ padding: '16px', display: 'flex', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-            <div style={{ flex: '1', minWidth: '200px' }}>
+            <div style={{ flex: '1', minWidth: '220px' }}>
               <h4 style={{ margin: '0 0 4px 0', fontSize: '14px' }}>Simulation Engine</h4>
-              <p className="text-muted" style={{ fontSize: '11px', margin: 0 }}>Simulate course offerings to project eligibility changes in the matrix below.</p>
+              <p className="text-muted" style={{ fontSize: '11px', margin: '0 0 4px 0' }}>Temporarily mark unoffered courses as offered to project how student eligibility would change.</p>
+              <p className="text-muted" style={{ fontSize: '11px', margin: 0, fontStyle: 'italic' }}>Only courses <strong>not currently offered</strong> appear here — already-offered courses can't be simulated because they're already factored in. Completed/registered courses are also excluded.</p>
               {planner.data && planner.data.length > 0 && pendingSimulatedCourses.length === 0 && appliedSimulatedCourses.length === 0 && (
                 <div style={{ marginTop: '6px', padding: '4px 8px', background: '#eff6ff', borderRadius: '6px', fontSize: '11px', color: '#1e40af' }}>
                   💡 Try: <strong>{planner.data.slice(0, 3).map(i => i.course).join(', ')}</strong>
@@ -398,18 +357,19 @@ export function InsightsPage() {
           <div className="panel">
             <div className="flex-between mb-4">
               <div>
-                <h3 style={{ margin: 0 }}>Course Offering Planner</h3>
+                <h3 style={{ margin: 0 }}>Course Offering Planner <Tooltip text="Ranks every unoffered course by how many students are ready for it, how critical it is for graduation, and how long it has been unavailable." /></h3>
                 <p className="text-muted text-sm" style={{ margin: '4px 0 0' }}>Decide which courses to offer based on student demand, bottleneck analysis, and graduation impact. Intensive courses are excluded.</p>
               </div>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <button type="button" className="btn-primary" onClick={handleSavePlanner}>Save Plan</button>
+                <button type="button" className="btn-primary btn-sm" onClick={handleSavePlanner} title="Save the current course selection to the server">Save Plan</button>
+                <button type="button" className="btn-outline btn-sm" onClick={() => { setPlannerSelection([]); setPlannerMessage('Selection cleared.') }} title="Deselect all courses">Clear Selection</button>
                 <button type="button" className="btn-outline btn-sm" onClick={() => download(`/reports/${majorCode}/all-advised`, `Planner_${majorCode}.xlsx`)}>Export</button>
               </div>
             </div>
 
             <div className="filter-bar mb-4 p-0 border-none justify-start">
               <div className="filter-group">
-                <label>Graduating Threshold (Cr. Remaining)</label>
+                <label>Graduating Threshold (Cr. Remaining) <Tooltip text="Students with this many or fewer credits remaining are counted as 'near graduation'. Lowering this focuses the planner on courses that unlock final-year students." /></label>
                 <input type="number" value={plannerThreshold} onChange={(event) => setPlannerThreshold(Number(event.target.value || 30))} />
               </div>
               <div className="filter-group">
@@ -507,92 +467,6 @@ export function InsightsPage() {
               )
             })()}
           </div>
-        </div>
-      )}
-
-      {tab === 'individual' && (
-        <div className="stack">
-          <div className="filter-bar panel">
-            <div className="filter-group flex-1">
-              <label>Search Directory</label>
-              <div className="search-box">
-                <svg className="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
-                <input className="w-full pl-10" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Name or ID" />
-              </div>
-            </div>
-            <div className="filter-group flex-1">
-              <label>Select Student Focus</label>
-              <select value={selectedStudentId} onChange={(event) => setSelectedStudentId(event.target.value)}>
-                <option value="">Select an enrolled student</option>
-                {selectedStudentOptions.map((student) => <option key={student.student_id} value={student.student_id}>{student.student_name}</option>)}
-              </select>
-            </div>
-
-            <div className="filter-group border-l pl-4 ml-2">
-              <label>Communications</label>
-              <div className="flex-gap-4">
-                <select value={templateKey} onChange={(event) => setTemplateKey(event.target.value)}>
-                  {templates.data?.map((template) => <option key={template.id} value={template.template_key}>{template.display_name}</option>)}
-                </select>
-                <button type="button" className="btn-primary whitespace-nowrap" onClick={handleSendEmail} disabled={!selectedStudentId}>Send Mail</button>
-              </div>
-            </div>
-          </div>
-
-          {!selectedStudentId ? (
-            <div className="blank-slate-panel panel rounded-2xl">
-              <div className="blank-slate-content">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" className="text-muted"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /></svg>
-                <h3>Select a Student profile</h3>
-                <p className="text-muted">Use the search filters above to drill down into a specific student's eligibility and requisites map.</p>
-              </div>
-            </div>
-          ) : (
-            <div className="panel stack mt-2">
-              <div className="flex-between mb-4">
-                <div>
-                  <h3 className="mb-1">Academic Requisites Map</h3>
-                  <p className="text-muted text-sm">Visualizing specific course overrides and statuses.</p>
-                </div>
-                <button type="button" className="btn-secondary" onClick={() => download(`/reports/${majorCode}/individual/${selectedStudentId}${selectedCourses.length ? `?${selectedCourses.map((course) => `courses=${encodeURIComponent(course)}`).join('&')}` : ''}`, `Student_${selectedStudentId}.xlsx`)}>
-                  Export Individual Sheet
-                </button>
-              </div>
-
-              <div className="mb-4">
-                <label className="text-muted font-semibold text-xs uppercase tracking-wider mb-2 block">Available Visibility Toggles</label>
-                <div className="course-chip-grid">
-                  {Object.keys(allStudents.data?.course_metadata ?? {}).slice(0, 50).map((courseCode) => (
-                    <button key={courseCode} type="button" className={`chip ${selectedCourses.includes(courseCode) ? 'active' : ''}`} onClick={() => toggleCourse(courseCode)}>
-                      {courseCode}
-                    </button>
-                  ))}
-                  {Object.keys(allStudents.data?.course_metadata ?? {}).length > 50 && <span className="chip bg-transparent border-none text-muted">+{Object.keys(allStudents.data?.course_metadata ?? {}).length - 50} more... limit applied.</span>}
-                </div>
-              </div>
-
-              <div className="premium-table-wrapper">
-                <table className="premium-table">
-                  <thead><tr><th>Course</th><th>Title</th><th>Status</th><th>Target Term</th><th>Requisites Tree</th></tr></thead>
-                  <tbody>
-                    {individual.data?.selected_courses.length === 0 ? (
-                      <tr><td colSpan={5} className="text-center p-8 text-muted">Select courses from the toggles above to build the visibility map.</td></tr>
-                    ) : (
-                      individual.data?.selected_courses.map((course) => (
-                        <tr key={course}>
-                          <td className="font-semibold mono">{course}</td>
-                          <td>{allStudents.data?.course_metadata[course]?.title || course}</td>
-                          <td><span className={`status-pill status-${individual.data?.statuses[course] || 'blank'}`}>{individual.data?.statuses[course]}</span></td>
-                          <td>{allStudents.data?.course_metadata[course]?.suggested_semester || '-'}</td>
-                          <td className="text-sm text-gray-500">{allStudents.data?.course_metadata[course]?.requisites || 'None'}</td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -754,71 +628,6 @@ export function InsightsPage() {
         </div>
       )}
 
-      {tab === 'degree' && (
-        <div className="stack">
-          <div className="filter-bar panel">
-            <div className="filter-group flex-1 max-w-md">
-              <label>Student Profile</label>
-              <select value={selectedStudentId} onChange={(event) => setSelectedStudentId(event.target.value)} className="w-full">
-                <option value="">Select an enrolled student</option>
-                {selectedStudentOptions.map((student) => <option key={student.student_id} value={student.student_id}>{student.student_name} - {student.student_id}</option>)}
-              </select>
-            </div>
-
-            {degreePlan.data?.student && (
-              <div className="ml-8 border-l pl-4 py-1 flex flex-col justify-center">
-                <div className="font-semibold">{degreePlan.data.student.student_name}</div>
-                <div className="text-sm text-muted">{degreePlan.data.student.standing} • {degreePlan.data.student.remaining_credits} Cr. Remaining</div>
-              </div>
-            )}
-          </div>
-
-          {selectedStudentId && degreePlan.data ? (
-            <div className="stack">
-              <div className="legend-row bg-white p-3 rounded-xl border flex justify-center">{degreePlan.data?.legend.map((item) => <span key={item.status} className="text-sm font-medium"><span className="text-lg mr-1">{item.icon}</span> {item.label}</span>)}</div>
-
-              <div className="grid-2">
-                {degreePlan.data?.years.map((year) => (
-                  <div key={year.year_name} className="panel">
-                    <div className="flex-between border-b pb-2 mb-4">
-                      <h3 className="text-accent mb-0">{year.year_name}</h3>
-                    </div>
-                    <div className="degree-grid">
-                      {year.semesters.map((semester) => (
-                        <div key={semester.semester_key} className="degree-card !gap-2 !p-3">
-                          <div className="flex-between">
-                            <strong className="text-sm">{semester.semester_key}</strong>
-                            <span className="badge badge-info">{semester.total_credits} cr</span>
-                          </div>
-                          <div className="mt-2 space-y-2">
-                            {semester.courses.map((course) => (
-                              <div key={course.code} className="bg-gray-50 rounded-lg p-2 border flex justify-between items-center group hover:bg-white transition-colors">
-                                <div>
-                                  <div className="font-semibold text-xs mono mb-0.5">{course.code}</div>
-                                  <div className="text-[10px] text-muted truncate max-w-[140px]" title={course.title}>{course.title}</div>
-                                </div>
-                                <span className="text-base" title={course.status}>{course.status.includes('Completed') ? '✅' : course.status.includes('Registered') ? '🔄' : '📝'}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="blank-slate-panel panel rounded-2xl">
-              <div className="blank-slate-content">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" className="text-muted"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" /></svg>
-                <h3>View Degree Maps</h3>
-                <p className="text-muted">Select a student from the dropdown to visually plot out their historic and projected academic term roadmap.</p>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
     </section>
   )
 }

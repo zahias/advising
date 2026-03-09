@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { StudentEligibility } from '../../lib/api'
+import { Tooltip } from '../Tooltip'
 
 interface Props {
     eligibility: StudentEligibility['eligibility']
@@ -9,8 +10,25 @@ interface Props {
     onSave: () => void
 }
 
+type EligibilityItem = StudentEligibility['eligibility'][number]
+
+function getCourseStatus(course: EligibilityItem): 'eligible' | 'ineligible' | 'completed' | 'registered' {
+    if (course.registered) return 'registered'
+    if (course.completed) return 'completed'
+    if (course.eligibility_status === 'Eligible' || course.eligibility_status === 'Eligible (Bypass)') return 'eligible'
+    return 'ineligible'
+}
+
+const STATUS_LABELS: Record<string, string> = {
+    eligible: '✓ Eligible',
+    ineligible: '✗ Ineligible',
+    completed: '● Completed',
+    registered: '◎ Registered',
+}
+
 export function CourseSelectionBuilder({ eligibility, remainingCredits = 0, formState, onChange, onSave }: Props) {
     const [search, setSearch] = useState('')
+    const [showIneligible, setShowIneligible] = useState(true)
     const undoStack = useRef<Array<{ advised: string[]; optional: string[]; repeat: string[]; note: string }>>([])
 
     const getCourseDetails = (code: string) => eligibility.find((c) => c.course_code === code)
@@ -18,8 +36,8 @@ export function CourseSelectionBuilder({ eligibility, remainingCredits = 0, form
     const creditLookup = useMemo(() => {
         const map: Record<string, number> = {}
         for (const c of eligibility) {
-            const cr = c.course_code ? (eligibility.find(e => e.course_code === c.course_code) as any)?.credits : 0
-            map[c.course_code] = typeof cr === 'number' ? cr : 0
+            const cr = (c as any).credits
+            map[c.course_code] = typeof cr === 'number' ? cr : 3
         }
         return map
     }, [eligibility])
@@ -40,26 +58,6 @@ export function CourseSelectionBuilder({ eligibility, remainingCredits = 0, form
         if (prev) onChange(prev)
     }, [onChange])
 
-    const availableCourses = useMemo(() => {
-        const selected = new Set([...formState.advised, ...formState.optional, ...formState.repeat])
-        return eligibility.filter((course) => {
-            if (selected.has(course.course_code)) return false
-            if (search && !course.course_code.toLowerCase().includes(search.toLowerCase()) && !course.title.toLowerCase().includes(search.toLowerCase())) return false
-            if (
-                course.offered &&
-                !course.completed &&
-                !course.registered &&
-                (course.eligibility_status === 'Eligible' || course.eligibility_status === 'Eligible (Bypass)')
-            ) {
-                return true
-            }
-            if (course.completed || course.registered) {
-                return true
-            }
-            return false
-        })
-    }, [eligibility, formState, search])
-
     const handleAdd = (courseCode: string, type: 'advised' | 'optional' | 'repeat') => {
         pushUndo()
         onChange({
@@ -79,6 +77,35 @@ export function CourseSelectionBuilder({ eligibility, remainingCredits = 0, form
             repeat: type === 'repeat' ? formState.repeat.filter((c) => c !== courseCode) : formState.repeat,
         })
     }
+
+    const selected = useMemo(() => new Set([...formState.advised, ...formState.optional, ...formState.repeat]), [formState])
+
+    const groupedCourses = useMemo(() => {
+        const q = search.toLowerCase()
+        const groups: Record<string, EligibilityItem[]> = {}
+        for (const course of eligibility) {
+            if (selected.has(course.course_code)) continue
+            if (!course.offered && !course.completed && !course.registered) continue
+            const status = getCourseStatus(course)
+            if (!showIneligible && status === 'ineligible') continue
+            if (q && !course.course_code.toLowerCase().includes(q) && !course.title.toLowerCase().includes(q)) continue
+            const group = (course as any).course_type || 'Other'
+            if (!groups[group]) groups[group] = []
+            groups[group].push(course)
+        }
+        return groups
+    }, [eligibility, selected, search, showIneligible])
+
+    const totalVisible = Object.values(groupedCourses).reduce((s, g) => s + g.length, 0)
+
+    const ineligibleCount = useMemo(
+        () => eligibility.filter(c =>
+            !selected.has(c.course_code) &&
+            (c.offered || c.completed || c.registered) &&
+            getCourseStatus(c) === 'ineligible'
+        ).length,
+        [eligibility, selected]
+    )
 
     return (
         <div className="course-selection-builder">
@@ -106,52 +133,81 @@ export function CourseSelectionBuilder({ eligibility, remainingCredits = 0, form
             </div>
 
             <div className="builder-grid">
-                {/* Left Column: Available Courses */}
+                {/* Left Column: All Courses */}
                 <div className="available-column stack">
                     <input
                         type="search"
-                        placeholder="Search available courses..."
+                        placeholder="Search courses by code or title…"
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                         className="search-input"
                     />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '2px 0' }}>
+                        <span style={{ fontSize: '12px', color: '#64748b' }}>{totalVisible} course{totalVisible !== 1 ? 's' : ''}</span>
+                        {ineligibleCount > 0 && (
+                            <button
+                                type="button"
+                                className="show-ineligible-toggle"
+                                onClick={() => setShowIneligible(v => !v)}
+                            >
+                                {showIneligible ? 'Hide' : 'Show'} {ineligibleCount} ineligible
+                            </button>
+                        )}
+                    </div>
                     <div className="course-list scrollable">
-                        {availableCourses.length === 0 ? (
-                            <p className="empty-state">No available courses match your search.</p>
+                        {totalVisible === 0 ? (
+                            <p className="empty-state">No courses match your search.</p>
                         ) : (
-                            availableCourses.map((course) => {
-                                const isRepeatable = course.completed || course.registered
-                                return (
-                                    <div key={course.course_code} className="course-card">
-                                        <div className="course-info">
-                                            <strong>{course.course_code}</strong>
-                                            <span className="course-title">{course.title}</span>
-                                            {isRepeatable && <span className="tag tag-warning">Completed/Registered</span>}
-                                        </div>
-                                        <div className="course-actions popup-on-hover">
-                                            {!isRepeatable && (
-                                                <>
-                                                    <button type="button" onClick={() => handleAdd(course.course_code, 'advised')} className="btn-sm">Advise</button>
-                                                    <button type="button" onClick={() => handleAdd(course.course_code, 'optional')} className="btn-sm btn-outline">Optional</button>
-                                                </>
-                                            )}
-                                            {isRepeatable && (
-                                                <button type="button" onClick={() => handleAdd(course.course_code, 'repeat')} className="btn-sm btn-warning">Repeat</button>
-                                            )}
-                                        </div>
-                                    </div>
-                                )
-                            })
+                            Object.entries(groupedCourses).sort(([a], [b]) => a.localeCompare(b)).map(([group, courses]) => (
+                                <div key={group} className="course-group">
+                                    <div className="course-group-header">{group}</div>
+                                    {courses.map((course) => {
+                                        const status = getCourseStatus(course)
+                                        const isIneligible = status === 'ineligible'
+                                        const isCompleted = status === 'completed'
+                                        const isRegistered = status === 'registered'
+                                        const reason = (course as any).ineligibility_reason as string | undefined
+                                        return (
+                                            <div key={course.course_code} className={`course-card${isIneligible ? ' course-card-ineligible' : ''}`}>
+                                                <div className="course-info">
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                                                        <strong>{course.course_code}</strong>
+                                                        <span className={`course-status-badge status-${status}`}>{STATUS_LABELS[status]}</span>
+                                                    </div>
+                                                    <span className="course-title">{course.title}</span>
+                                                    {isIneligible && reason && (
+                                                        <span className="ineligible-reason">{reason}</span>
+                                                    )}
+                                                </div>
+                                                <div className="course-actions" style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+                                                    {!isIneligible && !isCompleted && !isRegistered && (
+                                                        <>
+                                                            <button type="button" onClick={() => handleAdd(course.course_code, 'advised')} className="btn-sm">Advise</button>
+                                                            <button type="button" onClick={() => handleAdd(course.course_code, 'optional')} className="btn-sm btn-outline">Optional</button>
+                                                        </>
+                                                    )}
+                                                    {(isCompleted || isRegistered) && (
+                                                        <button type="button" onClick={() => handleAdd(course.course_code, 'repeat')} className="btn-sm btn-warning">Repeat</button>
+                                                    )}
+                                                    {isIneligible && (
+                                                        <span style={{ fontSize: '11px', color: '#94a3b8', fontStyle: 'italic' }}>Cannot advise — not yet eligible</span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            ))
                         )}
                     </div>
                 </div>
 
-                {/* Right Column: Selected Courses & Notes */}
+                {/* Right Column: Selections & Notes */}
                 <div className="selected-column stack">
 
                     <div className="selection-group">
                         <div className="group-header">
-                            <h4>Advised <span className="badge badge-primary">{formState.advised.length}</span></h4>
+                            <h4>Advised <span className="badge badge-primary">{formState.advised.length}</span> <Tooltip text="Primary courses you are recommending the student register for this semester." /></h4>
                         </div>
                         <div className="selected-list">
                             {formState.advised.length === 0 && <p className="empty-state-sm">No courses advised.</p>}
@@ -169,7 +225,7 @@ export function CourseSelectionBuilder({ eligibility, remainingCredits = 0, form
 
                     <div className="selection-group">
                         <div className="group-header">
-                            <h4>Optional <span className="badge">{formState.optional.length}</span></h4>
+                            <h4>Optional <span className="badge">{formState.optional.length}</span> <Tooltip text="Courses the student may register for if spots are available or as alternates." /></h4>
                         </div>
                         <div className="selected-list">
                             {formState.optional.length === 0 && <p className="empty-state-sm">No optional courses.</p>}
@@ -187,7 +243,7 @@ export function CourseSelectionBuilder({ eligibility, remainingCredits = 0, form
 
                     <div className="selection-group">
                         <div className="group-header">
-                            <h4>Repeat <span className="badge badge-warning">{formState.repeat.length}</span></h4>
+                            <h4>Repeat <span className="badge badge-warning">{formState.repeat.length}</span> <Tooltip text="Courses the student has completed or is registered in but needs to re-take (e.g. to improve grade)." /></h4>
                         </div>
                         <div className="selected-list">
                             {formState.repeat.length === 0 && <p className="empty-state-sm">No repeat courses.</p>}
