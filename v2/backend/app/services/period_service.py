@@ -62,6 +62,17 @@ def current_period(session: Session, major_code: str) -> Optional[AdvisingPeriod
     return None
 
 
+def delete_period(session: Session, major_code: str, period_code: str) -> None:
+    major = session.scalar(select(Major).where(Major.code == major_code))
+    if not major:
+        raise ValueError(f'Unknown major: {major_code}')
+    period = session.scalar(select(AdvisingPeriod).where(AdvisingPeriod.period_code == period_code, AdvisingPeriod.major_id == major.id))
+    if not period:
+        raise ValueError(f'Unknown period: {period_code}')
+    session.delete(period)
+    session.commit()
+
+
 def archive_period(session: Session, period_code: str) -> AdvisingPeriod:
     period = session.scalar(select(AdvisingPeriod).where(AdvisingPeriod.period_code == period_code))
     if not period:

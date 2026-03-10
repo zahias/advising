@@ -85,6 +85,37 @@ def download_current_file(major_code: str, dataset_type: str, user: User = Depen
     )
 
 
+@router.delete('/{version_id}', status_code=204)
+def delete_dataset_version(version_id: int, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    version = db.get(DatasetVersion, version_id)
+    if not version:
+        raise HTTPException(status_code=404, detail='Dataset version not found.')
+    if version.is_active:
+        raise HTTPException(status_code=400, detail='Cannot delete the active version. Activate another version first.')
+    log_event(db, user.id, 'dataset.deleted', 'dataset_version', str(version_id), {'dataset_type': version.dataset_type})
+    db.delete(version)
+    db.commit()
+
+
+@router.post('/{version_id}/activate', response_model=DatasetVersionResponse)
+def activate_dataset_version(version_id: int, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from sqlalchemy import update
+    version = db.get(DatasetVersion, version_id)
+    if not version:
+        raise HTTPException(status_code=404, detail='Dataset version not found.')
+    # Deactivate all versions of same type for same major
+    db.execute(
+        update(DatasetVersion)
+        .where(DatasetVersion.major_id == version.major_id, DatasetVersion.dataset_type == version.dataset_type)
+        .values(is_active=False)
+    )
+    version.is_active = True
+    log_event(db, user.id, 'dataset.activated', 'dataset_version', str(version_id), {'dataset_type': version.dataset_type})
+    db.commit()
+    db.refresh(version)
+    return version
+
+
 @router.post('/upload', response_model=DatasetVersionResponse)
 async def upload_dataset_route(
     major_code: str = Form(...),

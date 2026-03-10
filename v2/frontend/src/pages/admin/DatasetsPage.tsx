@@ -13,6 +13,27 @@ const TYPE_LABELS: Record<string, string> = {
   email_roster: 'Email Roster',
 }
 
+async function authedFetch(path: string, init?: RequestInit) {
+  const token = window.localStorage.getItem('advising_v2_token')
+  return fetch(`${API_BASE_URL}/api${path}`, {
+    ...init,
+    headers: {
+      ...(init?.headers || {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  })
+}
+
+async function downloadBlob(path: string, filename: string) {
+  const r = await authedFetch(path)
+  if (!r.ok) return
+  const blob = await r.blob()
+  const url = window.URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove()
+  window.URL.revokeObjectURL(url)
+}
+
 export function DatasetsPage() {
   const queryClient = useQueryClient()
   const majors = useMajors()
@@ -20,6 +41,7 @@ export function DatasetsPage() {
   const [datasetType, setDatasetType] = useState('courses')
   const [file, setFile] = useState<File | null>(null)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
   const versions = useDatasetVersions(majorCode)
 
   async function handleUpload(event: FormEvent) {
@@ -41,6 +63,21 @@ export function DatasetsPage() {
     }
     setMessage({ type: 'success', text: 'Dataset uploaded successfully.' })
     setFile(null)
+    queryClient.invalidateQueries({ queryKey: ['dataset-versions', majorCode] })
+  }
+
+  async function handleActivateVersion(versionId: number) {
+    const r = await authedFetch(`/datasets/${versionId}/activate`, { method: 'POST' })
+    if (!r.ok) { setMessage({ type: 'error', text: await r.text() }); return }
+    setMessage({ type: 'success', text: 'Version set as active.' })
+    queryClient.invalidateQueries({ queryKey: ['dataset-versions', majorCode] })
+  }
+
+  async function handleDeleteVersion(versionId: number) {
+    const r = await authedFetch(`/datasets/${versionId}`, { method: 'DELETE' })
+    setDeletingId(null)
+    if (r.status !== 204 && !r.ok) { setMessage({ type: 'error', text: await r.text() }); return }
+    setMessage({ type: 'success', text: 'Version deleted.' })
     queryClient.invalidateQueries({ queryKey: ['dataset-versions', majorCode] })
   }
 
@@ -115,6 +152,7 @@ export function DatasetsPage() {
                   <th>Uploaded By</th>
                   <th>Date</th>
                   <th>Status</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -134,6 +172,28 @@ export function DatasetsPage() {
                         ? <span style={{ fontSize: '0.7rem', background: '#dcfce7', color: '#15803d', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>Active</span>
                         : <span style={{ fontSize: '0.7rem', color: 'var(--muted)', padding: '2px 8px' }}>—</span>
                       }
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                        {v.original_filename && (
+                          <button type="button" className="btn-sm btn-outline" title="Download file" onClick={() => downloadBlob(`/datasets/${majorCode}/${v.dataset_type}/download`, v.original_filename ?? 'file')}>
+                            ↓
+                          </button>
+                        )}
+                        {!v.is_active && (
+                          <button type="button" className="btn-sm btn-outline" onClick={() => handleActivateVersion(v.id)}>Set Active</button>
+                        )}
+                        {!v.is_active && (
+                          deletingId === v.id ? (
+                            <>
+                              <button type="button" className="btn-sm" style={{ background: '#ef4444', color: 'white', border: 'none', borderRadius: '6px', padding: '4px 8px', fontSize: '0.75rem', cursor: 'pointer' }} onClick={() => handleDeleteVersion(v.id)}>Del</button>
+                              <button type="button" className="btn-sm btn-outline" onClick={() => setDeletingId(null)}>✕</button>
+                            </>
+                          ) : (
+                            <button type="button" className="btn-sm btn-outline" style={{ color: '#ef4444', borderColor: '#fca5a5' }} onClick={() => setDeletingId(v.id)}>Delete</button>
+                          )
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

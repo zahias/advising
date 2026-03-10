@@ -19,10 +19,6 @@ export function AdminOverviewPage() {
         <StatCard label="Users" value={users.data?.length ?? 0} detail="Admin + adviser accounts" />
         <StatCard label="Backups" value={backups.data?.length ?? 0} detail="Tracked backup runs" />
       </div>
-      <div className="panel">
-        <h3>Launch defaults</h3>
-        <p>Seeded admin credentials: <code>admin@example.com / admin1234</code>. Seeded adviser credentials: <code>adviser@example.com / adviser1234</code>.</p>
-      </div>
     </section>
   )
 }

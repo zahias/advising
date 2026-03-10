@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { API_BASE_URL, DegreePlanResponse, apiFetch } from '../../lib/api'
-import { useCourseCatalog, usePeriods, useStudentEligibility, useStudents, useTemplates } from '../../lib/hooks'
+import { useCourseCatalog, usePeriods, useStudentEligibility, useStudents, useTemplates, useSessions } from '../../lib/hooks'
 import { useMajorContext } from '../../lib/MajorContext'
 
 import { StudentProfileHeader } from '../../components/workspace/StudentProfileHeader'
@@ -47,7 +47,9 @@ export function WorkspacePage() {
   const [selectedStudentName, setSelectedStudentName] = useState('')
 
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [activeTab, setActiveTab] = useState<'schedule' | 'academic' | 'exceptions' | 'degree'>('schedule')
+  const [activeTab, setActiveTab] = useState<'schedule' | 'academic' | 'exceptions' | 'degree' | 'history'>('schedule')
+  const [restoreTarget, setRestoreTarget] = useState<{ id: number; title: string } | null>(null)
+  const [restoring, setRestoring] = useState(false)
   const [templateKey, setTemplateKey] = useState('default')
   const [bypassCourse, setBypassCourse] = useState('')
   const [bypassNote, setBypassNote] = useState('')
@@ -63,6 +65,7 @@ export function WorkspacePage() {
   const courseCatalog = useCourseCatalog(majorCode)
   const student = useStudentEligibility(majorCode, selectedStudentId)
   const templates = useTemplates(majorCode)
+  const sessions = useSessions(majorCode, undefined, selectedStudentId)
   const activePeriod = periods.data?.find((p) => p.is_active)
 
   const degreePlan = useQuery({
@@ -130,12 +133,15 @@ export function WorkspacePage() {
     queryClient.invalidateQueries({ queryKey: ['dashboard', majorCode] })
   }
 
-  async function handleRestoreLatest() {
-    if (!selectedStudentId || !activePeriod) return
-    const r = await authedFetch(`/advising/sessions/${majorCode}/${activePeriod.period_code}/${selectedStudentId}/restore`, { method: 'POST' })
+  async function handleRestoreSnapshot(snapshotId: number) {
+    setRestoring(true)
+    const r = await authedFetch(`/advising/sessions/${majorCode}/snapshot/${snapshotId}/restore`, { method: 'POST' })
+    setRestoring(false)
+    setRestoreTarget(null)
     if (!r.ok) { setMessage({ type: 'error', text: await r.text() }); return }
-    setMessage({ type: 'success', text: 'Latest session restored.' })
+    setMessage({ type: 'success', text: 'Session restored to active period.' })
     queryClient.invalidateQueries({ queryKey: ['student-eligibility', majorCode, selectedStudentId] })
+    setActiveTab('schedule')
   }
 
   async function handleRecommend() {
@@ -304,7 +310,6 @@ export function WorkspacePage() {
             templates={templates.data || []}
             onTemplateChange={setTemplateKey}
             onEmail={handleSendEmail}
-            onRestoreLatest={handleRestoreLatest}
             onRecommend={handleRecommend}
             onDownloadReport={handleDownloadReport}
           />
@@ -314,6 +319,7 @@ export function WorkspacePage() {
             <button type="button" className={`tab-btn ${activeTab === 'academic' ? 'active' : ''}`} onClick={() => setActiveTab('academic')}>Academic Record</button>
             <button type="button" className={`tab-btn ${activeTab === 'degree' ? 'active' : ''}`} onClick={() => setActiveTab('degree')}>Degree Plan</button>
             <button type="button" className={`tab-btn ${activeTab === 'exceptions' ? 'active' : ''}`} onClick={() => setActiveTab('exceptions')}>Bypass</button>
+            <button type="button" className={`tab-btn ${activeTab === 'history' ? 'active' : ''}`} onClick={() => setActiveTab('history')}>History</button>
           </div>
 
           <div className="workspace-tab-content">
@@ -432,6 +438,74 @@ export function WorkspacePage() {
               />
             )}
 
+            {activeTab === 'history' && (
+              <div className="panel stack">
+                <h3 style={{ margin: 0 }}>Advising History</h3>
+                <p className="text-muted text-sm" style={{ margin: '4px 0 0' }}>Saved advising sessions for this student. Restore any session to the current active period.</p>
+                {sessions.isLoading && <p className="text-muted text-sm">Loading sessions…</p>}
+                {!sessions.isLoading && (!sessions.data || sessions.data.length === 0) && (
+                  <p className="text-muted text-sm" style={{ textAlign: 'center', padding: '2rem' }}>No saved sessions found.</p>
+                )}
+                {sessions.data && sessions.data.length > 0 && (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className="premium-table">
+                      <thead>
+                        <tr>
+                          <th>Session</th>
+                          <th>Period</th>
+                          <th>Date</th>
+                          <th>Advised</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sessions.data.map((s) => (
+                          <tr key={s.id}>
+                            <td style={{ fontSize: '0.875rem', fontWeight: 500 }}>{s.title}</td>
+                            <td style={{ fontSize: '0.8rem', color: 'var(--muted)', fontFamily: 'monospace' }}>{s.period_code ?? '—'}</td>
+                            <td style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>{new Date(s.created_at).toLocaleString()}</td>
+                            <td style={{ fontSize: '0.8rem' }}>
+                              {Array.isArray((s.summary as Record<string, unknown>).advised_courses)
+                                ? ((s.summary as Record<string, unknown[]>).advised_courses.length) + ' courses'
+                                : '—'}
+                            </td>
+                            <td>
+                              <button
+                                type="button"
+                                className="btn-sm btn-outline"
+                                onClick={() => setRestoreTarget({ id: s.id, title: s.title })}
+                                disabled={!activePeriod}
+                                title={activePeriod ? 'Restore this session to the active period' : 'No active period'}
+                              >
+                                Restore
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Confirm restore dialog */}
+                {restoreTarget && (
+                  <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+                    <div className="panel" style={{ maxWidth: '420px', width: '90%' }}>
+                      <h3 style={{ margin: '0 0 0.5rem' }}>Confirm Restore</h3>
+                      <p className="text-muted text-sm" style={{ margin: '0 0 1rem' }}>
+                        Restore session <strong>&ldquo;{restoreTarget.title}&rdquo;</strong> to the current active period? This will overwrite the current selection for this student.
+                      </p>
+                      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                        <button type="button" className="btn-sm btn-outline" onClick={() => setRestoreTarget(null)} disabled={restoring}>Cancel</button>
+                        <button type="button" className="btn-primary btn-sm" onClick={() => handleRestoreSnapshot(restoreTarget.id)} disabled={restoring}>
+                          {restoring ? 'Restoring…' : 'Confirm Restore'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

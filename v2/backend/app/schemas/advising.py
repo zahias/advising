@@ -72,6 +72,7 @@ class SessionSummary(BaseModel):
     title: str
     student_id: str
     student_name: str
+    period_code: Optional[str]
     created_at: datetime
     summary: dict[str, Any]
 

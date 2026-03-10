@@ -9,7 +9,7 @@ from app.api.deps import ensure_major_access, get_db, require_admin, require_sta
 from app.models import User
 from app.schemas.admin import PeriodCreateRequest, PeriodResponse
 from app.services.audit import log_event
-from app.services.period_service import activate_period, create_period, current_period, list_periods
+from app.services.period_service import activate_period, create_period, current_period, delete_period, list_periods
 
 router = APIRouter(prefix='/periods', tags=['periods'])
 
@@ -46,3 +46,14 @@ def activate_period_route(period_code: str, user: User = Depends(require_staff),
     log_event(db, user.id, 'period.activated', 'period', str(period.id), {'period_code': period.period_code})
     db.commit()
     return period
+
+
+@router.delete('/{major_code}/{period_code}', status_code=204)
+def delete_period_route(major_code: str, period_code: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    ensure_major_access(major_code, db, user)
+    try:
+        delete_period(db, major_code, period_code)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    log_event(db, user.id, 'period.deleted', 'period', period_code, {'major_code': major_code, 'period_code': period_code})
+    db.commit()

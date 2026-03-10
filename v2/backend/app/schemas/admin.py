@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, EmailStr, computed_field
+from pydantic import BaseModel, EmailStr, computed_field, model_validator
 
 from app.schemas.common import ORMModel
 
@@ -101,12 +101,21 @@ class BackupRunResponse(ORMModel):
     created_at: datetime
 
 
-class AuditEventResponse(BaseModel):
+class AuditEventResponse(ORMModel):
     id: int
     actor_user_id: Optional[int]
-    actor_name: Optional[str]
+    actor_name: Optional[str] = None
     event_type: str
     entity_type: str
     entity_id: str
     payload: dict[str, Any]
     created_at: datetime
+
+    @model_validator(mode='before')
+    @classmethod
+    def populate_actor(cls, v: Any) -> Any:
+        if hasattr(v, 'actor'):
+            actor = getattr(v, 'actor', None)
+            if actor is not None and hasattr(actor, 'full_name'):
+                v.__dict__['actor_name'] = actor.full_name
+        return v

@@ -105,7 +105,7 @@ export function TemplatesPage() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
           <div>
             <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--muted)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Template Key</label>
-            <input value={payload.template_key} onChange={(e) => setPayload({ ...payload, template_key: e.target.value })} placeholder="e.g. default, probation" />
+            <input value={payload.template_key} onChange={(e) => setPayload({ ...payload, template_key: e.target.value })} placeholder="e.g. default" />
           </div>
           <div>
             <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--muted)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Display Name</label>

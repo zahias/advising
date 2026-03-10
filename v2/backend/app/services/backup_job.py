@@ -14,7 +14,17 @@ from app.models import BackupRun
 from app.services.storage import StorageService
 
 
-def run_backup() -> BackupRun:
+def _count_storage_files(local_root: Path) -> dict[str, int]:
+    """Return a compact count of stored files per category folder."""
+    counts: dict[str, int] = {}
+    if local_root.exists():
+        for child in local_root.iterdir():
+            if child.is_dir():
+                counts[child.name] = sum(1 for _ in child.rglob('*') if _.is_file())
+    return counts
+
+
+def run_backup(triggered_by: str = 'scheduled') -> BackupRun:
     settings = get_settings()
     storage = StorageService()
     timestamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
@@ -25,9 +35,19 @@ def run_backup() -> BackupRun:
         handle.write(gzip.compress(proc.stdout))
     key = f'backups/{timestamp}/database.sql.gz'
     storage.put_bytes(key, dump_path.read_bytes(), 'application/gzip')
+    storage_counts = _count_storage_files(storage.local_root)
     session: Session = SessionLocal()
     try:
-        run = BackupRun(status='completed', storage_key=key, manifest={'timestamp': timestamp}, notes='Automated backup created')
+        run = BackupRun(
+            status='completed',
+            storage_key=key,
+            manifest={
+                'timestamp': timestamp,
+                'triggered_by': triggered_by,
+                'storage_file_counts': storage_counts,
+            },
+            notes=f'Backup triggered by {triggered_by}',
+        )
         session.add(run)
         session.commit()
         session.refresh(run)

@@ -6,7 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.deps import ensure_major_access, get_db, require_staff
-from app.models import User
+from app.models import AdvisingPeriod, User
+from sqlalchemy import select as sa_select
 from app.schemas.advising import (
     BulkRestoreRequest,
     BypassRequest,
@@ -50,7 +51,13 @@ def save_selection_route(payload: SaveSelectionRequest, user: User = Depends(req
 def list_sessions_route(major_code: str, period_code: Optional[str] = None, student_id: Optional[str] = None, user: User = Depends(require_staff), db: Session = Depends(get_db)):
     ensure_major_access(major_code, db, user)
     sessions = list_sessions(db, major_code, period_code=period_code, student_id=student_id)
-    return [SessionSummary(id=item.id, title=item.title, student_id=item.student_id, student_name=item.payload.get('student_name', item.student_id), created_at=item.created_at, summary=item.summary) for item in sessions]
+    # Build a period_id -> period_code lookup for all relevant periods
+    period_ids = {item.period_id for item in sessions}
+    period_map: dict[int, str] = {}
+    if period_ids:
+        rows = db.execute(sa_select(AdvisingPeriod.id, AdvisingPeriod.period_code).where(AdvisingPeriod.id.in_(period_ids))).all()
+        period_map = {row[0]: row[1] for row in rows}
+    return [SessionSummary(id=item.id, title=item.title, student_id=item.student_id, student_name=item.payload.get('student_name', item.student_id), period_code=period_map.get(item.period_id), created_at=item.created_at, summary=item.summary) for item in sessions]
 
 
 @router.post('/sessions/{major_code}/{period_code}/{student_id}/restore', response_model=MessageResponse)
@@ -61,6 +68,28 @@ def restore_session_route(major_code: str, period_code: str, student_id: str, us
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return MessageResponse(message='Latest session restored.')
+
+
+@router.post('/sessions/{major_code}/snapshot/{snapshot_id}/restore', response_model=MessageResponse)
+def restore_snapshot_route(major_code: str, snapshot_id: int, user: User = Depends(require_staff), db: Session = Depends(get_db)):
+    """Restore a specific snapshot by ID to the currently active period."""
+    ensure_major_access(major_code, db, user)
+    from app.models import SessionSnapshot
+    snapshot = db.get(SessionSnapshot, snapshot_id)
+    if not snapshot:
+        raise HTTPException(status_code=404, detail='Snapshot not found.')
+    active_period = db.scalar(sa_select(AdvisingPeriod).where(
+        AdvisingPeriod.major_id == snapshot.major_id,
+        AdvisingPeriod.is_active.is_(True),
+    ))
+    if not active_period:
+        raise HTTPException(status_code=400, detail='No active advising period to restore into.')
+    from app.schemas.advising import SelectionPayload
+    period_code = active_period.period_code
+    payload = SelectionPayload(**snapshot.payload.get('selection', {}))
+    student_name = snapshot.payload.get('student_name', snapshot.student_id)
+    save_selection(db, major_code=major_code, period_code=period_code, student_id=snapshot.student_id, student_name=student_name, payload=payload, user_id=user.id, create_snapshot=False)
+    return MessageResponse(message='Session restored to active period.')
 
 
 @router.post('/sessions/restore-all', response_model=MessageResponse)

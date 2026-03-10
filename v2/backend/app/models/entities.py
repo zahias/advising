@@ -212,3 +212,5 @@ class AuditEvent(TimestampMixin, Base):
     entity_type: Mapped[str] = mapped_column(String(64))
     entity_id: Mapped[str] = mapped_column(String(128))
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
+
+    actor: Mapped[Optional['User']] = relationship('User', foreign_keys=[actor_user_id])

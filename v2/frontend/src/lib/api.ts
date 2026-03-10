@@ -125,6 +125,7 @@ export type SessionSummary = {
   title: string
   student_id: string
   student_name: string
+  period_code: string | null
   created_at: string
   summary: Record<string, unknown>
 }
