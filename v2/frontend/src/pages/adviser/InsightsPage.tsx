@@ -11,7 +11,8 @@ import {
   ScheduleConflictRow,
   apiFetch,
 } from '../../lib/api'
-import { useMajors, useStudents } from '../../lib/hooks'
+import { useStudents } from '../../lib/hooks'
+import { useMajorContext } from '../../lib/MajorContext'
 import { Tooltip } from '../../components/Tooltip'
 
 type InsightTab = 'all' | 'qaa' | 'conflicts' | 'planner'
@@ -48,7 +49,7 @@ function summarizeStatuses(rows: AllStudentsInsightsResponse['rows'], courseCode
 export function InsightsPage() {
   const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
-  const [majorCode, setMajorCode] = useState('PBHL')
+  const { majorCode, setMajorCode, allowedMajors } = useMajorContext()
   const [tab, setTab] = useState<InsightTab>(() => {
     const t = searchParams.get('tab')
     return (t === 'planner' || t === 'qaa' || t === 'conflicts' || t === 'all') ? t as InsightTab : 'all'
@@ -67,13 +68,13 @@ export function InsightsPage() {
   const [requiredColumns, setRequiredColumns] = useState<string[]>([])
   const [intensiveColumns, setIntensiveColumns] = useState<string[]>([])
   const [showAllRows, setShowAllRows] = useState(false)
+  const [simExpanded, setSimExpanded] = useState(false)
   const [plannerThreshold, setPlannerThreshold] = useState(30)
   const [plannerMinEligible, setPlannerMinEligible] = useState(3)
   const [plannerSelection, setPlannerSelection] = useState<string[]>([])
   const [plannerMessage, setPlannerMessage] = useState('')
   const [pageMessage, setPageMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
-  const majors = useMajors()
   const allStudentsSearch = useStudents(majorCode, '')
 
   const allStudents = useQuery({
@@ -214,7 +215,7 @@ export function InsightsPage() {
               setAppliedSimulatedCourses([])
               setPageMessage(null)
             }}>
-              {majors.data?.map((major) => <option key={major.code} value={major.code}>{major.code}</option>)}
+              {allowedMajors.map((major) => <option key={major.code} value={major.code}>{major.code}</option>)}
             </select>
           </label>
         </div>
@@ -236,28 +237,45 @@ export function InsightsPage() {
 
       {tab === 'all' && (
         <div className="stack">
-          {/* Compact Simulation Engine */}
-          <div className="panel" style={{ padding: '16px', display: 'flex', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-            <div style={{ flex: '1', minWidth: '220px' }}>
-              <h4 style={{ margin: '0 0 4px 0', fontSize: '14px' }}>Simulation Engine</h4>
-              <p className="text-muted" style={{ fontSize: '11px', margin: '0 0 4px 0' }}>Temporarily mark unoffered courses as offered to project how student eligibility would change.</p>
-              <p className="text-muted" style={{ fontSize: '11px', margin: 0, fontStyle: 'italic' }}>Only courses <strong>not currently offered</strong> appear here — already-offered courses can't be simulated because they're already factored in. Completed/registered courses are also excluded.</p>
-              {planner.data && planner.data.length > 0 && pendingSimulatedCourses.length === 0 && appliedSimulatedCourses.length === 0 && (
-                <div style={{ marginTop: '6px', padding: '4px 8px', background: '#eff6ff', borderRadius: '6px', fontSize: '11px', color: '#1e40af' }}>
-                  💡 Try: <strong>{planner.data.slice(0, 3).map(i => i.course).join(', ')}</strong>
-                </div>
+          {/* Simulation Engine — collapsible */}
+          <div className="panel">
+            <button
+              type="button"
+              onClick={() => setSimExpanded((v) => !v)}
+              style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textAlign: 'left' }}
+            >
+              <span style={{ fontSize: '18px', lineHeight: 1, color: '#64748b', transition: 'transform 0.2s', transform: simExpanded ? 'rotate(90deg)' : 'rotate(0deg)', display: 'inline-block', flexShrink: 0 }}>▶</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <h3 style={{ margin: 0 }}>Simulation Engine</h3>
+                {!simExpanded && (
+                  <span style={{ fontSize: '0.9rem', color: '#334155', fontWeight: 700 }}>Simulate Course Offering</span>
+                )}
+              </div>
+              {appliedSimulatedCourses.length > 0 && (
+                <span style={{ marginLeft: '8px', padding: '2px 10px', background: '#dcfce7', border: '1px solid #bbf7d0', borderRadius: '999px', fontSize: '0.8rem', color: '#166534', fontWeight: 600 }}>
+                  Active: {appliedSimulatedCourses.join(', ')}
+                </span>
               )}
-            </div>
-            <select className="select-input" multiple size={3} style={{ flex: '1', minWidth: '180px', fontSize: '12px' }} value={pendingSimulatedCourses} onChange={(event) => setPendingSimulatedCourses(getSelectedValues(event))}>
-              {allStudents.data?.simulation_options.map((course) => <option key={course} value={course}>{course}</option>)}
-            </select>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <button type="button" className="btn-primary btn-sm" onClick={() => setAppliedSimulatedCourses(pendingSimulatedCourses)}>Run Simulation</button>
-              <button type="button" className="btn-outline btn-sm" onClick={() => { setPendingSimulatedCourses([]); setAppliedSimulatedCourses([]) }}>Clear</button>
-            </div>
-            {appliedSimulatedCourses.length > 0 && (
-              <div style={{ width: '100%', padding: '6px 10px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', fontSize: '11px', color: '#166534' }}>
-                <strong>Active:</strong> {appliedSimulatedCourses.join(', ')} — matrix below reflects projected changes.
+            </button>
+
+            {simExpanded && (
+              <div style={{ marginTop: '16px', display: 'flex', gap: '20px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                <div style={{ flex: '1', minWidth: '240px' }}>
+                  <p className="text-muted" style={{ margin: '0 0 8px 0' }}>Temporarily mark unoffered courses as offered to project how student eligibility would change.</p>
+                  <p className="text-muted" style={{ margin: 0, fontStyle: 'italic' }}>Only courses <strong>not currently offered</strong> appear here — already-offered courses can't be simulated because they're already factored in. Completed/registered courses are also excluded.</p>
+                  {planner.data && planner.data.length > 0 && pendingSimulatedCourses.length === 0 && appliedSimulatedCourses.length === 0 && (
+                    <div style={{ marginTop: '10px', padding: '8px 12px', background: '#eff6ff', borderRadius: '8px', fontSize: '0.85rem', color: '#1e40af' }}>
+                      💡 Try: <strong>{planner.data.slice(0, 3).map(i => i.course).join(', ')}</strong>
+                    </div>
+                  )}
+                </div>
+                <select className="select-input" multiple size={5} style={{ flex: '1', minWidth: '200px' }} value={pendingSimulatedCourses} onChange={(event) => setPendingSimulatedCourses(getSelectedValues(event))}>
+                  {allStudents.data?.simulation_options.map((course) => <option key={course} value={course}>{course}</option>)}
+                </select>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <button type="button" className="btn-primary" onClick={() => setAppliedSimulatedCourses(pendingSimulatedCourses)}>Run Simulation</button>
+                  <button type="button" className="btn-outline" onClick={() => { setPendingSimulatedCourses([]); setAppliedSimulatedCourses([]) }}>Clear</button>
+                </div>
               </div>
             )}
           </div>

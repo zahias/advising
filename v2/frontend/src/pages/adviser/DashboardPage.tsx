@@ -1,11 +1,9 @@
-import { useState } from 'react'
-
-import { useDashboard, useMajors } from '../../lib/hooks'
+import { useDashboard } from '../../lib/hooks'
+import { useMajorContext } from '../../lib/MajorContext'
 import { StatCard } from '../../components/StatCard'
 
 export function DashboardPage() {
-  const [majorCode, setMajorCode] = useState('PBHL')
-  const majors = useMajors()
+  const { majorCode, setMajorCode, allowedMajors } = useMajorContext()
   const dashboard = useDashboard(majorCode)
 
   return (
@@ -19,7 +17,7 @@ export function DashboardPage() {
           <label className="inline-select">
             <span className="text-muted">Master Program:</span>
             <select className="select-input" value={majorCode} onChange={(event) => setMajorCode(event.target.value)}>
-              {majors.data?.map((major) => <option key={major.code} value={major.code}>{major.code}</option>)}
+              {allowedMajors.map((major) => <option key={major.code} value={major.code}>{major.code}</option>)}
             </select>
           </label>
         </div>

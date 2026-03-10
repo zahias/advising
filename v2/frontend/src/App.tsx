@@ -2,6 +2,7 @@ import type { ReactElement } from 'react'
 import { Navigate, Outlet, Route, Routes } from 'react-router-dom'
 
 import { AppFrame } from './components/AppFrame'
+import { MajorProvider } from './lib/MajorContext'
 import { useCurrentUser } from './lib/hooks'
 import { LoginPage } from './pages/LoginPage'
 import { AdminOverviewPage } from './pages/admin/AdminOverviewPage'
@@ -52,19 +53,21 @@ function AdviserLayout() {
   const { data: user } = useCurrentUser()
   if (!user) return null
   return (
-    <AppFrame
-      title="Adviser Workspace"
-      subtitle="Dashboard, advising flows, and insight tooling for assigned majors."
-      user={user}
-      items={[
-        { to: '/adviser', label: 'Dashboard' },
-        { to: '/adviser/workspace', label: 'Workspace' },
-        { to: '/adviser/insights', label: 'Insights' },
-        { to: '/adviser/settings', label: 'Settings' },
-      ]}
-    >
-      <Outlet />
-    </AppFrame>
+    <MajorProvider>
+      <AppFrame
+        title="Adviser Workspace"
+        subtitle="Dashboard, advising flows, and insight tooling for assigned majors."
+        user={user}
+        items={[
+          { to: '/adviser', label: 'Dashboard' },
+          { to: '/adviser/workspace', label: 'Workspace' },
+          { to: '/adviser/insights', label: 'Insights' },
+          { to: '/adviser/settings', label: 'Settings' },
+        ]}
+      >
+        <Outlet />
+      </AppFrame>
+    </MajorProvider>
   )
 }
 

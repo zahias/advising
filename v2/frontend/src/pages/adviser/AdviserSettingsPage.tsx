@@ -2,7 +2,8 @@ import { ChangeEvent, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { API_BASE_URL } from '../../lib/api'
-import { useDatasetVersions, useMajors, usePeriods, useSessions, useStudents } from '../../lib/hooks'
+import { useDatasetVersions, usePeriods, useSessions, useStudents } from '../../lib/hooks'
+import { useMajorContext } from '../../lib/MajorContext'
 import { Tooltip } from '../../components/Tooltip'
 
 function getSelectedValues(event: ChangeEvent<HTMLSelectElement>) {
@@ -28,7 +29,7 @@ const DATASET_LABELS: Record<string, string> = {
 
 export function AdviserSettingsPage() {
   const queryClient = useQueryClient()
-  const [majorCode, setMajorCode] = useState('PBHL')
+  const { majorCode, setMajorCode, allowedMajors } = useMajorContext()
   const [studentQuery, setStudentQuery] = useState('')
   const [bulkStudentIds, setBulkStudentIds] = useState<string[]>([])
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -45,7 +46,6 @@ export function AdviserSettingsPage() {
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
 
-  const majors = useMajors()
   const periods = usePeriods(majorCode)
   const activePeriod = periods.data?.find((p) => p.is_active)
   const students = useStudents(majorCode, studentQuery)
@@ -124,6 +124,18 @@ export function AdviserSettingsPage() {
     queryClient.invalidateQueries({ queryKey: ['periods', majorCode] })
   }
 
+  // ── Data file downloads ──────────────────────────────────────────────────
+  async function handleDownloadFile(path: string, filename: string) {
+    const res = await authedFetch(path)
+    if (!res.ok) { showMsg('error', await res.text()); return }
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = filename
+    document.body.appendChild(a); a.click()
+    a.remove(); URL.revokeObjectURL(url)
+  }
+
   // ── Data file upload ─────────────────────────────────────────────────────
   async function handleUpload() {
     if (!uploadFile) return
@@ -155,7 +167,7 @@ export function AdviserSettingsPage() {
         <label className="inline-select">
           <span className="text-muted">Program:</span>
           <select className="select-input" value={majorCode} onChange={(e) => setMajorCode(e.target.value)}>
-            {majors.data?.map((m) => <option key={m.code}>{m.code}</option>)}
+            {allowedMajors.map((m) => <option key={m.code}>{m.code}</option>)}
           </select>
         </label>
       </div>
@@ -240,17 +252,63 @@ export function AdviserSettingsPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', marginBottom: '0.85rem' }}>
             {Object.entries(DATASET_LABELS).map(([type, label]) => {
               const latestVersion = versions.data?.find(v => v.dataset_type === type)
+              const isSelected = uploadType === type
               return (
-                <label key={type} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem', padding: '0.6rem 0.8rem', borderRadius: '8px', border: `2px solid ${uploadType === type ? 'var(--accent)' : 'var(--line)'}`, cursor: 'pointer', background: uploadType === type ? 'rgba(30,111,92,0.05)' : '#fafafa', transition: 'border-color 0.15s' }}>
-                  <input type="radio" name="uploadType" value={type} checked={uploadType === type} onChange={() => setUploadType(type)} style={{ accentColor: 'var(--accent)', marginTop: '2px' }} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '0.875rem', fontWeight: uploadType === type ? 600 : 400 }}>{label}</div>
-                    {latestVersion && (
-                      <div style={{ fontSize: '0.72rem', color: 'var(--muted)', marginTop: '2px' }}>
-                        Last: {latestVersion.original_filename ?? '—'} &middot; {new Date(latestVersion.created_at).toLocaleDateString()}
-                        {(latestVersion.metadata_json?.uploaded_by as string | undefined) && <> &middot; by {latestVersion.metadata_json.uploaded_by as string}</>}
+                <label
+                  key={type}
+                  onClick={() => setUploadType(type)}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'auto 1fr',
+                    alignItems: 'start',
+                    gap: '0.6rem',
+                    padding: '0.65rem 0.9rem',
+                    borderRadius: '10px',
+                    border: `2px solid ${isSelected ? 'var(--accent)' : 'var(--line)'}`,
+                    cursor: 'pointer',
+                    background: isSelected ? 'rgba(30,111,92,0.05)' : '#fafafa',
+                    transition: 'border-color 0.15s, background 0.15s',
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="uploadType"
+                    value={type}
+                    checked={isSelected}
+                    onChange={() => setUploadType(type)}
+                    style={{ accentColor: 'var(--accent)', marginTop: '3px', cursor: 'pointer' }}
+                  />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                    <div style={{ fontSize: '0.875rem', fontWeight: isSelected ? 600 : 400, color: 'var(--ink)' }}>{label}</div>
+                    {latestVersion ? (
+                      <div style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>
+                        Last: <span style={{ fontFamily: 'monospace' }}>{latestVersion.original_filename ?? '—'}</span>
+                        {' · '}{new Date(latestVersion.created_at).toLocaleDateString()}
+                        {(latestVersion.metadata_json?.uploaded_by as string | undefined) && <> · by {latestVersion.metadata_json.uploaded_by as string}</>}
                       </div>
+                    ) : (
+                      <div style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>No file uploaded yet</div>
                     )}
+                    <div style={{ display: 'flex', gap: '6px', marginTop: '2px' }}>
+                      <button
+                        type="button"
+                        className="btn-sm btn-outline"
+                        style={{ fontSize: '0.7rem', padding: '1px 8px' }}
+                        onClick={(e) => { e.stopPropagation(); handleDownloadFile(`/datasets/templates/${type}`, `${type}_template.xlsx`) }}
+                      >
+                        ↓ Template
+                      </button>
+                      {latestVersion && (
+                        <button
+                          type="button"
+                          className="btn-sm btn-outline"
+                          style={{ fontSize: '0.7rem', padding: '1px 8px' }}
+                          onClick={(e) => { e.stopPropagation(); handleDownloadFile(`/datasets/${majorCode}/${type}/download`, latestVersion.original_filename ?? `${type}.xlsx`) }}
+                        >
+                          ↓ Current File
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </label>
               )

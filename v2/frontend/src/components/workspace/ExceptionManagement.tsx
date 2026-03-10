@@ -3,47 +3,29 @@ import { StudentEligibility } from '../../lib/api'
 interface Props {
     student: {
         bypasses: Record<string, { note: string; advisor: string }>
-        excluded_courses: string[]
     }
     eligibility: StudentEligibility['eligibility']
-    hiddenCourseOptions: string[]
     bypassCourse: string
     setBypassCourse: (val: string) => void
     bypassNote: string
     setBypassNote: (val: string) => void
     onBypassSave: () => void
     onBypassDelete: (courseCode: string) => void
-    hiddenCourses: string[]
-    setHiddenCourses: (val: string[]) => void
-    onHiddenCoursesSave: () => void
 }
 
 export function ExceptionManagement({
     student,
     eligibility,
-    hiddenCourseOptions,
     bypassCourse,
     setBypassCourse,
     bypassNote,
     setBypassNote,
     onBypassSave,
     onBypassDelete,
-    hiddenCourses,
-    setHiddenCourses,
-    onHiddenCoursesSave,
 }: Props) {
 
-    // Custom multi-select helper for hidden courses (since listbox is better than native select)
-    const toggleHiddenCourse = (code: string) => {
-        if (hiddenCourses.includes(code)) {
-            setHiddenCourses(hiddenCourses.filter(c => c !== code))
-        } else {
-            setHiddenCourses([...hiddenCourses, code])
-        }
-    }
-
     return (
-        <div className="exception-management-container grid-2">
+        <div className="exception-management-container" style={{ maxWidth: '600px' }}>
 
             {/* Bypasses */}
             <div className="panel stack">
@@ -112,50 +94,6 @@ export function ExceptionManagement({
                             ))}
                         </div>
                     )}
-                </div>
-            </div>
-
-            {/* Hidden Courses */}
-            <div className="panel stack">
-                <div className="panel-header">
-                    <h3>Hidden Courses</h3>
-                    <p className="text-muted text-sm">Hide specific courses from this student's eligibility view</p>
-                </div>
-
-                <div className="form-group">
-                    <label>Select courses to hide</label>
-                    <div className="hidden-courses-selector scrollable">
-                        {hiddenCourseOptions.map((courseCode) => (
-                            <label key={courseCode} className="checkbox-item">
-                                <input
-                                    type="checkbox"
-                                    checked={hiddenCourses.includes(courseCode)}
-                                    onChange={() => toggleHiddenCourse(courseCode)}
-                                />
-                                <span>{courseCode}</span>
-                            </label>
-                        ))}
-                    </div>
-                </div>
-
-                <button type="button" className="btn-primary" onClick={onHiddenCoursesSave}>
-                    Save Hidden Courses
-                </button>
-
-                <div className="divider" />
-
-                <div className="admin-excluded">
-                    <h4 className="list-title">Admin Excluded</h4>
-                    <p className="text-muted text-sm">These courses are globally excluded by the system administrator.</p>
-                    <div className="tags-container mt-2">
-                        {student.excluded_courses.length === 0 ? (
-                            <span className="text-muted text-sm">None</span>
-                        ) : (
-                            student.excluded_courses.map(code => (
-                                <span key={code} className="tag tag-disabled">{code}</span>
-                            ))
-                        )}
-                    </div>
                 </div>
             </div>
 

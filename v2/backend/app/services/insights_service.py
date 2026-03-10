@@ -855,7 +855,7 @@ def _get_student_course_statuses(student_data: pd.Series, courses_df: pd.DataFra
             statuses[course_code] = 'advised'
         elif student_status in {'c', 'completed', 'pass', 'p', 'taken'}:
             statuses[course_code] = 'completed'
-        elif student_status in {'r', 'registered', 'current'}:
+        elif student_status in {'r', 'registered', 'current', 'cr', 'reg'}:
             statuses[course_code] = 'registered'
         elif student_status in {'f', 'fail', 'failed'}:
             statuses[course_code] = 'failed'
