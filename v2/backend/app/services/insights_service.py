@@ -12,8 +12,7 @@ from sqlalchemy.orm import Session
 from app.models import AuditEvent, Bypass, Major, SessionSnapshot, StudentSelection
 from app.schemas.insights import CourseOfferingRecommendation, DashboardMetrics
 from app.services.audit import log_event
-from app.services.dataset_service import dataset_dataframe, get_dataset_records
-from app.services.student_service import _get_course_credits_dict, _progress_wide_to_wide_df
+from app.services.dataset_service import dataset_dataframe
 from app.services.period_service import current_period
 
 ROOT_DIR = Path(__file__).resolve().parents[4]
@@ -59,13 +58,7 @@ def _courses_df(session: Session, major_code: str) -> pd.DataFrame:
 
 
 def _progress_df(session: Session, major_code: str) -> pd.DataFrame:
-    major = _major_or_error(session, major_code)
-    records = get_dataset_records(session, major_code, 'progress_wide')
-    if records:
-        credits_dict = _get_course_credits_dict(session, major.id)
-        return _progress_wide_to_wide_df(records, credits_dict)
-    legacy_df = dataset_dataframe(session, major_code, 'progress')
-    return legacy_df if not legacy_df.empty else pd.DataFrame()
+    return dataset_dataframe(session, major_code, 'progress')
 
 
 def _selection_map(session: Session, major: Major, period_id: int | None) -> dict[str, StudentSelection]:

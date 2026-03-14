@@ -12,7 +12,6 @@ from app.models import (
     AdvisingPeriod,
     Bypass,
     CourseExclusion,
-    CoursePassingRule,
     EmailRosterEntry,
     HiddenCourse,
     Major,
@@ -20,8 +19,7 @@ from app.models import (
     StudentSelection,
 )
 from app.schemas.advising import CourseCatalogItem, EligibilityCourse, ExclusionSummary, SelectionPayload, StudentEligibilityResponse
-from app.services.dataset_service import dataset_dataframe, get_dataset_records
-from app.services.grade_processing import cell_status, compute_gpa, is_passing
+from app.services.dataset_service import dataset_dataframe
 from app.services.period_service import current_period
 
 ROOT_DIR = Path(__file__).resolve().parents[4]
@@ -47,90 +45,12 @@ def _major(session: Session, major_code: str) -> Major:
     return major
 
 
-def _get_course_credits_dict(session: Session, major_id: int) -> dict[str, int]:
-    """Return {course_code: credits} from CoursePassingRule (highest-order rule)."""
-    rows = session.scalars(
-        select(CoursePassingRule)
-        .where(CoursePassingRule.major_id == major_id)
-        .order_by(CoursePassingRule.course_code, CoursePassingRule.rule_order)
-    ).all()
-    result: dict[str, int] = {}
-    for row in rows:
-        # Use the first rule's credits (they shouldn't differ across eras)
-        if row.course_code.upper() not in result:
-            result[row.course_code.upper()] = row.credits
-    return result
-
-
-def _progress_wide_to_wide_df(
-    records: list[dict[str, Any]],
-    course_credits_dict: dict[str, int],
-) -> pd.DataFrame:
-    """Reconstruct a wide-pivot DataFrame from progress_wide flat records.
-
-    Cell values are collapsed to 'c'/'cr'/'nc' so legacy check_course_completed
-    and check_course_registered continue to work unchanged.
-
-    Also computes credit summary columns: # of Credits Completed, # Registered,
-    # Remaining, Total Credits.
-    """
-    if not records:
-        return pd.DataFrame()
-
-    students: dict[str, dict[str, Any]] = {}
-    for rec in records:
-        sid = str(rec['student_id'])
-        sname = str(rec['student_name'])
-        code = str(rec['course_code']).upper()
-        cell_val = str(rec.get('cell_value', 'NR'))
-        if sid not in students:
-            students[sid] = {'ID': sid, 'NAME': sname}
-        students[sid][code] = cell_status(cell_val)  # 'c' / 'cr' / 'nc'
-
-    rows = []
-    for sid, data in students.items():
-        completed = 0.0
-        registered = 0.0
-        remaining = 0.0
-        for code, status in data.items():
-            if code in ('ID', 'NAME'):
-                continue
-            credits = float(course_credits_dict.get(code, 0))
-            if status == 'c':
-                completed += credits
-            elif status == 'cr':
-                registered += credits
-            else:
-                remaining += credits
-        data['# of Credits Completed'] = completed
-        data['# Registered'] = registered
-        data['# Remaining'] = remaining
-        data['Total Credits'] = completed + registered + remaining
-        rows.append(data)
-
-    return pd.DataFrame(rows)
-
-
 def _courses_df(session: Session, major_code: str) -> pd.DataFrame:
     return dataset_dataframe(session, major_code, 'courses')
 
 
 def _progress_df(session: Session, major_code: str) -> pd.DataFrame:
-    """Return a wide-pivot DataFrame suitable for legacy eligibility functions.
-
-    Tries 'progress_wide' first (new registrar format).  Falls back to the
-    legacy 'progress' dataset (already stored in wide c/cr/nc format) so that
-    the workspace and search continue to work until a progress_wide upload is
-    performed.  Returns an empty DataFrame only when neither is available.
-    """
-    major = _major(session, major_code)
-    records = get_dataset_records(session, major_code, 'progress_wide')
-    if records:
-        credits_dict = _get_course_credits_dict(session, major.id)
-        return _progress_wide_to_wide_df(records, credits_dict)
-    # Fallback: legacy 'progress' dataset (course codes already as columns, values = c/cr/nc)
-    legacy_df = dataset_dataframe(session, major_code, 'progress')
-    return legacy_df if not legacy_df.empty else pd.DataFrame()
+    return dataset_dataframe(session, major_code, 'progress')
 
 
 def search_students(session: Session, major_code: str, query: Optional[str] = None) -> list[dict[str, Any]]:
@@ -261,25 +181,10 @@ def student_eligibility(session: Session, major_code: str, student_id: str) -> S
     bypass_map = _bypass_map(session, major.id, student_id)
     mutual_pairs = get_mutual_concurrent_pairs(courses_df)
 
-    # Load per-course passing rules for enriched completion checks
-    rules_rows = session.scalars(
-        select(CoursePassingRule)
-        .where(CoursePassingRule.major_id == major.id)
-        .order_by(CoursePassingRule.course_code, CoursePassingRule.rule_order)
-    ).all()
-    rules_by_course: dict[str, str] = {}  # course_code → passing_grades (first rule)
-    course_types: dict[str, str] = {}
-    for r in rules_rows:
-        code = r.course_code.upper()
-        if code not in rules_by_course:
-            rules_by_course[code] = r.passing_grades
-            course_types[code] = r.course_type
-
     eligibility_rows: list[EligibilityCourse] = []
     advised_credits = 0.0
     optional_credits = 0.0
     repeat_credits = 0.0
-    missing_required: list[str] = []
 
     for _, info in courses_df.iterrows():
         code = str(info.get('Course Code', ''))
@@ -311,11 +216,6 @@ def student_eligibility(session: Session, major_code: str, student_id: str) -> S
             optional_credits += credits
         if code in selection_payload.repeat:
             repeat_credits += credits
-
-        # Track missing required courses (uses passing rules if available)
-        if not completed and not registered and course_types.get(code, 'required') == 'required':
-            missing_required.append(code)
-
         eligibility_rows.append(
             EligibilityCourse(
                 course_code=code,
@@ -335,32 +235,6 @@ def student_eligibility(session: Session, major_code: str, student_id: str) -> S
     credits_registered = float(student_row.get('# Registered', 0) or 0)
     credits_remaining = float(student_row.get('# Remaining', student_row.get('Remaining Credits', 0)) or 0)
     standing = get_student_standing(credits_completed + credits_registered)
-
-    # GPA and at-risk computation from raw progress_wide records
-    gpa = None
-    is_at_risk = False
-    raw_progress_records = get_dataset_records(session, major_code, 'progress_wide')
-    if raw_progress_records:
-        credits_dict = _get_course_credits_dict(session, major.id)
-        student_raw = [
-            {
-                'course_code': r['course_code'],
-                'grade': r['cell_value'].split(' | ')[0].strip() if ' | ' in r['cell_value'] else '',
-            }
-            for r in raw_progress_records
-            if str(r['student_id']) == str(student_id)
-        ]
-        gpa = compute_gpa(student_raw, credits_dict)
-
-        # At-risk flags
-        failing_count = sum(
-            1 for r in raw_progress_records
-            if str(r['student_id']) == str(student_id) and 'F | 0' in r.get('cell_value', '')
-        )
-        incomplete_count = len(missing_required)
-        remaining_pct = credits_remaining / (credits_completed + credits_registered + credits_remaining) if (credits_completed + credits_registered + credits_remaining) > 0 else 0
-        is_at_risk = failing_count >= 2 or incomplete_count >= 3 or remaining_pct > 0.30
-
     session.commit()
     return StudentEligibilityResponse(
         student_id=str(student_row.get('ID')),
@@ -377,9 +251,6 @@ def student_eligibility(session: Session, major_code: str, student_id: str) -> S
         bypasses=bypass_map,
         hidden_courses=sorted(hidden_courses),
         excluded_courses=sorted(excluded_courses),
-        gpa=gpa,
-        missing_required=sorted(missing_required),
-        is_at_risk=is_at_risk,
     )
 
 
