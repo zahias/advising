@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api.routes import advising, audit_events, auth, backups, datasets, emails, health, imports, insights, majors, periods, reports, students, templates, users
+from app.api.routes import advising, assignments, audit_events, auth, backups, datasets, emails, health, imports, insights, majors, major_mappings, matrix, periods, reports, slots, students, templates, users
 
 api_router = APIRouter()
 api_router.include_router(health.router)
@@ -20,3 +20,7 @@ api_router.include_router(templates.router)
 api_router.include_router(backups.router)
 api_router.include_router(imports.router)
 api_router.include_router(audit_events.router)
+api_router.include_router(matrix.router)
+api_router.include_router(assignments.router)
+api_router.include_router(slots.router)
+api_router.include_router(major_mappings.router)
