@@ -28,6 +28,8 @@ services:
         sync: false
       - key: SMTP_PASSWORD
         sync: false
+      - key: PYTHON_VERSION
+        value: "3.12.0"
       - key: CORS_ORIGINS
         value: https://advising-v2-frontend.onrender.com
   - type: web
@@ -55,6 +57,8 @@ services:
     envVars:
       - key: DATABASE_URL
         sync: false
+      - key: PYTHON_VERSION
+        value: "3.12.0"
       - key: R2_ACCOUNT_ID
         sync: false
       - key: R2_ACCESS_KEY_ID
