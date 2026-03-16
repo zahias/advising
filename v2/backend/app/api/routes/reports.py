@@ -8,7 +8,7 @@ from app.api.deps import ensure_major_access, get_db, require_staff
 from app.models import User
 from fastapi import Query
 
-from app.services.insights_service import build_all_advised_report, build_individual_report, build_qaa_report, build_schedule_conflicts_csv
+from app.services.insights_service import build_all_advised_report, build_individual_report, build_qaa_report, build_schedule_conflicts_report
 from app.services.student_service import export_student_report
 
 router = APIRouter(prefix='/reports', tags=['reports'])
@@ -68,7 +68,7 @@ def schedule_conflict_report_route(
     db: Session = Depends(get_db),
 ):
     ensure_major_access(major_code, db, user)
-    filename, payload = build_schedule_conflicts_csv(
+    filename, payload = build_schedule_conflicts_report(
         db,
         major_code,
         target_groups=target_groups,
@@ -77,4 +77,4 @@ def schedule_conflict_report_route(
         min_courses=min_courses,
     )
     headers = {'Content-Disposition': f'attachment; filename={filename}'}
-    return Response(content=payload, media_type='text/csv', headers=headers)
+    return Response(content=payload, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers=headers)

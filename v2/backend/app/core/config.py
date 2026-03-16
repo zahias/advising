@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     database_url: str = Field(default='sqlite:///./advising_v2.db', alias='DATABASE_URL')
     jwt_secret: str = Field(default='change-me', alias='JWT_SECRET')
     jwt_expiry_minutes: int = Field(default=480, alias='JWT_EXPIRY_MINUTES')
-    cors_origins_raw: str = Field(default='http://localhost:5173,http://127.0.0.1:5173', alias='CORS_ORIGINS')
+    cors_origins_raw: str = Field(default='http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174', alias='CORS_ORIGINS')
     smtp_email: Optional[str] = Field(default=None, alias='SMTP_EMAIL')
     smtp_password: Optional[str] = Field(default=None, alias='SMTP_PASSWORD')
     r2_account_id: Optional[str] = Field(default=None, alias='R2_ACCOUNT_ID')

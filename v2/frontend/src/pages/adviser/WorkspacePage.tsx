@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 
-import { API_BASE_URL, DegreePlanResponse, apiFetch } from '../../lib/api'
+import { API_BASE_URL, DegreePlanResponse, SessionSummary, apiFetch } from '../../lib/api'
 import { useCourseCatalog, usePeriods, useStudentEligibility, useStudents, useTemplates, useSessions } from '../../lib/hooks'
 import { useMajorContext } from '../../lib/MajorContext'
 
@@ -36,6 +37,7 @@ const STATUS_BORDER: Record<string, string> = {
 }
 
 export function WorkspacePage() {
+  const [searchParams] = useSearchParams()
   const queryClient = useQueryClient()
   const { majorCode, setMajorCode, allowedMajors } = useMajorContext()
 
@@ -49,6 +51,7 @@ export function WorkspacePage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [activeTab, setActiveTab] = useState<'schedule' | 'academic' | 'exceptions' | 'degree' | 'history'>('schedule')
   const [restoreTarget, setRestoreTarget] = useState<{ id: number; title: string } | null>(null)
+  const [viewTarget, setViewTarget] = useState<SessionSummary | null>(null)
   const [restoring, setRestoring] = useState(false)
   const [templateKey, setTemplateKey] = useState('default')
   const [bypassCourse, setBypassCourse] = useState('')
@@ -73,6 +76,23 @@ export function WorkspacePage() {
     queryFn: () => apiFetch<DegreePlanResponse>(`/insights/${majorCode}/degree-plan/${selectedStudentId}`),
     enabled: Boolean(selectedStudentId),
   })
+
+  useEffect(() => {
+    const requestedMajor = searchParams.get('major')
+    if (requestedMajor && requestedMajor !== majorCode && allowedMajors.some((major) => major.code === requestedMajor)) {
+      setMajorCode(requestedMajor)
+    }
+
+    const requestedStudentId = searchParams.get('student_id')
+    if (requestedStudentId && requestedStudentId !== selectedStudentId) {
+      setSelectedStudentId(requestedStudentId)
+      setSelectedStudentName(requestedStudentId)
+      setComboQuery('')
+      setShowDropdown(false)
+      setMessage(null)
+      setActiveTab('schedule')
+    }
+  }, [allowedMajors, majorCode, searchParams, selectedStudentId, setMajorCode])
 
   useEffect(() => {
     if (!student.data) return
@@ -465,25 +485,81 @@ export function WorkspacePage() {
                             <td style={{ fontSize: '0.8rem', color: 'var(--muted)', fontFamily: 'monospace' }}>{s.period_code ?? '—'}</td>
                             <td style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>{new Date(s.created_at).toLocaleString()}</td>
                             <td style={{ fontSize: '0.8rem' }}>
-                              {Array.isArray((s.summary as Record<string, unknown>).advised_courses)
-                                ? ((s.summary as Record<string, unknown[]>).advised_courses.length) + ' courses'
+                              {Array.isArray((s.summary as Record<string, unknown>).advised)
+                                ? ((s.summary as Record<string, unknown[]>).advised.length) + ' courses'
                                 : '—'}
                             </td>
                             <td>
-                              <button
-                                type="button"
-                                className="btn-sm btn-outline"
-                                onClick={() => setRestoreTarget({ id: s.id, title: s.title })}
-                                disabled={!activePeriod}
-                                title={activePeriod ? 'Restore this session to the active period' : 'No active period'}
-                              >
-                                Restore
-                              </button>
+                              <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'flex-end' }}>
+                                <button type="button" className="btn-sm btn-outline" onClick={() => setViewTarget(s)}>
+                                  View
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn-sm btn-outline"
+                                  onClick={() => setRestoreTarget({ id: s.id, title: s.title })}
+                                  disabled={!activePeriod}
+                                  title={activePeriod ? 'Restore this session to the active period' : 'No active period'}
+                                >
+                                  Restore
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
+                  </div>
+                )}
+
+                {viewTarget && (
+                  <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+                    <div className="panel stack" style={{ maxWidth: '760px', width: '94%', maxHeight: '84vh', overflowY: 'auto' }}>
+                      <div className="flex-between items-center">
+                        <h3 style={{ margin: 0 }}>Session Details</h3>
+                        <button type="button" className="btn-sm btn-outline" onClick={() => setViewTarget(null)}>Close</button>
+                      </div>
+
+                      <div style={{ display: 'grid', gap: '0.5rem' }}>
+                        <p className="text-sm" style={{ margin: 0 }}><strong>Session:</strong> {viewTarget.title}</p>
+                        <p className="text-sm" style={{ margin: 0 }}><strong>Period:</strong> {viewTarget.period_code ?? '—'}</p>
+                        <p className="text-sm" style={{ margin: 0 }}><strong>Saved:</strong> {new Date(viewTarget.created_at).toLocaleString()}</p>
+                      </div>
+
+                      <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+                        <div>
+                          <h4 style={{ margin: '0 0 0.4rem' }}>Advised Courses</h4>
+                          {Array.isArray((viewTarget.summary as Record<string, unknown>).advised) && (viewTarget.summary as Record<string, string[]>).advised.length > 0 ? (
+                            <ul className="text-sm" style={{ margin: 0, paddingLeft: '1rem' }}>
+                              {(viewTarget.summary as Record<string, string[]>).advised.map((course) => <li key={`advised-${course}`}>{course}</li>)}
+                            </ul>
+                          ) : <p className="text-muted text-sm" style={{ margin: 0 }}>No advised courses.</p>}
+                        </div>
+
+                        <div>
+                          <h4 style={{ margin: '0 0 0.4rem' }}>Optional Courses</h4>
+                          {Array.isArray((viewTarget.summary as Record<string, unknown>).optional) && (viewTarget.summary as Record<string, string[]>).optional.length > 0 ? (
+                            <ul className="text-sm" style={{ margin: 0, paddingLeft: '1rem' }}>
+                              {(viewTarget.summary as Record<string, string[]>).optional.map((course) => <li key={`optional-${course}`}>{course}</li>)}
+                            </ul>
+                          ) : <p className="text-muted text-sm" style={{ margin: 0 }}>No optional courses.</p>}
+                        </div>
+
+                        <div>
+                          <h4 style={{ margin: '0 0 0.4rem' }}>Repeat Courses</h4>
+                          {Array.isArray((viewTarget.summary as Record<string, unknown>).repeat) && (viewTarget.summary as Record<string, string[]>).repeat.length > 0 ? (
+                            <ul className="text-sm" style={{ margin: 0, paddingLeft: '1rem' }}>
+                              {(viewTarget.summary as Record<string, string[]>).repeat.map((course) => <li key={`repeat-${course}`}>{course}</li>)}
+                            </ul>
+                          ) : <p className="text-muted text-sm" style={{ margin: 0 }}>No repeat courses.</p>}
+                        </div>
+                      </div>
+
+                      <div>
+                        <h4 style={{ margin: '0 0 0.4rem' }}>Advising Note</h4>
+                        <p className="text-sm" style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{String((viewTarget.summary as Record<string, unknown>).note || '—')}</p>
+                      </div>
+                    </div>
                   </div>
                 )}
 

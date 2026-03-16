@@ -21,7 +21,7 @@ export type DashboardMetrics = {
   advised_students: number
   not_advised_students: number
   progress_percent: number
-  graduating_soon_unadvised: string[]
+  graduating_soon_unadvised: { student_id: string; student_name: string }[]
   recent_activity: { student_name: string; created_at: string }[]
 }
 

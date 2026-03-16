@@ -1,8 +1,10 @@
 import { useDashboard } from '../../lib/hooks'
 import { useMajorContext } from '../../lib/MajorContext'
 import { StatCard } from '../../components/StatCard'
+import { useNavigate } from 'react-router-dom'
 
 export function DashboardPage() {
+  const navigate = useNavigate()
   const { majorCode, setMajorCode, allowedMajors } = useMajorContext()
   const dashboard = useDashboard(majorCode)
 
@@ -52,10 +54,18 @@ export function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {dashboard.data.graduating_soon_unadvised.map((name) => (
-                    <tr key={name}>
-                      <td className="font-semibold">{name}</td>
-                      <td><button type="button" className="btn-secondary btn-sm">Advise Now</button></td>
+                  {dashboard.data.graduating_soon_unadvised.map((student) => (
+                    <tr key={student.student_id}>
+                      <td className="font-semibold">{student.student_name}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn-secondary btn-sm"
+                          onClick={() => navigate(`/adviser/workspace?student_id=${encodeURIComponent(student.student_id)}&major=${encodeURIComponent(majorCode)}`)}
+                        >
+                          Advise Now
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

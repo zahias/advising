@@ -23,6 +23,15 @@ STATUS_COLORS = {
     "ne": "F8CECC",   # Not Eligible -> light red
 }
 
+ACTION_COLORS = {
+    "completed": "C6E0B4",
+    "registered": "BDD7EE",
+    "advised": "FFF2CC",
+    "eligible (bypass)": "E9D5FF",
+    "eligible not chosen": "E1F0FF",
+    "not eligible": "F8CECC",
+}
+
 
 def apply_excel_formatting(
     output: BytesIO,
@@ -69,9 +78,32 @@ def apply_excel_formatting(
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center", vertical="center")
     
+    thin_border = Border(
+        left=Side(style="thin", color="D1D5DB"),
+        right=Side(style="thin", color="D1D5DB"),
+        top=Side(style="thin", color="D1D5DB"),
+        bottom=Side(style="thin", color="D1D5DB"),
+    )
+
+    action_col = None
+    for idx, cell in enumerate(ws[8], start=1):
+        if str(cell.value or "").strip().lower() == "action":
+            action_col = idx
+            break
+
     for row in ws.iter_rows(min_row=9):
         for cell in row:
             cell.alignment = Alignment(horizontal="left", vertical="center")
+            cell.border = thin_border
+
+        if action_col is not None:
+            action_cell = row[action_col - 1]
+            action_value = str(action_cell.value or "").strip().lower()
+            action_color = ACTION_COLORS.get(action_value)
+            if action_color:
+                action_cell.fill = PatternFill(start_color=action_color, end_color=action_color, fill_type="solid")
+
+    ws.freeze_panes = "A9"
     
     for column in ws.columns:
         max_length = 0
@@ -79,7 +111,7 @@ def apply_excel_formatting(
         for cell in column:
             if cell.value:
                 max_length = max(max_length, len(str(cell.value)))
-        ws.column_dimensions[column_letter].width = min(max_length + 2, 50)
+        ws.column_dimensions[column_letter].width = min(max_length + 2, 60)
     
     output.seek(0)
     wb.save(output)

@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import pandas as pd
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -44,6 +46,55 @@ STATUS_CODES = {
 }
 
 DEFAULT_SEMESTER_FILTER = 'All Courses'
+
+HEADER_FILL = PatternFill(start_color='1F4E78', end_color='1F4E78', fill_type='solid')
+HEADER_FONT = Font(bold=True, color='FFFFFF')
+TITLE_FONT = Font(bold=True, size=14)
+SUBTITLE_FONT = Font(italic=True, color='4B5563')
+
+ACTION_COLORS = {
+    'completed': 'C6E0B4',
+    'registered': 'BDD7EE',
+    'advised': 'FFF2CC',
+    'eligible (bypass)': 'E9D5FF',
+    'eligible not chosen': 'E1F0FF',
+    'not eligible': 'F8CECC',
+}
+
+
+def _style_header_row(ws, row_index: int) -> None:
+    for cell in ws[row_index]:
+        if cell.value is None:
+            continue
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+
+
+def _autosize_columns(ws, *, max_width: int = 72) -> None:
+    for column_cells in ws.columns:
+        max_length = 0
+        for cell in column_cells:
+            if cell.value is None:
+                continue
+            max_length = max(max_length, len(str(cell.value)))
+        ws.column_dimensions[get_column_letter(column_cells[0].column)].width = min(max_length + 2, max_width)
+
+
+def _apply_action_column_colors(ws, *, header_row: int) -> None:
+    action_col = None
+    for idx, cell in enumerate(ws[header_row], start=1):
+        if str(cell.value or '').strip().lower() == 'action':
+            action_col = idx
+            break
+    if action_col is None:
+        return
+
+    for row in range(header_row + 1, ws.max_row + 1):
+        action_value = str(ws.cell(row=row, column=action_col).value or '').strip().lower()
+        color = ACTION_COLORS.get(action_value)
+        if color:
+            ws.cell(row=row, column=action_col).fill = PatternFill(start_color=color, end_color=color, fill_type='solid')
 
 
 def _major_or_error(session: Session, major_code: str) -> Major:
@@ -241,14 +292,19 @@ def dashboard_metrics(session: Session, major_code: str) -> DashboardMetrics:
             recent_activity.append({'student_name': snap.payload.get('student_name', snap.student_id), 'created_at': snap.created_at.isoformat()})
     total_students = len(progress_df)
     advised_count = 0
-    graduating_soon_unadvised: list[str] = []
+    graduating_soon_unadvised: list[dict[str, str]] = []
     for _, row in progress_df.iterrows():
         student_id = str(row.get('ID'))
         remaining = float(row.get('# Remaining', row.get('Remaining Credits', 999)) or 999)
         if student_id in advised_ids:
             advised_count += 1
         elif remaining <= 36:
-            graduating_soon_unadvised.append(str(row.get('NAME', student_id)))
+            graduating_soon_unadvised.append(
+                {
+                    'student_id': student_id,
+                    'student_name': str(row.get('NAME', student_id)),
+                }
+            )
     percent = int((advised_count / total_students) * 100) if total_students else 0
     return DashboardMetrics(
         total_students=total_students,
@@ -920,7 +976,21 @@ def build_all_advised_report(session: Session, major_code: str) -> tuple[str, by
                 data_rows['Eligibility Status'].append(status)
                 data_rows['Justification'].append(just)
                 data_rows['Bypass'].append(bypass_note)
-            pd.DataFrame(data_rows).to_excel(writer, index=False, sheet_name=str(sid)[:31])
+            sheet_name = str(sid)[:31]
+            pd.DataFrame(data_rows).to_excel(writer, index=False, sheet_name=sheet_name)
+            ws = writer.sheets[sheet_name]
+            ws.insert_rows(1, 4)
+            ws['A1'] = 'Advising Session Snapshot'
+            ws['A1'].font = TITLE_FONT
+            ws['A2'] = f'Student: {srow.get("NAME", sid)} ({sid})'
+            ws['A3'] = f'Period: {period.period_code if period else "N/A"}'
+            ws['A4'] = f'Generated: {datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")}'
+            ws['A4'].font = SUBTITLE_FONT
+            _style_header_row(ws, 5)
+            _apply_action_column_colors(ws, header_row=5)
+            ws.freeze_panes = 'A6'
+            _autosize_columns(ws)
+
             advised_credits = 0
             optional_credits = 0
             for cc in sel.advised:
@@ -932,6 +1002,13 @@ def build_all_advised_report(session: Session, major_code: str) -> tuple[str, by
                         optional_credits += credits
             index_data.append({'ID': sid, 'NAME': srow.get('NAME', ''), 'Credits Advised': int(advised_credits), 'Optional Credits': int(optional_credits)})
         pd.DataFrame(index_data).to_excel(writer, index=False, sheet_name='Index')
+        index_ws = writer.sheets['Index']
+        index_ws.insert_rows(1, 1)
+        index_ws['A1'] = 'All Advised Students - Index'
+        index_ws['A1'].font = TITLE_FONT
+        _style_header_row(index_ws, 2)
+        index_ws.freeze_panes = 'A3'
+        _autosize_columns(index_ws)
     return 'All_Advised_Students.xlsx', output.getvalue()
 
 
@@ -940,12 +1017,39 @@ def build_qaa_report(session: Session, major_code: str, graduating_threshold: in
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         qaa_df.to_excel(writer, index=False, sheet_name='QAA Sheet')
+        ws = writer.sheets['QAA Sheet']
+        ws.insert_rows(1, 2)
+        ws['A1'] = f'QAA Sheet - {major_code}'
+        ws['A1'].font = TITLE_FONT
+        ws['A2'] = f'Generated: {datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")} | Graduating threshold: {graduating_threshold}'
+        ws['A2'].font = SUBTITLE_FONT
+        _style_header_row(ws, 3)
+        ws.freeze_panes = 'A4'
+
+        skipped_col = None
+        for idx, cell in enumerate(ws[3], start=1):
+            if str(cell.value or '').strip().lower() == 'skipped_graduating':
+                skipped_col = idx
+                break
+        if skipped_col is not None:
+            for row in range(4, ws.max_row + 1):
+                value = ws.cell(row=row, column=skipped_col).value
+                if isinstance(value, (int, float)) and value > 0:
+                    for col in range(1, ws.max_column + 1):
+                        ws.cell(row=row, column=col).fill = PatternFill(start_color='FFF4CC', end_color='FFF4CC', fill_type='solid')
+
+        _autosize_columns(ws)
     return f'QAA_Sheet_{major_code}.xlsx', output.getvalue()
 
 
-def build_schedule_conflicts_csv(session: Session, major_code: str, target_groups: int | None = None, max_courses_per_group: int = 10, min_students: int = 1, min_courses: int = 2) -> tuple[str, bytes]:
+def build_schedule_conflicts_report(session: Session, major_code: str, target_groups: int | None = None, max_courses_per_group: int = 10, min_students: int = 1, min_courses: int = 2) -> tuple[str, bytes]:
     rows = schedule_conflicts(session, major_code, target_groups=target_groups, max_courses_per_group=max_courses_per_group, min_students=min_students, min_courses=min_courses)
     df = pd.DataFrame(rows)
     output = BytesIO()
-    df.to_csv(output, index=False)
-    return f'schedule_conflict_{major_code}.csv', output.getvalue()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Schedule Conflicts')
+        ws = writer.sheets['Schedule Conflicts']
+        _style_header_row(ws, 1)
+        ws.freeze_panes = 'A2'
+        _autosize_columns(ws)
+    return f'schedule_conflict_{major_code}.xlsx', output.getvalue()

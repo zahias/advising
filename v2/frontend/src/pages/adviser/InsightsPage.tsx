@@ -621,7 +621,7 @@ export function InsightsPage() {
               </div>
             </div>
             <div className="filter-group ml-auto">
-              <button type="button" className="btn-secondary" onClick={() => download(`/reports/${majorCode}/schedule-conflicts?target_groups=${targetGroups}&max_courses_per_group=${maxCoursesPerGroup}&min_students=${minStudents}&min_courses=${minCourses}`, `schedule_conflict_${majorCode}.csv`)}>Download CSV</button>
+              <button type="button" className="btn-secondary" onClick={() => download(`/reports/${majorCode}/schedule-conflicts?target_groups=${targetGroups}&max_courses_per_group=${maxCoursesPerGroup}&min_students=${minStudents}&min_courses=${minCourses}`, `schedule_conflict_${majorCode}.xlsx`)}>Download Excel</button>
             </div>
           </div>
 

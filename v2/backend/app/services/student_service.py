@@ -305,6 +305,7 @@ def _write_selection(
                 'advised': normalized_advised,
                 'optional': normalized_optional,
                 'repeat': normalized_repeat,
+                'note': payload.note,
             },
             created_by_user_id=user_id,
         )

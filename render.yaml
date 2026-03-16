@@ -47,7 +47,7 @@ services:
     runtime: python
     rootDir: v2/backend
     schedule: "0 3 * * *"
-    plan: free
+    plan: starter
     buildCommand: pip install -r requirements.txt
     startCommand: python -m app.services.backup_job
     envVars:

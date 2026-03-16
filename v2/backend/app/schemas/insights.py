@@ -5,12 +5,17 @@ from typing import Any, Optional
 from pydantic import BaseModel
 
 
+class GraduatingSoonStudent(BaseModel):
+    student_id: str
+    student_name: str
+
+
 class DashboardMetrics(BaseModel):
     total_students: int
     advised_students: int
     not_advised_students: int
     progress_percent: int
-    graduating_soon_unadvised: list[str]
+    graduating_soon_unadvised: list[GraduatingSoonStudent]
     recent_activity: list[dict[str, Any]]
 
 
