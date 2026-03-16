@@ -4,6 +4,7 @@ services:
     runtime: python
     rootDir: v2/backend
     plan: free
+    pythonVersion: "3.12.0"
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
@@ -48,6 +49,7 @@ services:
     rootDir: v2/backend
     schedule: "0 3 * * *"
     plan: starter
+    pythonVersion: "3.12.0"
     buildCommand: pip install -r requirements.txt
     startCommand: python -m app.services.backup_job
     envVars:
