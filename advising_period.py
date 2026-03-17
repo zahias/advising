@@ -269,11 +269,22 @@ def start_new_period(semester: str, year: int, advisor_name: str) -> tuple[Dict[
         log_error("Failed to clear local selections cache on new period", e)
 
     # Clear session-loaded flags so the new period loads fresh
+    # Also clear per-student widget keys (multiselect/note) and auto-load flags so that
+    # the new period starts with completely empty selections — without this, Streamlit
+    # widget keys bound to st.session_state retain the previous period's values even
+    # after advising_selections is cleared.
     for key in list(st.session_state.keys()):
         if isinstance(key, str) and (
             key.startswith("_fsv_sessions_loaded_") or
             key.startswith("_sessions_loaded_") or
-            key.startswith("_fsv_cache_")
+            key.startswith("_fsv_cache_") or
+            key.startswith("advised_ms_") or
+            key.startswith("optional_ms_") or
+            key.startswith("repeat_ms_") or
+            key.startswith("note_") or
+            key.startswith("_autoloaded_") or
+            key.startswith("_eligibility_cache_") or
+            key.startswith("_student_data_hash_")
         ):
             del st.session_state[key]
 
