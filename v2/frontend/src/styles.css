@@ -1830,11 +1830,12 @@ thead .sticky-col {
 .app-footer {
   text-align: center;
   padding: 0.6rem 1rem;
-  font-size: 0.72rem;
-  color: rgba(22, 34, 24, 0.35);
+  font-size: 0.76rem;
+  color: rgba(22, 34, 24, 0.55);
   border-top: 1px solid var(--line);
   background: white;
   letter-spacing: 0.04em;
+  font-weight: 500;
 }
 
 /* ====== TOOLTIP COMPONENT ====== */
@@ -2202,3 +2203,8 @@ thead .sticky-col {
   .topbar { padding: 0 0.75rem; }
   .content { padding: 1rem; }
 }
+
+/* Progress report grade cells */
+.grade-pass { background: #d1fae5; }
+.grade-cr   { background: #fef9c3; }
+.grade-nc   { background: #fee2e2; }

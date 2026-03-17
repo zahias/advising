@@ -248,6 +248,35 @@ def start_new_period(semester: str, year: int, advisor_name: str) -> tuple[Dict[
         st.session_state.current_periods = {}
     st.session_state.current_periods[major] = new_period
 
+    # Clear all advising selections so we start fresh for the new period
+    st.session_state.advising_selections = {}
+    if "majors" in st.session_state and major in st.session_state.majors:
+        st.session_state.majors[major]["advising_selections"] = {}
+
+    # Clear per-major bypasses
+    bypasses_key = f"bypasses_{major}"
+    if bypasses_key in st.session_state:
+        st.session_state[bypasses_key] = {}
+
+    # Delete the local selections cache file so stale data isn't reloaded
+    try:
+        from advising_history import _get_local_selections_path
+        import os
+        selections_file = _get_local_selections_path(major)
+        if os.path.exists(selections_file):
+            os.remove(selections_file)
+    except Exception as e:
+        log_error("Failed to clear local selections cache on new period", e)
+
+    # Clear session-loaded flags so the new period loads fresh
+    for key in list(st.session_state.keys()):
+        if isinstance(key, str) and (
+            key.startswith("_fsv_sessions_loaded_") or
+            key.startswith("_sessions_loaded_") or
+            key.startswith("_fsv_cache_")
+        ):
+            del st.session_state[key]
+
     drive_saved = save_period_to_drive(new_period)
 
     log_info(f"Started new period: {period_id}")

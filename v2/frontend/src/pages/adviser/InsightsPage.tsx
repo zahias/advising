@@ -18,6 +18,12 @@ import { Tooltip } from '../../components/Tooltip'
 type InsightTab = 'all' | 'qaa' | 'conflicts' | 'planner'
 type MatrixTab = 'required' | 'intensive' | 'all-courses'
 
+type SortConfig = { key: string; direction: 'asc' | 'desc' }
+type CellStatusFilter = { course: string; status: string }
+
+const STATUS_PRIORITY: Record<string, number> = { c: 0, b: 1, r: 2, s: 3, a: 4, ar: 5, na: 6, ne: 7 }
+const STANDING_ORDER = ['Freshman', 'Sophomore', 'Junior', 'Senior']
+
 function getSelectedValues(event: ChangeEvent<HTMLSelectElement>) {
   return Array.from(event.target.selectedOptions).map((option) => option.value)
 }
@@ -54,7 +60,7 @@ export function InsightsPage() {
     const t = searchParams.get('tab')
     return (t === 'planner' || t === 'qaa' || t === 'conflicts' || t === 'all') ? t as InsightTab : 'all'
   })
-  const [matrixTab, setMatrixTab] = useState<MatrixTab>('required')
+  const [matrixTab, setMatrixTab] = useState<MatrixTab>('all-courses')
   const [graduatingThreshold, setGraduatingThreshold] = useState(36)
   const [targetGroups, setTargetGroups] = useState(10)
   const [maxCoursesPerGroup, setMaxCoursesPerGroup] = useState(10)
@@ -69,6 +75,13 @@ export function InsightsPage() {
   const [intensiveColumns, setIntensiveColumns] = useState<string[]>([])
   const [showAllRows, setShowAllRows] = useState(false)
   const [simExpanded, setSimExpanded] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [standingFilter, setStandingFilter] = useState<string[]>([])
+  const [advisingStatusFilter, setAdvisingStatusFilter] = useState('All')
+  const [cellStatusFilter, setCellStatusFilter] = useState<CellStatusFilter | null>(null)
+  const [pendingCellCourse, setPendingCellCourse] = useState('')
+  const [pendingCellStatus, setPendingCellStatus] = useState('')
+  const [sortConfig, setSortConfig] = useState<SortConfig | null>(null)
   const [plannerThreshold, setPlannerThreshold] = useState(30)
   const [plannerMinEligible, setPlannerMinEligible] = useState(3)
   const [plannerSelection, setPlannerSelection] = useState<string[]>([])
@@ -131,16 +144,41 @@ export function InsightsPage() {
     })
   }, [allStudents.data])
 
+  const standingOptions = useMemo(
+    () => [...new Set((allStudents.data?.rows ?? []).map((r) => r.standing))].sort((a, b) => STANDING_ORDER.indexOf(a) - STANDING_ORDER.indexOf(b)),
+    [allStudents.data?.rows],
+  )
+
   const filteredRows = useMemo(() => {
     const rows = allStudents.data?.rows ?? []
+    const query = searchQuery.trim().toLowerCase()
     return rows.filter((row) => {
       if (remainingMin !== '' && row.remaining_credits < remainingMin) return false
       if (remainingMax !== '' && row.remaining_credits > remainingMax) return false
+      if (query && !row.student_name.toLowerCase().includes(query) && !row.student_id.toLowerCase().includes(query)) return false
+      if (standingFilter.length > 0 && !standingFilter.includes(row.standing)) return false
+      if (advisingStatusFilter !== 'All' && row.advising_status !== advisingStatusFilter) return false
+      if (cellStatusFilter && row.courses[cellStatusFilter.course] !== cellStatusFilter.status) return false
       return true
     })
-  }, [allStudents.data?.rows, remainingMax, remainingMin])
+  }, [allStudents.data?.rows, remainingMax, remainingMin, searchQuery, standingFilter, advisingStatusFilter, cellStatusFilter])
 
-  const visibleRows = showAllRows ? filteredRows : filteredRows.slice(0, 80)
+  const sortedRows = useMemo(() => {
+    if (!sortConfig) return filteredRows
+    const { key, direction } = sortConfig
+    const mult = direction === 'asc' ? 1 : -1
+    return [...filteredRows].sort((a, b) => {
+      if (key === 'student_name') return mult * a.student_name.localeCompare(b.student_name)
+      if (key === 'student_id') return mult * a.student_id.localeCompare(b.student_id)
+      if (key === 'remaining_credits') return mult * (a.remaining_credits - b.remaining_credits)
+      if (key === 'standing') return mult * (STANDING_ORDER.indexOf(a.standing) - STANDING_ORDER.indexOf(b.standing))
+      if (key === 'advising_status') return mult * a.advising_status.localeCompare(b.advising_status)
+      // Course column — sort by status priority
+      return mult * ((STATUS_PRIORITY[a.courses[key] ?? ''] ?? 8) - (STATUS_PRIORITY[b.courses[key] ?? ''] ?? 8))
+    })
+  }, [filteredRows, sortConfig])
+
+  const visibleRows = showAllRows ? sortedRows : sortedRows.slice(0, 80)
   const matrixColumns = matrixTab === 'all-courses' ? Object.keys(allStudents.data?.course_metadata ?? {}) : matrixTab === 'required' ? requiredColumns : intensiveColumns
   const matrixOptions = matrixTab === 'all-courses' ? Object.keys(allStudents.data?.course_metadata ?? {}) : matrixTab === 'required' ? (allStudents.data?.required_courses ?? []) : (allStudents.data?.intensive_courses ?? [])
 
@@ -160,6 +198,17 @@ export function InsightsPage() {
       return
     }
     setIntensiveColumns(next)
+  }
+
+  function handleSort(key: string) {
+    setSortConfig((current) =>
+      current?.key === key ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' } : { key, direction: 'asc' },
+    )
+  }
+
+  function SortIndicator({ col }: { col: string }) {
+    if (!sortConfig || sortConfig.key !== col) return <span style={{ opacity: 0.25, fontSize: '0.65rem', marginLeft: '3px' }}>↕</span>
+    return <span style={{ fontSize: '0.75rem', marginLeft: '3px' }}>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
   }
 
   async function download(path: string, filename: string) {
@@ -289,6 +338,7 @@ export function InsightsPage() {
               </button>
             </div>
 
+            {/* ── Row 1: credits + semester + course-type tabs ── */}
             <div className="filter-bar">
               <div className="filter-group">
                 <label>Min Remaining Cr.</label>
@@ -314,6 +364,114 @@ export function InsightsPage() {
               </div>
             </div>
 
+            {/* ── Row 2: search + standing + advising status ── */}
+            <div className="filter-bar" style={{ marginTop: '8px' }}>
+              <div className="filter-group" style={{ flex: '2', minWidth: '180px' }}>
+                <label>Search Student</label>
+                <input
+                  type="text"
+                  placeholder="Name or ID…"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  style={{ paddingLeft: '8px' }}
+                />
+              </div>
+              <div className="filter-group">
+                <label>Standing</label>
+                <select
+                  multiple
+                  size={Math.min(standingOptions.length || 1, 4)}
+                  value={standingFilter}
+                  onChange={(e) => setStandingFilter(getSelectedValues(e))}
+                  title="Hold Ctrl / Cmd to select multiple"
+                >
+                  {standingOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div className="filter-group">
+                <label>Advising Status</label>
+                <select value={advisingStatusFilter} onChange={(e) => setAdvisingStatusFilter(e.target.value)}>
+                  <option value="All">All</option>
+                  <option value="Advised">Advised</option>
+                  <option value="Not Advised">Not Advised</option>
+                </select>
+              </div>
+
+              {/* Course-status filter */}
+              <div className="filter-group" style={{ flex: '3', minWidth: '260px' }}>
+                <label>Filter by Course Status</label>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <select
+                    value={pendingCellCourse}
+                    onChange={(e) => setPendingCellCourse(e.target.value)}
+                    style={{ flex: 1 }}
+                  >
+                    <option value="">— Course —</option>
+                    {matrixColumns.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <select
+                    value={pendingCellStatus}
+                    onChange={(e) => setPendingCellStatus(e.target.value)}
+                    style={{ flex: 1 }}
+                  >
+                    <option value="">— Status —</option>
+                    {(allStudents.data?.legend ?? []).map((item) => (
+                      <option key={item.code} value={item.code}>{item.code} – {item.label}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="btn-primary btn-sm"
+                    disabled={!pendingCellCourse || !pendingCellStatus}
+                    onClick={() => setCellStatusFilter({ course: pendingCellCourse, status: pendingCellStatus })}
+                  >Apply</button>
+                  {cellStatusFilter && (
+                    <button
+                      type="button"
+                      className="btn-outline btn-sm"
+                      onClick={() => { setCellStatusFilter(null); setPendingCellCourse(''); setPendingCellStatus('') }}
+                    >Clear</button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* ── Active filter chips ── */}
+            {(searchQuery || standingFilter.length > 0 || advisingStatusFilter !== 'All' || cellStatusFilter || sortConfig) && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px', marginBottom: '4px' }}>
+                {searchQuery && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 10px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '999px', fontSize: '0.78rem', color: '#1d4ed8' }}>
+                    Search: <strong>{searchQuery}</strong>
+                    <button type="button" onClick={() => setSearchQuery('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#93c5fd', fontWeight: 700, paddingLeft: '2px' }}>×</button>
+                  </span>
+                )}
+                {standingFilter.map((s) => (
+                  <span key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 10px', background: '#fefce8', border: '1px solid #fde68a', borderRadius: '999px', fontSize: '0.78rem', color: '#92400e' }}>
+                    Standing: <strong>{s}</strong>
+                    <button type="button" onClick={() => setStandingFilter((prev) => prev.filter((x) => x !== s))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fcd34d', fontWeight: 700, paddingLeft: '2px' }}>×</button>
+                  </span>
+                ))}
+                {advisingStatusFilter !== 'All' && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 10px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '999px', fontSize: '0.78rem', color: '#166534' }}>
+                    <strong>{advisingStatusFilter}</strong>
+                    <button type="button" onClick={() => setAdvisingStatusFilter('All')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#86efac', fontWeight: 700, paddingLeft: '2px' }}>×</button>
+                  </span>
+                )}
+                {cellStatusFilter && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 10px', background: '#fdf4ff', border: '1px solid #e9d5ff', borderRadius: '999px', fontSize: '0.78rem', color: '#7e22ce' }}>
+                    {cellStatusFilter.course} = <span className={`status-pill status-${cellStatusFilter.status}`} style={{ fontSize: '0.68rem' }}>{cellStatusFilter.status}</span>
+                    <button type="button" onClick={() => { setCellStatusFilter(null); setPendingCellCourse(''); setPendingCellStatus('') }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d8b4fe', fontWeight: 700, paddingLeft: '2px' }}>×</button>
+                  </span>
+                )}
+                {sortConfig && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 10px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '999px', fontSize: '0.78rem', color: '#475569' }}>
+                    Sorted: <strong>{sortConfig.key}</strong> {sortConfig.direction === 'asc' ? '↑' : '↓'}
+                    <button type="button" onClick={() => setSortConfig(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontWeight: 700, paddingLeft: '2px' }}>×</button>
+                  </span>
+                )}
+              </div>
+            )}
+
             <div className="legend-row mb-4 p-4 bg-gray-50 rounded-xl text-sm border">
               <span className="font-semibold text-muted mr-4">Legend:</span>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
@@ -335,15 +493,41 @@ export function InsightsPage() {
               <table className="premium-table">
                 <thead>
                   <tr>
-                    <th className="sticky-col z-20 min-w-48 bg-gray-50 border-r">Student Name</th>
-                    <th>ID</th>
-                    <th>Remaining</th>
-                    <th>Standing</th>
-                    <th>Status</th>
+                    <th
+                      className="sticky-col z-20 min-w-48 bg-gray-50 border-r"
+                      style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
+                      onClick={() => handleSort('student_name')}
+                      title="Sort by name"
+                    >
+                      Student Name<SortIndicator col="student_name" />
+                    </th>
+                    <th style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }} onClick={() => handleSort('student_id')} title="Sort by ID">
+                      ID<SortIndicator col="student_id" />
+                    </th>
+                    <th style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }} onClick={() => handleSort('remaining_credits')} title="Sort by remaining credits">
+                      Remaining<SortIndicator col="remaining_credits" />
+                    </th>
+                    <th style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }} onClick={() => handleSort('standing')} title="Sort by standing">
+                      Standing<SortIndicator col="standing" />
+                    </th>
+                    <th style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }} onClick={() => handleSort('advising_status')} title="Sort by advising status">
+                      Status<SortIndicator col="advising_status" />
+                    </th>
                     {matrixColumns.map((courseCode) => {
                       const info = allStudents.data?.course_metadata[courseCode]
                       const summary = summarizeStatuses(filteredRows, courseCode)
-                      return <th key={courseCode} title={`${info?.title || courseCode}\n${info?.requisites || 'None'}\n${summary}`} className="text-center min-w-24 border-l cursor-help hover:bg-gray-100">{courseCode}</th>
+                      const isActive = sortConfig?.key === courseCode
+                      return (
+                        <th
+                          key={courseCode}
+                          title={`${info?.title || courseCode}\n${info?.requisites || 'None'}\n${summary}\n\nClick to sort by this course`}
+                          className="text-center min-w-24 border-l hover:bg-gray-100"
+                          style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap', background: isActive ? '#eef2ff' : undefined }}
+                          onClick={() => handleSort(courseCode)}
+                        >
+                          {courseCode}<SortIndicator col={courseCode} />
+                        </th>
+                      )
                     })}
                   </tr>
                 </thead>

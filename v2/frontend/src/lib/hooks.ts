@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { apiFetch, AppTemplate, AuditEventRecord, BackupRun, CourseCatalogItem, CurrentUser, DashboardMetrics, DatasetVersion, ExclusionSummary, Major, Period, SessionSummary, StudentEligibility, StudentSearchItem, UserRecord } from './api'
+import { apiFetch, AppTemplate, AssignmentTypes, AuditEventRecord, BackupRun, CourseCatalogItem, CourseAssignment, CourseEquivalent, CurrentUser, DashboardMetrics, DatasetVersion, ExclusionSummary, Major, Period, ProgressReport, SessionSummary, StalenessInfo, StudentEligibility, StudentSearchItem, UserRecord } from './api'
 
 export function useCurrentUser() {
   return useQuery({
@@ -101,5 +101,46 @@ export function useAuditLog(eventType?: string) {
   return useQuery({
     queryKey: ['audit-log', eventType],
     queryFn: () => apiFetch<AuditEventRecord[]>(`/audit-events${params}`),
+  })
+}
+
+export function useStaleness(majorCode?: string) {
+  return useQuery({
+    queryKey: ['staleness', majorCode],
+    queryFn: () => apiFetch<StalenessInfo>(`/progress/${majorCode}/staleness`),
+    enabled: Boolean(majorCode),
+  })
+}
+
+export function useCourseEquivalents(majorCode?: string) {
+  return useQuery({
+    queryKey: ['course-equivalents', majorCode],
+    queryFn: () => apiFetch<CourseEquivalent[]>(`/course-config/${majorCode}/equivalents`),
+    enabled: Boolean(majorCode),
+  })
+}
+
+export function useCourseAssignments(majorCode?: string) {
+  return useQuery({
+    queryKey: ['course-assignments', majorCode],
+    queryFn: () => apiFetch<CourseAssignment[]>(`/course-config/${majorCode}/assignments`),
+    enabled: Boolean(majorCode),
+  })
+}
+
+export function useAssignmentTypes(majorCode?: string) {
+  return useQuery({
+    queryKey: ['assignment-types', majorCode],
+    queryFn: () => apiFetch<AssignmentTypes>(`/course-config/${majorCode}/assignment-types`),
+    enabled: Boolean(majorCode),
+  })
+}
+
+export function useProgressReport(majorCode?: string) {
+  return useQuery({
+    queryKey: ['progress-report', majorCode],
+    queryFn: () => apiFetch<ProgressReport>(`/progress/${majorCode}/report`),
+    enabled: Boolean(majorCode),
+    staleTime: 60_000,
   })
 }

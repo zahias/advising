@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+from typing import Optional
 
 pandas_imported = False
 try:
@@ -23,7 +24,11 @@ from app.services.storage import StorageService
 
 _TEMPLATE_COLUMNS: dict[str, dict[str, list[str]]] = {
     'courses': {
-        'Courses': ['Course Code', 'Course Title', 'Credits', 'Course Type', 'Semester Offered', 'Prerequisites', 'Corequisites'],
+        'Courses': [
+            'Course Code', 'Course Title', 'Credits', 'Course Type',
+            'Semester Offered', 'Prerequisites', 'Corequisites',
+            'PassingGrades', 'RuleFromSemester', 'RuleToSemester',
+        ],
     },
     'progress': {
         'Required Courses': ['ID', 'NAME'],
@@ -121,9 +126,18 @@ async def upload_dataset_route(
     major_code: str = Form(...),
     dataset_type: str = Form(...),
     file: UploadFile = File(...),
+    major_mapping: Optional[str] = Form(default=None),
     user: User = Depends(require_staff),
     db: Session = Depends(get_db),
 ) -> DatasetVersion:
+    import json as _json
+    from typing import Optional as _Opt
+    mapping: _Opt[dict] = None
+    if major_mapping:
+        try:
+            mapping = _json.loads(major_mapping)
+        except Exception:
+            raise HTTPException(status_code=400, detail='major_mapping must be valid JSON')
     try:
         version = upload_dataset(
             db,
@@ -132,6 +146,7 @@ async def upload_dataset_route(
             filename=file.filename,
             content=await file.read(),
             user_id=user.id,
+            major_mapping=mapping,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

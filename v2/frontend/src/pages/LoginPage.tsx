@@ -29,7 +29,6 @@ export function LoginPage() {
   return (
     <div className="login-page">
       <div className="login-card">
-        <div className="eyebrow">Render + Neon + R2</div>
         <h1>Advising V2</h1>
         <p>Admin and adviser workflows with parity-focused backend services.</p>
         <form onSubmit={handleSubmit} className="stack">
@@ -45,6 +44,9 @@ export function LoginPage() {
           <button disabled={busy} type="submit">{busy ? 'Signing in...' : 'Sign in'}</button>
         </form>
       </div>
+      <p style={{ marginTop: '1.25rem', fontSize: '0.78rem', color: 'var(--muted)', textAlign: 'center', letterSpacing: '0.03em' }}>
+        Developed by Dr. Zahi Abdul Sater
+      </p>
     </div>
   )
 }

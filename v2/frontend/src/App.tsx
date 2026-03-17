@@ -15,6 +15,7 @@ import { UsersPage } from './pages/admin/UsersPage'
 import { DashboardPage } from './pages/adviser/DashboardPage'
 import { AdviserSettingsPage } from './pages/adviser/AdviserSettingsPage'
 import { InsightsPage } from './pages/adviser/InsightsPage'
+import { ProgressReportPage } from './pages/adviser/ProgressReportPage'
 import { WorkspacePage } from './pages/adviser/WorkspacePage'
 
 function RequireRole({ role, children }: { role: 'admin' | 'adviser'; children: ReactElement }) {
@@ -62,6 +63,7 @@ function AdviserLayout() {
           { to: '/adviser', label: 'Dashboard' },
           { to: '/adviser/workspace', label: 'Workspace' },
           { to: '/adviser/insights', label: 'Insights' },
+          { to: '/adviser/progress', label: 'Progress' },
           { to: '/adviser/settings', label: 'Settings' },
         ]}
       >
@@ -95,6 +97,7 @@ export default function App() {
         <Route index element={<DashboardPage />} />
         <Route path="workspace" element={<WorkspacePage />} />
         <Route path="insights" element={<InsightsPage />} />
+        <Route path="progress" element={<ProgressReportPage />} />
         <Route path="settings" element={<AdviserSettingsPage />} />
       </Route>
     </Routes>

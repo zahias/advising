@@ -320,6 +320,26 @@ def _render_period_management():
                 major = st.session_state.get("current_major", "")
                 st.session_state.advising_selections = {}
                 st.session_state.majors[major]["advising_selections"] = {}
+                bypasses_key = f"bypasses_{major}"
+                if bypasses_key in st.session_state:
+                    st.session_state[bypasses_key] = {}
+                # Delete local selections cache so stale data isn't reloaded
+                try:
+                    from advising_history import _get_local_selections_path
+                    import os
+                    sel_file = _get_local_selections_path(major)
+                    if os.path.exists(sel_file):
+                        os.remove(sel_file)
+                except Exception:
+                    pass
+                # Clear session-loaded flags so new period loads fresh
+                for key in list(st.session_state.keys()):
+                    if isinstance(key, str) and (
+                        key.startswith("_fsv_sessions_loaded_") or
+                        key.startswith("_sessions_loaded_") or
+                        key.startswith("_fsv_cache_")
+                    ):
+                        del st.session_state[key]
                 st.success(f"Switched to: {selected}")
                 st.rerun()
     else:

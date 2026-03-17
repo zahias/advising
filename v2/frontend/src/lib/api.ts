@@ -275,6 +275,64 @@ export type PlannerSelectionState = {
   saved_at: string | null
 }
 
+// ── Course config types ──────────────────────────────────────────────────────
+export type CourseEquivalent = {
+  id: number
+  alias_code: string
+  canonical_code: string
+}
+
+export type CourseAssignment = {
+  id: number
+  student_id: string
+  assignment_type: string
+  course_code: string
+}
+
+export type AssignmentTypes = {
+  types: string[]
+}
+
+// ── Progress types ───────────────────────────────────────────────────────────
+export type StalenessInfo = {
+  stale: boolean
+  rules_updated_at: string | null
+  progress_uploaded_at: string | null
+}
+
+export type ProgressCellData = {
+  raw: string
+  primary: string
+  status: 'pass' | 'cr' | 'nc' | 'empty'
+}
+
+export type ProgressStudentRow = {
+  student_id: string
+  student_name: string
+  credits_completed: number
+  credits_registered: number
+  credits_remaining: number
+  required: Record<string, ProgressCellData>
+  intensive: Record<string, ProgressCellData>
+}
+
+export type ProgressReport = {
+  required_courses: string[]
+  intensive_courses: string[]
+  students: ProgressStudentRow[]
+  extra_courses: ExtraCourseRow[]
+  assignment_types: string[]
+}
+
+export type ExtraCourseRow = {
+  student_id: string
+  student_name: string
+  course: string
+  grade: string
+  year: string
+  semester: string
+}
+
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const token = window.localStorage.getItem('advising_v2_token')
   const response = await fetch(`${API_BASE_URL}/api${path}`, {

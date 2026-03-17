@@ -255,6 +255,7 @@ def _render_period_gate():
                     st.error("Please enter your name")
                 else:
                     new_period, saved = start_new_period(semester, int(year), advisor)
+                    # start_new_period clears all selections; just show confirmation
                     st.success(f"Created: {semester} {year}")
                     st.rerun()
     
@@ -276,6 +277,29 @@ def _render_period_gate():
             if st.button("Use This Period"):
                 selected_period = period_map[selected]
                 set_current_period(selected_period)
+                # Clear selections so we load the correct sessions for this period
+                major = st.session_state.get("current_major", "")
+                st.session_state.advising_selections = {}
+                if "majors" in st.session_state and major in st.session_state.majors:
+                    st.session_state.majors[major]["advising_selections"] = {}
+                bypasses_key = f"bypasses_{major}"
+                if bypasses_key in st.session_state:
+                    st.session_state[bypasses_key] = {}
+                try:
+                    from advising_history import _get_local_selections_path
+                    import os
+                    sel_file = _get_local_selections_path(major)
+                    if os.path.exists(sel_file):
+                        os.remove(sel_file)
+                except Exception:
+                    pass
+                for key in list(st.session_state.keys()):
+                    if isinstance(key, str) and (
+                        key.startswith("_fsv_sessions_loaded_") or
+                        key.startswith("_sessions_loaded_") or
+                        key.startswith("_fsv_cache_")
+                    ):
+                        del st.session_state[key]
                 st.success(f"Using: {selected}")
                 st.rerun()
         else:
