@@ -1,3 +1,4 @@
+import hashlib
 import streamlit as st
 import pandas as pd
 from io import BytesIO
@@ -8,10 +9,11 @@ def _get_drive_module():
     import google_drive as gd
     return gd
 
-def _sync_to_drive(major: str, base_name: str, content: bytes) -> None:
+def _sync_to_drive(major: str, base_name: str, content: bytes) -> bool:
     """
     Sync a file to the major-specific Drive folder.
-    Stores the result in session state so it survives st.rerun().
+    Returns True on success, False on failure.
+    Stores a message in session state so the result survives st.rerun().
     """
     import os
     from advising_utils import log_error, log_info
@@ -27,8 +29,9 @@ def _sync_to_drive(major: str, base_name: str, content: bytes) -> None:
         if not root_folder_id:
             root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
         if not root_folder_id:
+            log_error("Drive sync skipped: folder ID not configured", Exception("no folder_id"))
             st.session_state["_drive_sync_msg"] = ("warning", "Drive sync skipped: folder ID not configured")
-            return
+            return False
         major_folder_id = gd.get_major_folder_id(service, major, root_folder_id)
         mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         gd.sync_file_with_drive(
@@ -40,9 +43,11 @@ def _sync_to_drive(major: str, base_name: str, content: bytes) -> None:
         )
         log_info(f"Synced {base_name}.xlsx to Drive for major {major}")
         st.session_state["_drive_sync_msg"] = ("success", f"☁️ Synced {base_name}.xlsx to Drive")
+        return True
     except Exception as e:
         log_error(f"Drive sync failed for {base_name}", e)
         st.session_state["_drive_sync_msg"] = ("error", f"Drive sync failed: {e}")
+        return False
 
 def render_setup():
     """Render the unified Setup page with data upload and period management."""
@@ -98,13 +103,17 @@ def _render_data_upload():
             try:
                 courses_file.seek(0)
                 raw = courses_file.read()
-                df = pd.read_excel(BytesIO(raw))
-                st.session_state.courses_df = df
-                st.session_state.majors[major]["courses_df"] = df
-                st.success(f"✓ Loaded {len(df)} courses")
-                # Sync to Drive (result stored in session state, shown after rerun)
-                _sync_to_drive(major, "courses_table", raw)
-                st.rerun()
+                file_hash = hashlib.md5(raw).hexdigest()
+                processed_key = f"_courses_synced_{major}_{file_hash}"
+                # Only process + sync once per unique file upload
+                if processed_key not in st.session_state:
+                    df = pd.read_excel(BytesIO(raw))
+                    st.session_state.courses_df = df
+                    st.session_state.majors[major]["courses_df"] = df
+                    st.info(f"Loaded {len(df)} courses. Syncing to Drive...")
+                    _sync_to_drive(major, "courses_table", raw)
+                    st.session_state[processed_key] = True
+                    st.rerun()
             except Exception as e:
                 st.error(f"Error loading file: {e}")
     
@@ -128,13 +137,17 @@ def _render_data_upload():
                 from advising_utils import load_progress_excel
                 progress_file.seek(0)
                 content = progress_file.read()
-                df = load_progress_excel(content)
-                st.session_state.progress_df = df
-                st.session_state.majors[major]["progress_df"] = df
-                st.success(f"✓ Loaded {len(df)} students")
-                # Sync to Drive (result stored in session state, shown after rerun)
-                _sync_to_drive(major, "progress_report", content)
-                st.rerun()
+                file_hash = hashlib.md5(content).hexdigest()
+                processed_key = f"_progress_synced_{major}_{file_hash}"
+                # Only process + sync once per unique file upload
+                if processed_key not in st.session_state:
+                    df = load_progress_excel(content)
+                    st.session_state.progress_df = df
+                    st.session_state.majors[major]["progress_df"] = df
+                    st.info(f"Loaded {len(df)} students. Syncing to Drive...")
+                    _sync_to_drive(major, "progress_report", content)
+                    st.session_state[processed_key] = True
+                    st.rerun()
             except Exception as e:
                 st.error(f"Error loading file: {e}")
     
@@ -245,22 +258,39 @@ def _upload_to_drive():
             return
         
         major_folder_id = gd.get_major_folder_id(service, major, root_folder_id)
+        mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        uploaded_any = False
         
         courses_df = st.session_state.get("courses_df", pd.DataFrame())
         if not courses_df.empty:
             output = BytesIO()
             courses_df.to_excel(output, index=False)
-            output.seek(0)
-            gd.upload_file_to_drive(service, "courses_table.xlsx", output.getvalue(), major_folder_id)
+            gd.sync_file_with_drive(
+                service=service,
+                file_content=output.getvalue(),
+                drive_file_name="courses_table.xlsx",
+                mime_type=mime,
+                parent_folder_id=major_folder_id,
+            )
             st.success("✓ Uploaded courses table")
+            uploaded_any = True
         
         progress_df = st.session_state.get("progress_df", pd.DataFrame())
         if not progress_df.empty:
             output = BytesIO()
             progress_df.to_excel(output, index=False)
-            output.seek(0)
-            gd.upload_file_to_drive(service, "progress_report.xlsx", output.getvalue(), major_folder_id)
+            gd.sync_file_with_drive(
+                service=service,
+                file_content=output.getvalue(),
+                drive_file_name="progress_report.xlsx",
+                mime_type=mime,
+                parent_folder_id=major_folder_id,
+            )
             st.success("✓ Uploaded progress report")
+            uploaded_any = True
+        
+        if not uploaded_any:
+            st.warning("No data loaded to upload")
         
     except Exception as e:
         st.error(f"Error uploading to Drive: {e}")
