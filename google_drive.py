@@ -208,25 +208,31 @@ def _get_http_error_class():
     return Exception
 
 
-def find_file_in_drive(service, filename: str, parent_folder_id: str) -> Optional[str]:
-    """Return fileId for `filename` inside `parent_folder_id`, else None."""
+def find_files_in_drive(service, filename: str, parent_folder_id: str, page_size: int = 20) -> List[Dict]:
+    """Return exact-name matches for `filename` inside `parent_folder_id`, newest first."""
     HttpError = _get_http_error_class()
     try:
         query = f"name = '{filename}' and '{parent_folder_id}' in parents and trashed = false"
         resp = service.files().list(
             q=query,
             spaces="drive",
-            fields="files(id, name)",
-            pageSize=10,
+            fields="files(id, name, modifiedTime, createdTime)",
+            pageSize=page_size,
+            orderBy="modifiedTime desc, createdTime desc",
             includeItemsFromAllDrives=True,
             supportsAllDrives=True,
         ).execute()
-        for f in resp.get("files", []):
-            if f.get("name") == filename:
-                return f.get("id")
-        return None
+        return [f for f in resp.get("files", []) if f.get("name") == filename]
     except HttpError as e:
         raise RuntimeError(f"Drive search failed: {e}")
+
+
+def find_file_in_drive(service, filename: str, parent_folder_id: str) -> Optional[str]:
+    """Return the newest fileId for `filename` inside `parent_folder_id`, else None."""
+    matches = find_files_in_drive(service, filename, parent_folder_id, page_size=20)
+    if matches:
+        return matches[0].get("id")
+    return None
 
 
 def download_file_from_drive(service, file_id: str) -> bytes:
@@ -273,7 +279,8 @@ def sync_file_with_drive(
             media = MediaIoBaseUpload(io.BytesIO(file_content), mimetype=mime_type, resumable=False)
             body = {"name": drive_file_name, "parents": [parent_folder_id]}
 
-            file_id = find_file_in_drive(service, drive_file_name, parent_folder_id)
+            matches = find_files_in_drive(service, drive_file_name, parent_folder_id, page_size=20)
+            file_id = matches[0].get("id") if matches else None
             if file_id:
                 updated = service.files().update(
                     fileId=file_id,
@@ -281,7 +288,16 @@ def sync_file_with_drive(
                     body={"name": drive_file_name},
                     supportsAllDrives=True,
                 ).execute()
-                return updated.get("id", file_id)
+                kept_id = updated.get("id", file_id)
+                # If duplicate same-name files exist, keep the newest updated file and remove stale copies.
+                for duplicate in matches[1:]:
+                    dup_id = duplicate.get("id")
+                    if dup_id and dup_id != kept_id:
+                        try:
+                            service.files().delete(fileId=dup_id, supportsAllDrives=True).execute()
+                        except HttpError:
+                            pass
+                return kept_id
             else:
                 created = service.files().create(
                     body=body,
