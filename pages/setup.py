@@ -8,6 +8,37 @@ def _get_drive_module():
     import google_drive as gd
     return gd
 
+def _auto_sync_to_drive(major: str, base_name: str, content: bytes) -> None:
+    """Silently sync a file to the major-specific Drive folder. Errors are shown as warnings."""
+    import os
+    try:
+        gd = _get_drive_module()
+        service = gd.initialize_drive_service()
+        if not service:
+            return
+        root_folder_id = ""
+        try:
+            if "google" in st.secrets:
+                root_folder_id = st.secrets["google"].get("folder_id", "")
+        except Exception:
+            pass
+        if not root_folder_id:
+            root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
+        if not root_folder_id:
+            return
+        major_folder_id = gd.get_major_folder_id(service, major, root_folder_id)
+        mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        gd.sync_file_with_drive(
+            service=service,
+            file_content=content,
+            drive_file_name=f"{base_name}.xlsx",
+            mime_type=mime,
+            parent_folder_id=major_folder_id,
+        )
+        st.info(f"☁️ Synced {base_name}.xlsx to Drive")
+    except Exception as e:
+        st.warning(f"Drive sync skipped: {e}")
+
 def render_setup():
     """Render the unified Setup page with data upload and period management."""
     
@@ -50,10 +81,14 @@ def _render_data_upload():
         
         if courses_file:
             try:
-                df = pd.read_excel(courses_file)
+                courses_file.seek(0)
+                raw = courses_file.read()
+                df = pd.read_excel(BytesIO(raw))
                 st.session_state.courses_df = df
                 st.session_state.majors[major]["courses_df"] = df
                 st.success(f"✓ Loaded {len(df)} courses")
+                # Auto-sync to Drive
+                _auto_sync_to_drive(major, "courses_table", raw)
                 st.rerun()
             except Exception as e:
                 st.error(f"Error loading file: {e}")
@@ -76,10 +111,14 @@ def _render_data_upload():
         if progress_file:
             try:
                 from advising_utils import load_progress_excel
-                df = load_progress_excel(progress_file.read())
+                progress_file.seek(0)
+                content = progress_file.read()
+                df = load_progress_excel(content)
                 st.session_state.progress_df = df
                 st.session_state.majors[major]["progress_df"] = df
                 st.success(f"✓ Loaded {len(df)} students")
+                # Auto-sync to Drive
+                _auto_sync_to_drive(major, "progress_report", content)
                 st.rerun()
             except Exception as e:
                 st.error(f"Error loading file: {e}")
