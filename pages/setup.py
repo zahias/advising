@@ -8,14 +8,16 @@ def _get_drive_module():
     import google_drive as gd
     return gd
 
-def _auto_sync_to_drive(major: str, base_name: str, content: bytes) -> None:
-    """Silently sync a file to the major-specific Drive folder. Errors are shown as warnings."""
+def _sync_to_drive(major: str, base_name: str, content: bytes) -> None:
+    """
+    Sync a file to the major-specific Drive folder.
+    Stores the result in session state so it survives st.rerun().
+    """
     import os
+    from advising_utils import log_error, log_info
     try:
         gd = _get_drive_module()
         service = gd.initialize_drive_service()
-        if not service:
-            return
         root_folder_id = ""
         try:
             if "google" in st.secrets:
@@ -25,6 +27,7 @@ def _auto_sync_to_drive(major: str, base_name: str, content: bytes) -> None:
         if not root_folder_id:
             root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
         if not root_folder_id:
+            st.session_state["_drive_sync_msg"] = ("warning", "Drive sync skipped: folder ID not configured")
             return
         major_folder_id = gd.get_major_folder_id(service, major, root_folder_id)
         mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -35,9 +38,11 @@ def _auto_sync_to_drive(major: str, base_name: str, content: bytes) -> None:
             mime_type=mime,
             parent_folder_id=major_folder_id,
         )
-        st.info(f"☁️ Synced {base_name}.xlsx to Drive")
+        log_info(f"Synced {base_name}.xlsx to Drive for major {major}")
+        st.session_state["_drive_sync_msg"] = ("success", f"☁️ Synced {base_name}.xlsx to Drive")
     except Exception as e:
-        st.warning(f"Drive sync skipped: {e}")
+        log_error(f"Drive sync failed for {base_name}", e)
+        st.session_state["_drive_sync_msg"] = ("error", f"Drive sync failed: {e}")
 
 def render_setup():
     """Render the unified Setup page with data upload and period management."""
@@ -54,9 +59,19 @@ def render_setup():
 
 def _render_data_upload():
     """Render data upload section."""
-    
+
+    # Show Drive sync result from previous upload (survives st.rerun)
+    if "_drive_sync_msg" in st.session_state:
+        level, msg = st.session_state.pop("_drive_sync_msg")
+        if level == "success":
+            st.success(msg)
+        elif level == "warning":
+            st.warning(msg)
+        else:
+            st.error(msg)
+
     st.markdown("### Upload Data Files")
-    
+
     major = st.session_state.get("current_major", "")
     
     courses_df = st.session_state.get("courses_df", pd.DataFrame())
@@ -87,8 +102,8 @@ def _render_data_upload():
                 st.session_state.courses_df = df
                 st.session_state.majors[major]["courses_df"] = df
                 st.success(f"✓ Loaded {len(df)} courses")
-                # Auto-sync to Drive
-                _auto_sync_to_drive(major, "courses_table", raw)
+                # Sync to Drive (result stored in session state, shown after rerun)
+                _sync_to_drive(major, "courses_table", raw)
                 st.rerun()
             except Exception as e:
                 st.error(f"Error loading file: {e}")
@@ -117,8 +132,8 @@ def _render_data_upload():
                 st.session_state.progress_df = df
                 st.session_state.majors[major]["progress_df"] = df
                 st.success(f"✓ Loaded {len(df)} students")
-                # Auto-sync to Drive
-                _auto_sync_to_drive(major, "progress_report", content)
+                # Sync to Drive (result stored in session state, shown after rerun)
+                _sync_to_drive(major, "progress_report", content)
                 st.rerun()
             except Exception as e:
                 st.error(f"Error loading file: {e}")
