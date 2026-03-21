@@ -2,11 +2,43 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 from datetime import datetime
+import json
 
 def _get_drive_module():
     """Lazy loader for google_drive module."""
     import google_drive as gd
     return gd
+
+def _get_major_drive_folder_id(service, major: str) -> str:
+    """Resolve the selected major folder in Google Drive."""
+    import os
+
+    root_folder_id = ""
+    try:
+        if "google" in st.secrets:
+            root_folder_id = st.secrets["google"].get("folder_id", "")
+    except Exception:
+        pass
+
+    if not root_folder_id:
+        root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
+
+    if not root_folder_id:
+        return ""
+
+    gd = _get_drive_module()
+    return gd.get_major_folder_id(service, major, root_folder_id)
+
+def _sync_bytes_to_drive(filename: str, content: bytes, mime_type: str, major: str) -> None:
+    """Sync a file into the selected major folder in Google Drive."""
+    gd = _get_drive_module()
+    service = gd.initialize_drive_service()
+    major_folder_id = _get_major_drive_folder_id(service, major)
+
+    if not major_folder_id:
+        raise RuntimeError("Google Drive folder ID not configured")
+
+    gd.sync_file_with_drive(service, content, filename, mime_type, major_folder_id)
 
 def render_setup():
     """Render the unified Setup page with data upload and period management."""
@@ -50,9 +82,17 @@ def _render_data_upload():
         
         if courses_file:
             try:
+                raw = courses_file.read()
+                courses_file.seek(0)
                 df = pd.read_excel(courses_file)
                 st.session_state.courses_df = df
                 st.session_state.majors[major]["courses_df"] = df
+                _sync_bytes_to_drive(
+                    "courses_table.xlsx",
+                    raw,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    major,
+                )
                 st.success(f"✓ Loaded {len(df)} courses")
                 st.rerun()
             except Exception as e:
@@ -75,10 +115,17 @@ def _render_data_upload():
         
         if progress_file:
             try:
+                raw = progress_file.read()
                 from advising_utils import load_progress_excel
-                df = load_progress_excel(progress_file.read())
+                df = load_progress_excel(raw)
                 st.session_state.progress_df = df
                 st.session_state.majors[major]["progress_df"] = df
+                _sync_bytes_to_drive(
+                    "progress_report.xlsx",
+                    raw,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    major,
+                )
                 st.success(f"✓ Loaded {len(df)} students")
                 st.rerun()
             except Exception as e:
@@ -101,6 +148,17 @@ def _render_data_upload():
             if "ID" in email_df.columns and "Email" in email_df.columns:
                 roster_key = f"email_roster_{major}"
                 st.session_state[roster_key] = email_df
+                roster = {
+                    str(row["ID"]).strip(): str(row["Email"]).strip()
+                    for _, row in email_df.iterrows()
+                    if pd.notna(row["ID"]) and pd.notna(row["Email"])
+                }
+                _sync_bytes_to_drive(
+                    "email_roster.json",
+                    json.dumps(roster, ensure_ascii=False, indent=2).encode("utf-8"),
+                    "application/json",
+                    major,
+                )
                 st.success(f"✓ Loaded {len(email_df)} email addresses")
             else:
                 st.error("Email roster must have 'ID' and 'Email' columns")
@@ -111,15 +169,8 @@ def _render_data_upload():
     
     st.markdown("#### Sync with Google Drive")
     
-    col_sync1, col_sync2 = st.columns(2)
-    
-    with col_sync1:
-        if st.button("Download from Drive"):
-            _download_from_drive()
-    
-    with col_sync2:
-        if st.button("Upload to Drive"):
-            _upload_to_drive()
+    if st.button("Download from Drive"):
+        _download_from_drive()
 
 def _download_from_drive():
     """Download data files from Google Drive."""
@@ -167,49 +218,6 @@ def _download_from_drive():
         st.rerun()
     except Exception as e:
         st.error(f"Error downloading from Drive: {e}")
-
-def _upload_to_drive():
-    """Upload data files to Google Drive."""
-    major = st.session_state.get("current_major", "")
-    
-    try:
-        gd = _get_drive_module()
-        service = gd.initialize_drive_service()
-        
-        import os
-        root_folder_id = ""
-        try:
-            if "google" in st.secrets:
-                root_folder_id = st.secrets["google"].get("folder_id", "")
-        except:
-            pass
-        if not root_folder_id:
-            root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
-        
-        if not root_folder_id:
-            st.error("Google Drive folder ID not configured")
-            return
-        
-        major_folder_id = gd.get_major_folder_id(service, major, root_folder_id)
-        
-        courses_df = st.session_state.get("courses_df", pd.DataFrame())
-        if not courses_df.empty:
-            output = BytesIO()
-            courses_df.to_excel(output, index=False)
-            output.seek(0)
-            gd.upload_file_to_drive(service, "courses_table.xlsx", output.getvalue(), major_folder_id)
-            st.success("✓ Uploaded courses table")
-        
-        progress_df = st.session_state.get("progress_df", pd.DataFrame())
-        if not progress_df.empty:
-            output = BytesIO()
-            progress_df.to_excel(output, index=False)
-            output.seek(0)
-            gd.upload_file_to_drive(service, "progress_report.xlsx", output.getvalue(), major_folder_id)
-            st.success("✓ Uploaded progress report")
-        
-    except Exception as e:
-        st.error(f"Error uploading to Drive: {e}")
 
 def _render_period_management():
     """Render period management section."""
