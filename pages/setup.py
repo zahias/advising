@@ -9,6 +9,43 @@ def _get_drive_module():
     import google_drive as gd
     return gd
 
+
+def _sync_status_key(major: str, base_name: str) -> str:
+    return f"_drive_sync_status_{major}_{base_name}"
+
+
+def _pending_upload_key(major: str, base_name: str) -> str:
+    return f"_pending_upload_{major}_{base_name}"
+
+
+def _set_pending_upload(major: str, base_name: str, content: bytes, file_hash: str) -> None:
+    st.session_state[_pending_upload_key(major, base_name)] = {
+        "content": content,
+        "hash": file_hash,
+        "updated_at": datetime.now().isoformat(),
+    }
+
+
+def _clear_pending_upload(major: str, base_name: str) -> None:
+    st.session_state.pop(_pending_upload_key(major, base_name), None)
+
+
+def _get_pending_upload(major: str, base_name: str):
+    return st.session_state.get(_pending_upload_key(major, base_name))
+
+
+def _set_sync_status(major: str, base_name: str, *, synced: bool, file_hash: str = "", message: str = "") -> None:
+    st.session_state[_sync_status_key(major, base_name)] = {
+        "synced": synced,
+        "hash": file_hash,
+        "message": message,
+        "updated_at": datetime.now().isoformat(),
+    }
+
+
+def _get_sync_status(major: str, base_name: str):
+    return st.session_state.get(_sync_status_key(major, base_name), {})
+
 def _sync_to_drive(major: str, base_name: str, content: bytes) -> bool:
     """
     Sync a file to the major-specific Drive folder.
@@ -105,14 +142,31 @@ def _render_data_upload():
                 raw = courses_file.read()
                 file_hash = hashlib.md5(raw).hexdigest()
                 processed_key = f"_courses_synced_{major}_{file_hash}"
-                # Only process + sync once per unique file upload
                 if processed_key not in st.session_state:
                     df = pd.read_excel(BytesIO(raw))
                     st.session_state.courses_df = df
                     st.session_state.majors[major]["courses_df"] = df
+                    _set_pending_upload(major, "courses_table", raw, file_hash)
                     st.info(f"Loaded {len(df)} courses. Syncing to Drive...")
-                    _sync_to_drive(major, "courses_table", raw)
-                    st.session_state[processed_key] = True
+                    sync_ok = _sync_to_drive(major, "courses_table", raw)
+                    if sync_ok:
+                        _set_sync_status(
+                            major,
+                            "courses_table",
+                            synced=True,
+                            file_hash=file_hash,
+                            message="Synced to Google Drive",
+                        )
+                        _clear_pending_upload(major, "courses_table")
+                        st.session_state[processed_key] = True
+                    else:
+                        _set_sync_status(
+                            major,
+                            "courses_table",
+                            synced=False,
+                            file_hash=file_hash,
+                            message="Local upload succeeded, but Google Drive still has the previous file.",
+                        )
                     st.rerun()
             except Exception as e:
                 st.error(f"Error loading file: {e}")
@@ -124,6 +178,27 @@ def _render_data_upload():
             st.success(f"✓ Loaded: {len(progress_df)} students")
         else:
             st.warning("Not loaded")
+
+        progress_sync = _get_sync_status(major, "progress_report")
+        if progress_sync and not progress_sync.get("synced", True):
+            st.warning(progress_sync.get("message", "Progress report has local changes that are not synced to Google Drive."))
+            if st.button("Retry Progress Report Sync", key="retry_progress_sync"):
+                pending = _get_pending_upload(major, "progress_report")
+                if not pending:
+                    st.error("No pending progress report upload is available to retry.")
+                else:
+                    sync_ok = _sync_to_drive(major, "progress_report", pending["content"])
+                    if sync_ok:
+                        _set_sync_status(
+                            major,
+                            "progress_report",
+                            synced=True,
+                            file_hash=pending.get("hash", ""),
+                            message="Synced to Google Drive",
+                        )
+                        _clear_pending_upload(major, "progress_report")
+                        st.session_state[f"_progress_synced_{major}_{pending.get('hash', '')}"] = True
+                    st.rerun()
         
         progress_file = st.file_uploader(
             "Upload progress_report.xlsx",
@@ -139,14 +214,31 @@ def _render_data_upload():
                 content = progress_file.read()
                 file_hash = hashlib.md5(content).hexdigest()
                 processed_key = f"_progress_synced_{major}_{file_hash}"
-                # Only process + sync once per unique file upload
                 if processed_key not in st.session_state:
                     df = load_progress_excel(content)
                     st.session_state.progress_df = df
                     st.session_state.majors[major]["progress_df"] = df
+                    _set_pending_upload(major, "progress_report", content, file_hash)
                     st.info(f"Loaded {len(df)} students. Syncing to Drive...")
-                    _sync_to_drive(major, "progress_report", content)
-                    st.session_state[processed_key] = True
+                    sync_ok = _sync_to_drive(major, "progress_report", content)
+                    if sync_ok:
+                        _set_sync_status(
+                            major,
+                            "progress_report",
+                            synced=True,
+                            file_hash=file_hash,
+                            message="Synced to Google Drive",
+                        )
+                        _clear_pending_upload(major, "progress_report")
+                        st.session_state[processed_key] = True
+                    else:
+                        _set_sync_status(
+                            major,
+                            "progress_report",
+                            synced=False,
+                            file_hash=file_hash,
+                            message="New progress report loaded locally, but Drive sync failed. Refreshing the app will reload the older Drive copy until sync succeeds.",
+                        )
                     st.rerun()
             except Exception as e:
                 st.error(f"Error loading file: {e}")
@@ -263,29 +355,49 @@ def _upload_to_drive():
         
         courses_df = st.session_state.get("courses_df", pd.DataFrame())
         if not courses_df.empty:
-            output = BytesIO()
-            courses_df.to_excel(output, index=False)
+            pending_courses = _get_pending_upload(major, "courses_table")
+            if pending_courses:
+                content = pending_courses["content"]
+                file_hash = pending_courses.get("hash", "")
+            else:
+                output = BytesIO()
+                courses_df.to_excel(output, index=False)
+                content = output.getvalue()
+                file_hash = hashlib.md5(content).hexdigest()
             gd.sync_file_with_drive(
                 service=service,
-                file_content=output.getvalue(),
+                file_content=content,
                 drive_file_name="courses_table.xlsx",
                 mime_type=mime,
                 parent_folder_id=major_folder_id,
             )
+            _set_sync_status(major, "courses_table", synced=True, file_hash=file_hash, message="Synced to Google Drive")
+            _clear_pending_upload(major, "courses_table")
+            st.session_state[f"_courses_synced_{major}_{file_hash}"] = True
             st.success("✓ Uploaded courses table")
             uploaded_any = True
         
         progress_df = st.session_state.get("progress_df", pd.DataFrame())
         if not progress_df.empty:
-            output = BytesIO()
-            progress_df.to_excel(output, index=False)
+            pending_progress = _get_pending_upload(major, "progress_report")
+            if pending_progress:
+                content = pending_progress["content"]
+                file_hash = pending_progress.get("hash", "")
+            else:
+                output = BytesIO()
+                progress_df.to_excel(output, index=False)
+                content = output.getvalue()
+                file_hash = hashlib.md5(content).hexdigest()
             gd.sync_file_with_drive(
                 service=service,
-                file_content=output.getvalue(),
+                file_content=content,
                 drive_file_name="progress_report.xlsx",
                 mime_type=mime,
                 parent_folder_id=major_folder_id,
             )
+            _set_sync_status(major, "progress_report", synced=True, file_hash=file_hash, message="Synced to Google Drive")
+            _clear_pending_upload(major, "progress_report")
+            st.session_state[f"_progress_synced_{major}_{file_hash}"] = True
             st.success("✓ Uploaded progress report")
             uploaded_any = True
         
