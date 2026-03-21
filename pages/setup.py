@@ -40,6 +40,10 @@ def _sync_bytes_to_drive(filename: str, content: bytes, mime_type: str, major: s
 
     gd.sync_file_with_drive(service, content, filename, mime_type, major_folder_id)
 
+def _get_upload_signature(uploaded_file, content: bytes) -> str:
+    """Build a stable signature so the same upload is processed only once."""
+    return f"{uploaded_file.name}:{len(content)}"
+
 def render_setup():
     """Render the unified Setup page with data upload and period management."""
     
@@ -83,18 +87,21 @@ def _render_data_upload():
         if courses_file:
             try:
                 raw = courses_file.read()
-                courses_file.seek(0)
-                df = pd.read_excel(courses_file)
-                st.session_state.courses_df = df
-                st.session_state.majors[major]["courses_df"] = df
-                _sync_bytes_to_drive(
-                    "courses_table.xlsx",
-                    raw,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    major,
-                )
-                st.success(f"✓ Loaded {len(df)} courses")
-                st.rerun()
+                signature = _get_upload_signature(courses_file, raw)
+                processed_key = f"setup_courses_processed_{major}"
+                if st.session_state.get(processed_key) != signature:
+                    courses_file.seek(0)
+                    df = pd.read_excel(courses_file)
+                    st.session_state.courses_df = df
+                    st.session_state.majors[major]["courses_df"] = df
+                    _sync_bytes_to_drive(
+                        "courses_table.xlsx",
+                        raw,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        major,
+                    )
+                    st.session_state[processed_key] = signature
+                    st.success(f"✓ Loaded {len(df)} courses")
             except Exception as e:
                 st.error(f"Error loading file: {e}")
     
@@ -116,18 +123,21 @@ def _render_data_upload():
         if progress_file:
             try:
                 raw = progress_file.read()
-                from advising_utils import load_progress_excel
-                df = load_progress_excel(raw)
-                st.session_state.progress_df = df
-                st.session_state.majors[major]["progress_df"] = df
-                _sync_bytes_to_drive(
-                    "progress_report.xlsx",
-                    raw,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    major,
-                )
-                st.success(f"✓ Loaded {len(df)} students")
-                st.rerun()
+                signature = _get_upload_signature(progress_file, raw)
+                processed_key = f"setup_progress_processed_{major}"
+                if st.session_state.get(processed_key) != signature:
+                    from advising_utils import load_progress_excel
+                    df = load_progress_excel(raw)
+                    st.session_state.progress_df = df
+                    st.session_state.majors[major]["progress_df"] = df
+                    _sync_bytes_to_drive(
+                        "progress_report.xlsx",
+                        raw,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        major,
+                    )
+                    st.session_state[processed_key] = signature
+                    st.success(f"✓ Loaded {len(df)} students")
             except Exception as e:
                 st.error(f"Error loading file: {e}")
     
@@ -144,24 +154,30 @@ def _render_data_upload():
     
     if email_file:
         try:
-            email_df = pd.read_excel(email_file)
-            if "ID" in email_df.columns and "Email" in email_df.columns:
-                roster_key = f"email_roster_{major}"
-                st.session_state[roster_key] = email_df
-                roster = {
-                    str(row["ID"]).strip(): str(row["Email"]).strip()
-                    for _, row in email_df.iterrows()
-                    if pd.notna(row["ID"]) and pd.notna(row["Email"])
-                }
-                _sync_bytes_to_drive(
-                    "email_roster.json",
-                    json.dumps(roster, ensure_ascii=False, indent=2).encode("utf-8"),
-                    "application/json",
-                    major,
-                )
-                st.success(f"✓ Loaded {len(email_df)} email addresses")
-            else:
-                st.error("Email roster must have 'ID' and 'Email' columns")
+            raw = email_file.read()
+            signature = _get_upload_signature(email_file, raw)
+            processed_key = f"setup_email_processed_{major}"
+            if st.session_state.get(processed_key) != signature:
+                email_file.seek(0)
+                email_df = pd.read_excel(email_file)
+                if "ID" in email_df.columns and "Email" in email_df.columns:
+                    roster_key = f"email_roster_{major}"
+                    st.session_state[roster_key] = email_df
+                    roster = {
+                        str(row["ID"]).strip(): str(row["Email"]).strip()
+                        for _, row in email_df.iterrows()
+                        if pd.notna(row["ID"]) and pd.notna(row["Email"])
+                    }
+                    _sync_bytes_to_drive(
+                        "email_roster.json",
+                        json.dumps(roster, ensure_ascii=False, indent=2).encode("utf-8"),
+                        "application/json",
+                        major,
+                    )
+                    st.session_state[processed_key] = signature
+                    st.success(f"✓ Loaded {len(email_df)} email addresses")
+                else:
+                    st.error("Email roster must have 'ID' and 'Email' columns")
         except Exception as e:
             st.error(f"Error loading email roster: {e}")
     
