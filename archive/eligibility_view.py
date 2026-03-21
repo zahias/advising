@@ -422,10 +422,10 @@ def student_eligibility_view():
     st.markdown("### Course Eligibility")
     if not req_df.empty:
         st.markdown("**Required Courses**")
-        st.dataframe(style_df(req_df), width="stretch")
+        st.dataframe(style_df(req_df), width=1200)
     if not int_df.empty:
         st.markdown("**Intensive Courses**")
-        st.dataframe(style_df(int_df), width="stretch")
+        st.dataframe(style_df(int_df), width=1200)
 
     # ---------- Selection options (eligible + offered, not hidden/completed/registered) ----------
     offered_yes = {
@@ -603,17 +603,17 @@ def student_eligibility_view():
         btn_col1, btn_col2, btn_col3, btn_col4 = st.columns([1.3, 1.3, 1.2, 1.2])
 
         with btn_col1:
-            submitted = st.form_submit_button("💾 Save Selections", width="stretch", type="primary")
+            submitted = st.form_submit_button("💾 Save Selections", use_container_width=True, type="primary")
 
         with btn_col2:
-            email_clicked = st.form_submit_button("✉️ Email Student", width="stretch")
+            email_clicked = st.form_submit_button("✉️ Email Student", use_container_width=True)
         
         with btn_col3:
-            recommend_clicked = st.form_submit_button("🎯 Recommend", width="stretch", type="secondary", help="Auto-recommend next courses")
+            recommend_clicked = st.form_submit_button("🎯 Recommend", use_container_width=True, type="secondary", help="Auto-recommend next courses")
         
         with btn_col4:
             if not st.session_state._show_all_courses and (advised_pages > 1 or optional_pages > 1):
-                show_all_clicked = st.form_submit_button("📋 Show All", width="stretch", type="secondary")
+                show_all_clicked = st.form_submit_button("📋 Show All", use_container_width=True, type="secondary")
                 if show_all_clicked:
                     st.session_state._show_all_courses = True
                     st.rerun()
@@ -732,7 +732,7 @@ def student_eligibility_view():
         file_name=f"Advising_{norm_sid}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         type="secondary",
-        width="stretch",
+        use_container_width=True,
         key=f"download_advising_{norm_sid}",
     )
 

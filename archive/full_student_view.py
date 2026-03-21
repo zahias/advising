@@ -241,7 +241,7 @@ def render_degree_plan_table(courses_df, progress_df):
     display_df.index.name = "Student"
 
     styled = _style_codes(display_df, all_courses)
-    st.dataframe(styled, width="stretch", height=600)
+    st.dataframe(styled, width=1200, height=600)
 
     # Show semester headers as info
     with st.expander("📅 Semester Structure"):
@@ -370,10 +370,10 @@ def _render_all_students():
             col_apply, col_clear = st.columns(2)
             with col_apply:
                 apply_clicked = st.form_submit_button(
-                    "✅ Apply", type="primary", width="stretch"
+                    "✅ Apply", type="primary", use_container_width=True
                 )
             with col_clear:
-                clear_clicked = st.form_submit_button("🔄 Clear", width="stretch")
+                clear_clicked = st.form_submit_button("🔄 Clear", use_container_width=True)
 
         if apply_clicked:
             st.session_state.simulated_courses = selected_sim_courses
@@ -686,7 +686,7 @@ def _render_all_students():
 
                 col1, col2 = st.columns([1, 5])
                 with col1:
-                    confirm = st.form_submit_button("✓ Confirm", width="stretch")
+                    confirm = st.form_submit_button("✓ Confirm", use_container_width=True)
                 with col2:
                     st.caption("Select courses then click Confirm to update the table")
 
@@ -775,7 +775,7 @@ def _render_all_students():
 
         st.write(legend_md)
         styled = _style_codes(display_df, selected)
-        st.dataframe(styled, width="stretch", height=600, column_config=column_config)
+        st.dataframe(styled, width=1200, height=600, column_config=column_config)
         return export_df, selected
 
     required_tab, intensive_tab = st.tabs(["Required Courses", "Intensive Courses"])
@@ -990,7 +990,7 @@ def _render_individual_student():
         "*Legend:* c=Completed, r=Registered, a=Advised, ar=Advised-Repeat, o=Optional, b=Bypass, na=Eligible not chosen, ne=Not Eligible"
     )
     styled = _style_codes(indiv_df, selected_courses)
-    st.dataframe(styled, width="stretch")
+    st.dataframe(styled, width=1200)
 
     # Download colored sheet for this student (compact codes)
     col1, col2 = st.columns([1, 1])
@@ -1371,7 +1371,7 @@ def _render_qaa_sheet():
         f"Students with advising sessions: **{len(students_with_sessions)}** | Students without: **{len(progress_df) - len(students_with_sessions)}**"
     )
 
-    st.dataframe(qaa_df, width="stretch", height=min(600, 50 + len(qaa_df) * 35))
+    st.dataframe(qaa_df, width=1200, height=min(600, 50 + len(qaa_df) * 35))
 
     def _build_qaa_excel() -> bytes:
         output = BytesIO()
@@ -1556,7 +1556,7 @@ def _render_schedule_conflict():
         display_df = pd.DataFrame(filtered)
         st.dataframe(
             display_df,
-            width="stretch",
+            width=1200,
             height=min(500, 50 + len(filtered) * 35),
             column_config={
                 "Courses": st.column_config.TextColumn("Courses", width="large"),

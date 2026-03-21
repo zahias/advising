@@ -15,6 +15,24 @@ GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token"
 
 _google_libs_cache = {}
 
+def _is_drive_feature_enabled() -> bool:
+    """
+    Feature flag for Drive integration.
+    Disable with ENABLE_GOOGLE_DRIVE=false in environment or secrets.
+    """
+    import os
+    raw = os.getenv("ENABLE_GOOGLE_DRIVE")
+    if raw is None:
+        try:
+            raw = st.secrets.get("google", {}).get("enabled")
+        except Exception:
+            raw = None
+    if raw is None:
+        return True
+    if isinstance(raw, bool):
+        return raw
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
 def _lazy_import_google_libs():
     """
     Lazy import Google libraries only when actually needed.
@@ -24,6 +42,13 @@ def _lazy_import_google_libs():
     global _google_libs_cache
     
     if _google_libs_cache:
+        return _google_libs_cache
+
+    if not _is_drive_feature_enabled():
+        _google_libs_cache = {
+            'available': False,
+            'error': ImportError("Google Drive integration is disabled by ENABLE_GOOGLE_DRIVE"),
+        }
         return _google_libs_cache
     
     try:
@@ -153,7 +178,8 @@ def _get_cached_drive_service(_cred_hash: str):
 def initialize_drive_service():
     """
     Return an authenticated Drive service. 
-    Isolated to st.session_state to ensure thread-safety (per-user connection).
+    Build a fresh service by default to avoid stale cross-rerun state.
+    Set CACHE_DRIVE_SERVICE=1 only if you explicitly want session caching.
     """
     if not is_drive_available():
         libs = _lazy_import_google_libs()
@@ -162,11 +188,15 @@ def initialize_drive_service():
         )
     
     cred_hash = _get_credentials_hash()
+    import os
+    use_cache = os.getenv("CACHE_DRIVE_SERVICE", "").strip().lower() in {"1", "true", "yes", "on"}
+
+    if not use_cache:
+        return _get_cached_drive_service(cred_hash)
+
     session_key = f"_drive_service_{cred_hash}"
-    
     if session_key not in st.session_state:
         st.session_state[session_key] = _get_cached_drive_service(cred_hash)
-        
     return st.session_state[session_key]
 
 
@@ -178,25 +208,31 @@ def _get_http_error_class():
     return Exception
 
 
-def find_file_in_drive(service, filename: str, parent_folder_id: str) -> Optional[str]:
-    """Return fileId for `filename` inside `parent_folder_id`, else None."""
+def find_files_in_drive(service, filename: str, parent_folder_id: str, page_size: int = 20) -> List[Dict]:
+    """Return exact-name matches for `filename` inside `parent_folder_id`, newest first."""
     HttpError = _get_http_error_class()
     try:
         query = f"name = '{filename}' and '{parent_folder_id}' in parents and trashed = false"
         resp = service.files().list(
             q=query,
             spaces="drive",
-            fields="files(id, name)",
-            pageSize=10,
+            fields="files(id, name, modifiedTime, createdTime)",
+            pageSize=page_size,
+            orderBy="modifiedTime desc, createdTime desc",
             includeItemsFromAllDrives=True,
             supportsAllDrives=True,
         ).execute()
-        for f in resp.get("files", []):
-            if f.get("name") == filename:
-                return f.get("id")
-        return None
+        return [f for f in resp.get("files", []) if f.get("name") == filename]
     except HttpError as e:
         raise RuntimeError(f"Drive search failed: {e}")
+
+
+def find_file_in_drive(service, filename: str, parent_folder_id: str) -> Optional[str]:
+    """Return the newest fileId for `filename` inside `parent_folder_id`, else None."""
+    matches = find_files_in_drive(service, filename, parent_folder_id, page_size=20)
+    if matches:
+        return matches[0].get("id")
+    return None
 
 
 def download_file_from_drive(service, file_id: str) -> bytes:
@@ -243,7 +279,8 @@ def sync_file_with_drive(
             media = MediaIoBaseUpload(io.BytesIO(file_content), mimetype=mime_type, resumable=False)
             body = {"name": drive_file_name, "parents": [parent_folder_id]}
 
-            file_id = find_file_in_drive(service, drive_file_name, parent_folder_id)
+            matches = find_files_in_drive(service, drive_file_name, parent_folder_id, page_size=20)
+            file_id = matches[0].get("id") if matches else None
             if file_id:
                 updated = service.files().update(
                     fileId=file_id,
@@ -251,7 +288,16 @@ def sync_file_with_drive(
                     body={"name": drive_file_name},
                     supportsAllDrives=True,
                 ).execute()
-                return updated.get("id", file_id)
+                kept_id = updated.get("id", file_id)
+                # If duplicate same-name files exist, keep the newest updated file and remove stale copies.
+                for duplicate in matches[1:]:
+                    dup_id = duplicate.get("id")
+                    if dup_id and dup_id != kept_id:
+                        try:
+                            service.files().delete(fileId=dup_id, supportsAllDrives=True).execute()
+                        except HttpError:
+                            pass
+                return kept_id
             else:
                 created = service.files().create(
                     body=body,

@@ -5,6 +5,13 @@ import pandas as pd
 import streamlit as st
 from datetime import datetime
 
+from auth import (
+    load_auth_config,
+    auth_is_enforced,
+    is_authenticated_for_major,
+    set_authenticated_for_major,
+    render_login_gate,
+)
 from visual_theme import apply_visual_theme
 from advising_utils import log_info, log_error, load_progress_excel
 
@@ -115,6 +122,14 @@ def _render_header():
     """Render the persistent header with major/period selection."""
     from advising_period import get_current_period
     
+    current_major = st.session_state.get("current_major", "Select major...")
+    if current_major in MAJORS:
+        auth_cfg = load_auth_config()
+        auth_enforced = auth_is_enforced(auth_cfg)
+        is_major_authed = (not auth_enforced) or is_authenticated_for_major(current_major)
+    else:
+        is_major_authed = True
+    
     header_cols = st.columns([1, 2, 3, 2])
     
     with header_cols[0]:
@@ -143,38 +158,50 @@ def _render_header():
     
     with header_cols[2]:
         if st.session_state.get("current_major") in MAJORS:
-            current_period = get_current_period()
-            period_text = f"📅 {current_period.get('semester', 'No period')} {current_period.get('year', '')} — {current_period.get('advisor_name', 'Not set')}"
-            st.markdown(f"**{period_text}**")
+            if is_major_authed:
+                current_period = get_current_period()
+                period_text = f"📅 {current_period.get('semester', 'No period')} {current_period.get('year', '')} — {current_period.get('advisor_name', 'Not set')}"
+                st.markdown(f"**{period_text}**")
+            else:
+                st.markdown("🔒 **Login required**")
         else:
             st.markdown("*Select a major to begin*")
     
     with header_cols[3]:
         if st.session_state.get("current_major") in MAJORS:
-            progress_df = st.session_state.get("progress_df", pd.DataFrame())
-            
-            if not progress_df.empty:
-                total = len(progress_df)
-                # Get student IDs from progress report for filtering
-                progress_ids = set()
-                for _, row in progress_df.iterrows():
-                    try:
-                        progress_ids.add(int(row.get("ID", 0)))
-                    except (ValueError, TypeError):
-                        pass
-                
-                # Count students with saved sessions (from index, filtered to current roster)
-                advised = _count_advised_from_index(progress_ids)
-                    
-                pct = int(advised / total * 100) if total > 0 else 0
-                st.markdown(f"**Progress:** {advised}/{total} ({pct}%)")
+            top_left, top_right = st.columns([3, 2])
+            with top_left:
+                if is_major_authed:
+                    progress_df = st.session_state.get("progress_df", pd.DataFrame())
+                    if not progress_df.empty:
+                        total = len(progress_df)
+                        # Get student IDs from progress report for filtering
+                        progress_ids = set()
+                        for _, row in progress_df.iterrows():
+                            try:
+                                progress_ids.add(int(row.get("ID", 0)))
+                            except (ValueError, TypeError):
+                                pass
+                        
+                        # Count students with saved sessions (from index, filtered to current roster)
+                        advised = _count_advised_from_index(progress_ids)
+                            
+                        pct = int(advised / total * 100) if total > 0 else 0
+                        st.markdown(f"**Progress:** {advised}/{total} ({pct}%)")
+            with top_right:
+                major = st.session_state.get("current_major", "")
+                if major in MAJORS and is_major_authed and st.button("Logout", key=f"logout_{major}"):
+                    set_authenticated_for_major(major, False)
+                    st.rerun()
 
 def _render_navigation():
     """Render the main navigation tabs."""
     
-    nav_options = ["Home", "Setup", "Workspace", "Insights", "Master Plan", "Settings"]
+    nav_options = ["Home", "Setup", "Workspace", "Insights", "Settings"]
     
     if "nav_selection" not in st.session_state:
+        st.session_state["nav_selection"] = "Home"
+    elif st.session_state["nav_selection"] not in nav_options:
         st.session_state["nav_selection"] = "Home"
     
     cols = st.columns(len(nav_options))
@@ -184,7 +211,7 @@ def _render_navigation():
             is_active = st.session_state.get("nav_selection") == option
             btn_type = "primary" if is_active else "secondary"
             
-            icons = {"Home": "🏠", "Setup": "⚙️", "Workspace": "👤", "Insights": "📊", "Master Plan": "🌐", "Settings": "🔧"}
+            icons = {"Home": "🏠", "Setup": "⚙️", "Workspace": "👤", "Insights": "📊", "Settings": "🔧"}
             
             if st.button(
                 f"{icons.get(option, '')} {option}",
@@ -228,6 +255,7 @@ def _render_period_gate():
                     st.error("Please enter your name")
                 else:
                     new_period, saved = start_new_period(semester, int(year), advisor)
+                    # start_new_period clears all selections; just show confirmation
                     st.success(f"Created: {semester} {year}")
                     st.rerun()
     
@@ -249,6 +277,29 @@ def _render_period_gate():
             if st.button("Use This Period"):
                 selected_period = period_map[selected]
                 set_current_period(selected_period)
+                # Clear selections so we load the correct sessions for this period
+                major = st.session_state.get("current_major", "")
+                st.session_state.advising_selections = {}
+                if "majors" in st.session_state and major in st.session_state.majors:
+                    st.session_state.majors[major]["advising_selections"] = {}
+                bypasses_key = f"bypasses_{major}"
+                if bypasses_key in st.session_state:
+                    st.session_state[bypasses_key] = {}
+                try:
+                    from advising_history import _get_local_selections_path
+                    import os
+                    sel_file = _get_local_selections_path(major)
+                    if os.path.exists(sel_file):
+                        os.remove(sel_file)
+                except Exception:
+                    pass
+                for key in list(st.session_state.keys()):
+                    if isinstance(key, str) and (
+                        key.startswith("_fsv_sessions_loaded_") or
+                        key.startswith("_sessions_loaded_") or
+                        key.startswith("_fsv_cache_")
+                    ):
+                        del st.session_state[key]
                 st.success(f"Using: {selected}")
                 st.rerun()
         else:
@@ -310,26 +361,17 @@ def _auto_load_from_drive(major: str):
     except Exception as e:
         log_error(f"Auto-load from Drive failed for {major}", e)
 
-
 def main():
     """Main application entry point."""
-    
-    # 1. Initialize major context and sync data buckets before ANY rendering
-    selected_major = st.session_state.get("current_major", "Select major...")
-    
-    if selected_major in MAJORS:
-        _sync_globals_from_bucket(selected_major)
-        
-        # Auto-load from Drive if bucket is empty
-        bucket = st.session_state.majors.get(selected_major, {})
-        if bucket.get("courses_df", pd.DataFrame()).empty or bucket.get("progress_df", pd.DataFrame()).empty:
-             _auto_load_from_drive(selected_major)
-    
-    # 2. Render Header (now has access to synced data)
+    # 1. Render Header first (major selection happens here)
     _render_header()
     
     st.markdown("---")
     
+    # 2. Read selected major after header interaction
+    selected_major = st.session_state.get("current_major", "Select major...")
+    
+    # 3. Major selection gate
     if selected_major not in MAJORS:
         st.markdown("## 🎓 Advising Dashboard")
         st.info("👆 Please select a major from the dropdown above to get started.")
@@ -337,19 +379,34 @@ def main():
         st.markdown("### Quick Start")
         st.markdown("""
         1. **Select a major** from the dropdown above
-        2. **Set up your advising period** (semester, year, your name)  
-        3. **Upload data files** (courses table and progress report)
-        4. **Start advising** students in the Workspace
+        2. **Enter major password** to unlock access
+        3. **Set up your advising period** (semester, year, your name)
+        4. **Upload data files** (courses table and progress report)
+        5. **Start advising** students in the Workspace
         """)
         return
-    
-    # Render period gate if needed
+
+    # 4. Auth gate (before loading/rendering protected content)
+    auth_cfg = load_auth_config()
+    if auth_is_enforced(auth_cfg):
+        if not render_login_gate(selected_major, auth_cfg):
+            return
+
+    # 5. Initialize major context and sync data buckets only after auth passes
+    if selected_major in MAJORS:
+        _sync_globals_from_bucket(selected_major)
+        
+        # Auto-load from Drive if bucket is empty
+        bucket = st.session_state.majors.get(selected_major, {})
+        if bucket.get("courses_df", pd.DataFrame()).empty or bucket.get("progress_df", pd.DataFrame()).empty:
+            _auto_load_from_drive(selected_major)
+
+    # 6. Render period gate if needed
     if not _render_period_gate():
         return
     
-    # Session index is already loaded/refreshed by _count_advised_from_index() in header
-    # or by specialized views.
-    
+    # 7. Session index is already loaded/refreshed by _count_advised_from_index()
+    # in header or by specialized views.
     active_nav = _render_navigation()
     
     st.markdown("---")
@@ -369,10 +426,6 @@ def main():
     elif active_nav == "Insights":
         from pages.insights import render_insights
         render_insights()
-    
-    elif active_nav == "Master Plan":
-        from pages.master_plan import render_master_plan
-        render_master_plan()
     
     elif active_nav == "Settings":
         from pages.settings import render_settings

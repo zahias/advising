@@ -119,7 +119,7 @@ def _render_course_offering_planner_content():
         })
     
     summary_df = pd.DataFrame(summary_data)
-    st.dataframe(summary_df, width="stretch", height=400)
+    st.dataframe(summary_df, width=1200, height=400)
 
     # --- Course Selection ---
     st.markdown("---")
@@ -384,5 +384,3 @@ def _render_course_card(rec: Dict, rank: int):
     # Show requisites
     if rec["requisites"]:
         st.caption(f"📋 {rec['requisites']}")
-
-

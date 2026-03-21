@@ -614,23 +614,15 @@ def _find_latest_session_for_student(student_id: Union[int, str], period_id: Opt
         current_period = get_current_period()
         period_id = current_period.get("period_id", "")
     
-    # Filter sessions for this student
-    # Include matches for period_id, and if period_id is provided, also include legacy sessions (empty period_id)
-    # as they represent historical data that should be visible unless explicitly overridden.
+    # Filter sessions strictly to this student AND this period only.
+    # Do NOT fall back to other periods — that causes old selections to bleed
+    # into a new advising period.
     student_sessions = [
         r for r in index
         if str(r.get("student_id", "")) == str(student_id)
-        and (r.get("period_id", "") == period_id or not r.get("period_id"))
+        and r.get("period_id", "") == period_id
     ]
 
-    # Fallback: if no sessions match the current period, try any period for this student.
-    # This covers cases where period metadata wasn't saved or restored correctly.
-    if not student_sessions and period_id:
-        student_sessions = [
-            r for r in index
-            if str(r.get("student_id", "")) == str(student_id)
-        ]
-    
     if not student_sessions:
         return None
     
@@ -831,7 +823,7 @@ def load_all_sessions_for_period(period_id: Optional[str] = None, force_refresh:
     
     period_sessions = [
         r for r in index 
-        if (r.get("period_id", "") == period_id or not r.get("period_id"))
+        if r.get("period_id", "") == period_id
     ]
     
     if not period_sessions:
@@ -1200,8 +1192,8 @@ def bulk_restore_panel():
         },
         disabled=["ID", "Name", "Saved Sessions", "Latest Save", "Status"],
         hide_index=True,
+        width=1200,
         key="bulk_restore_editor",
-        width="stretch"
     )
     
     # Update selection from editor
@@ -1238,7 +1230,7 @@ def bulk_restore_panel():
         if result["details"]:
             with st.expander("View Details"):
                 details_df = pd.DataFrame(result["details"])
-                st.dataframe(details_df, hide_index=True, width="stretch")
+                st.dataframe(details_df, hide_index=True, width=1200)
         
         # Clear selection and refresh
         st.session_state["_bulk_restore_selection"] = []
@@ -1296,7 +1288,7 @@ def advising_history_panel():
     chosen = index[choice_idx]
     sid = str(chosen.get("id", ""))
     
-    if st.button("📂 View Session", width="stretch", key="sess_open"):
+    if st.button("📂 View Session", use_container_width=True, key="sess_open"):
         payload = _load_session_payload_by_id(sid)
         if payload:
             st.session_state["advising_loaded_payload"] = payload
@@ -1324,6 +1316,6 @@ def advising_history_panel():
             if not df.empty:
                 preferred = ["Course Code","Type","Requisites","Offered","Eligibility Status","Justification","Action"]
                 cols = [c for c in preferred if c in df.columns] + [c for c in df.columns if c not in preferred]
-                st.dataframe(style_df(df[cols]), width="stretch")
+                st.dataframe(style_df(df[cols]), width=1200)
             else:
                 st.info("No course rows stored in this snapshot.")

@@ -1,189 +1,100 @@
-import hashlib
 import streamlit as st
 import pandas as pd
 from io import BytesIO
 from datetime import datetime
-
 
 def _get_drive_module():
     """Lazy loader for google_drive module."""
     import google_drive as gd
     return gd
 
-
-def _get_drive_folder(major: str):
-    """Return (service, major_folder_id) or (None, None) on failure."""
-    import os
-    try:
-        gd = _get_drive_module()
-        service = gd.initialize_drive_service()
-        root_folder_id = ""
-        try:
-            if "google" in st.secrets:
-                root_folder_id = st.secrets["google"].get("folder_id", "")
-        except Exception:
-            pass
-        if not root_folder_id:
-            root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
-        if not root_folder_id:
-            return None, None
-        major_folder_id = gd.get_major_folder_id(service, major, root_folder_id)
-        return service, major_folder_id
-    except Exception:
-        return None, None
-
-
-def _sync_file_to_drive(major: str, base_name: str, content: bytes) -> bool:
-    """
-    Upload content to Drive as {base_name}.xlsx inside the major folder.
-    Returns True on success. On failure, stores error in session state for display.
-    """
-    from advising_utils import log_error, log_info
-    try:
-        gd = _get_drive_module()
-        service, folder_id = _get_drive_folder(major)
-        if not service or not folder_id:
-            msg = "Drive sync skipped — folder ID not configured or Drive unavailable"
-            log_error(msg, Exception(msg))
-            st.session_state["_setup_flash"] = ("warning", msg)
-            return False
-        mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        gd.sync_file_with_drive(
-            service=service,
-            file_content=content,
-            drive_file_name=f"{base_name}.xlsx",
-            mime_type=mime,
-            parent_folder_id=folder_id,
-        )
-        log_info(f"Synced {base_name}.xlsx to Drive for {major}")
-        st.session_state["_setup_flash"] = ("success", f"☁️ Synced {base_name}.xlsx to Google Drive")
-        return True
-    except Exception as e:
-        log_error(f"Drive sync FAILED for {base_name}", e)
-        st.session_state["_setup_flash"] = ("error", f"❌ Drive sync failed for {base_name}: {e}")
-        return False
-
-
 def render_setup():
     """Render the unified Setup page with data upload and period management."""
+    
     st.markdown("## Setup")
-
+    
     setup_tab1, setup_tab2 = st.tabs(["Data Files", "Period Management"])
-
+    
     with setup_tab1:
         _render_data_upload()
-
+    
     with setup_tab2:
         _render_period_management()
 
-
 def _render_data_upload():
     """Render data upload section."""
-
-    # Flash message from a previous upload cycle (survives st.rerun)
-    if "_setup_flash" in st.session_state:
-        level, msg = st.session_state.pop("_setup_flash")
-        getattr(st, level, st.info)(msg)
-
+    
     st.markdown("### Upload Data Files")
-
+    
     major = st.session_state.get("current_major", "")
-
+    
     courses_df = st.session_state.get("courses_df", pd.DataFrame())
     progress_df = st.session_state.get("progress_df", pd.DataFrame())
-
+    
     col1, col2 = st.columns(2)
-
-    # ---- Courses Table ----
+    
     with col1:
         st.markdown("#### Courses Table")
-
+        
         if not courses_df.empty:
             st.success(f"✓ Loaded: {len(courses_df)} courses")
         else:
             st.warning("Not loaded")
-
+        
         courses_file = st.file_uploader(
             "Upload courses_table.xlsx",
             type=["xlsx"],
             key="setup_courses_upload",
-            help="Excel file with course codes, titles, credits, prerequisites, etc.",
+            help="Excel file with course codes, titles, credits, prerequisites, etc."
         )
-
+        
         if courses_file:
             try:
-                courses_file.seek(0)
-                raw = courses_file.read()
-                file_hash = hashlib.md5(raw).hexdigest()
-                guard_key = f"_courses_done_{major}_{file_hash}"
-
-                # Only process + sync ONCE per unique file
-                if guard_key not in st.session_state:
-                    df = pd.read_excel(BytesIO(raw))
-                    st.session_state.courses_df = df
-                    st.session_state.majors[major]["courses_df"] = df
-
-                    # Attempt Drive sync (stores flash message in session state)
-                    _sync_file_to_drive(major, "courses_table", raw)
-
-                    # ALWAYS mark as done so we never reprocess the same file
-                    st.session_state[guard_key] = True
-                    st.rerun()
+                df = pd.read_excel(courses_file)
+                st.session_state.courses_df = df
+                st.session_state.majors[major]["courses_df"] = df
+                st.success(f"✓ Loaded {len(df)} courses")
+                st.rerun()
             except Exception as e:
                 st.error(f"Error loading file: {e}")
-
-    # ---- Progress Report ----
+    
     with col2:
         st.markdown("#### Progress Report")
-
+        
         if not progress_df.empty:
             st.success(f"✓ Loaded: {len(progress_df)} students")
         else:
             st.warning("Not loaded")
-
+        
         progress_file = st.file_uploader(
             "Upload progress_report.xlsx",
             type=["xlsx"],
             key="setup_progress_upload",
-            help="Excel file with student IDs, names, completed courses, etc.",
+            help="Excel file with student IDs, names, completed courses, etc."
         )
-
+        
         if progress_file:
             try:
                 from advising_utils import load_progress_excel
-
-                progress_file.seek(0)
-                content = progress_file.read()
-                file_hash = hashlib.md5(content).hexdigest()
-                guard_key = f"_progress_done_{major}_{file_hash}"
-
-                # Only process + sync ONCE per unique file
-                if guard_key not in st.session_state:
-                    df = load_progress_excel(content)
-                    st.session_state.progress_df = df
-                    st.session_state.majors[major]["progress_df"] = df
-
-                    # Attempt Drive sync (stores flash message in session state)
-                    _sync_file_to_drive(major, "progress_report", content)
-
-                    # ALWAYS mark as done so we never reprocess the same file
-                    st.session_state[guard_key] = True
-                    st.rerun()
+                df = load_progress_excel(progress_file.read())
+                st.session_state.progress_df = df
+                st.session_state.majors[major]["progress_df"] = df
+                st.success(f"✓ Loaded {len(df)} students")
+                st.rerun()
             except Exception as e:
                 st.error(f"Error loading file: {e}")
-
+    
     st.markdown("---")
-
-    # ---- Email Roster ----
+    
     st.markdown("#### Email Roster (Optional)")
-
+    
     email_file = st.file_uploader(
         "Upload email roster (Excel with ID and Email columns)",
         type=["xlsx"],
         key="setup_email_upload",
-        help="Optional: Excel file with student IDs and email addresses for sending advising sheets",
+        help="Optional: Excel file with student IDs and email addresses for sending advising sheets"
     )
-
+    
     if email_file:
         try:
             email_df = pd.read_excel(email_file)
@@ -195,35 +106,46 @@ def _render_data_upload():
                 st.error("Email roster must have 'ID' and 'Email' columns")
         except Exception as e:
             st.error(f"Error loading email roster: {e}")
-
+    
     st.markdown("---")
-
-    # ---- Manual Drive Sync ----
+    
     st.markdown("#### Sync with Google Drive")
-
+    
     col_sync1, col_sync2 = st.columns(2)
-
+    
     with col_sync1:
-        if st.button("⬇️ Download from Drive"):
+        if st.button("Download from Drive"):
             _download_from_drive()
-
+    
     with col_sync2:
-        if st.button("⬆️ Upload to Drive"):
+        if st.button("Upload to Drive"):
             _upload_to_drive()
-
 
 def _download_from_drive():
     """Download data files from Google Drive."""
     major = st.session_state.get("current_major", "")
-
+    
     try:
         gd = _get_drive_module()
-        service, folder_id = _get_drive_folder(major)
-        if not service or not folder_id:
-            st.error("Google Drive folder not available — check folder ID configuration")
+        service = gd.initialize_drive_service()
+        
+        import os
+        root_folder_id = ""
+        try:
+            if "google" in st.secrets:
+                root_folder_id = st.secrets["google"].get("folder_id", "")
+        except:
+            pass
+        if not root_folder_id:
+            root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
+        
+        if not root_folder_id:
+            st.error("Google Drive folder ID not configured")
             return
-
-        courses_id = gd.find_file_in_drive(service, "courses_table.xlsx", folder_id)
+        
+        major_folder_id = gd.get_major_folder_id(service, major, root_folder_id)
+        
+        courses_id = gd.find_file_in_drive(service, "courses_table.xlsx", major_folder_id)
         if courses_id:
             data = gd.download_file_from_drive(service, courses_id)
             if data:
@@ -231,68 +153,61 @@ def _download_from_drive():
                 st.session_state.courses_df = df
                 st.session_state.majors[major]["courses_df"] = df
                 st.success("✓ Downloaded courses table")
-
-        progress_id = gd.find_file_in_drive(service, "progress_report.xlsx", folder_id)
+        
+        progress_id = gd.find_file_in_drive(service, "progress_report.xlsx", major_folder_id)
         if progress_id:
             data = gd.download_file_from_drive(service, progress_id)
             if data:
                 from advising_utils import load_progress_excel
-
                 df = load_progress_excel(data)
                 st.session_state.progress_df = df
                 st.session_state.majors[major]["progress_df"] = df
                 st.success("✓ Downloaded progress report")
-
+        
         st.rerun()
     except Exception as e:
         st.error(f"Error downloading from Drive: {e}")
 
-
 def _upload_to_drive():
-    """Upload currently-loaded data files to Google Drive."""
+    """Upload data files to Google Drive."""
     major = st.session_state.get("current_major", "")
-
+    
     try:
         gd = _get_drive_module()
-        service, folder_id = _get_drive_folder(major)
-        if not service or not folder_id:
-            st.error("Google Drive folder not available — check folder ID configuration")
+        service = gd.initialize_drive_service()
+        
+        import os
+        root_folder_id = ""
+        try:
+            if "google" in st.secrets:
+                root_folder_id = st.secrets["google"].get("folder_id", "")
+        except:
+            pass
+        if not root_folder_id:
+            root_folder_id = os.getenv("GOOGLE_FOLDER_ID", "")
+        
+        if not root_folder_id:
+            st.error("Google Drive folder ID not configured")
             return
-
-        mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        uploaded_any = False
-
+        
+        major_folder_id = gd.get_major_folder_id(service, major, root_folder_id)
+        
         courses_df = st.session_state.get("courses_df", pd.DataFrame())
         if not courses_df.empty:
             output = BytesIO()
             courses_df.to_excel(output, index=False)
-            gd.sync_file_with_drive(
-                service=service,
-                file_content=output.getvalue(),
-                drive_file_name="courses_table.xlsx",
-                mime_type=mime,
-                parent_folder_id=folder_id,
-            )
+            output.seek(0)
+            gd.upload_file_to_drive(service, "courses_table.xlsx", output.getvalue(), major_folder_id)
             st.success("✓ Uploaded courses table")
-            uploaded_any = True
-
+        
         progress_df = st.session_state.get("progress_df", pd.DataFrame())
         if not progress_df.empty:
             output = BytesIO()
             progress_df.to_excel(output, index=False)
-            gd.sync_file_with_drive(
-                service=service,
-                file_content=output.getvalue(),
-                drive_file_name="progress_report.xlsx",
-                mime_type=mime,
-                parent_folder_id=folder_id,
-            )
+            output.seek(0)
+            gd.upload_file_to_drive(service, "progress_report.xlsx", output.getvalue(), major_folder_id)
             st.success("✓ Uploaded progress report")
-            uploaded_any = True
-
-        if not uploaded_any:
-            st.warning("No data loaded to upload")
-
+        
     except Exception as e:
         st.error(f"Error uploading to Drive: {e}")
 
@@ -405,26 +320,6 @@ def _render_period_management():
                 major = st.session_state.get("current_major", "")
                 st.session_state.advising_selections = {}
                 st.session_state.majors[major]["advising_selections"] = {}
-                bypasses_key = f"bypasses_{major}"
-                if bypasses_key in st.session_state:
-                    st.session_state[bypasses_key] = {}
-                # Delete local selections cache so stale data isn't reloaded
-                try:
-                    from advising_history import _get_local_selections_path
-                    import os
-                    sel_file = _get_local_selections_path(major)
-                    if os.path.exists(sel_file):
-                        os.remove(sel_file)
-                except Exception:
-                    pass
-                # Clear session-loaded flags so new period loads fresh
-                for key in list(st.session_state.keys()):
-                    if isinstance(key, str) and (
-                        key.startswith("_fsv_sessions_loaded_") or
-                        key.startswith("_sessions_loaded_") or
-                        key.startswith("_fsv_cache_")
-                    ):
-                        del st.session_state[key]
                 st.success(f"Switched to: {selected}")
                 st.rerun()
     else:
