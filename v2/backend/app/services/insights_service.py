@@ -306,6 +306,20 @@ def dashboard_metrics(session: Session, major_code: str) -> DashboardMetrics:
                 }
             )
     percent = int((advised_count / total_students) * 100) if total_students else 0
+    try:
+        rem_col = '# Remaining' if '# Remaining' in progress_df.columns else 'Remaining Credits'
+        if rem_col in progress_df.columns and 'ID' in progress_df.columns:
+            rem_series = pd.to_numeric(progress_df.groupby('ID')[rem_col].first(), errors='coerce').dropna()
+            credit_distribution: list[dict[str, Any]] = [
+                {'label': '≤18', 'count': int((rem_series <= 18).sum())},
+                {'label': '19–36', 'count': int(((rem_series > 18) & (rem_series <= 36)).sum())},
+                {'label': '37–72', 'count': int(((rem_series > 36) & (rem_series <= 72)).sum())},
+                {'label': '73+', 'count': int((rem_series > 72).sum())},
+            ]
+        else:
+            credit_distribution = []
+    except Exception:
+        credit_distribution = []
     return DashboardMetrics(
         total_students=total_students,
         advised_students=advised_count,
@@ -313,6 +327,7 @@ def dashboard_metrics(session: Session, major_code: str) -> DashboardMetrics:
         progress_percent=percent,
         graduating_soon_unadvised=graduating_soon_unadvised[:5],
         recent_activity=recent_activity,
+        credit_distribution=credit_distribution,
     )
 
 

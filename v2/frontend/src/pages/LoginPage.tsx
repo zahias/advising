@@ -29,8 +29,9 @@ export function LoginPage() {
   return (
     <div className="login-page">
       <div className="login-card">
-        <h1>Advising V2</h1>
-        <p>Admin and adviser workflows with parity-focused backend services.</p>
+        <div className="eyebrow">Render + Neon + R2</div>
+        <h1>PU Academic Portal</h1>
+        <p>Academic advising and progress tracking for Phoenicia University.</p>
         <form onSubmit={handleSubmit} className="stack">
           <label>
             <span>Email</span>
@@ -43,10 +44,8 @@ export function LoginPage() {
           {error ? <div className="alert error">{error}</div> : null}
           <button disabled={busy} type="submit">{busy ? 'Signing in...' : 'Sign in'}</button>
         </form>
+        <p className="login-credit">Developed by Dr. Zahi Abdul Sater</p>
       </div>
-      <p style={{ marginTop: '1.25rem', fontSize: '0.78rem', color: 'var(--muted)', textAlign: 'center', letterSpacing: '0.03em' }}>
-        Developed by Dr. Zahi Abdul Sater
-      </p>
     </div>
   )
 }

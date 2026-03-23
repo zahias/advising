@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { apiFetch, AppTemplate, AssignmentTypes, AuditEventRecord, BackupRun, CourseCatalogItem, CourseAssignment, CourseEquivalent, CurrentUser, DashboardMetrics, DatasetVersion, ExclusionSummary, Major, Period, ProgressReport, SessionSummary, StalenessInfo, StudentEligibility, StudentSearchItem, UserRecord } from './api'
+import { apiFetch, AppTemplate, AuditEventRecord, BackupRun, CourseCatalogItem, CurrentUser, DashboardMetrics, DatasetVersion, ExclusionSummary, Major, Period, SessionSummary, StudentEligibility, StudentSearchItem, UserRecord, progressStatus, progressEquivalents, progressAssignmentTypes, progressAssignments, getProgressReport, ProgressDataStatus, EquivalentCourse, AssignmentType, ProgressAssignment, ProgressReportResponse } from './api'
 
 export function useCurrentUser() {
   return useQuery({
@@ -104,43 +104,49 @@ export function useAuditLog(eventType?: string) {
   })
 }
 
-export function useStaleness(majorCode?: string) {
+// ─────────────────────────────────────────────────────────────────
+// Academic Progress hooks
+// ─────────────────────────────────────────────────────────────────
+
+export function useProgressStatus(majorCode?: string) {
   return useQuery({
-    queryKey: ['staleness', majorCode],
-    queryFn: () => apiFetch<StalenessInfo>(`/progress/${majorCode}/staleness`),
+    queryKey: ['progress-status', majorCode],
+    queryFn: () => progressStatus(majorCode!),
     enabled: Boolean(majorCode),
   })
 }
 
-export function useCourseEquivalents(majorCode?: string) {
+export function useProgressEquivalents(majorCode?: string) {
   return useQuery({
-    queryKey: ['course-equivalents', majorCode],
-    queryFn: () => apiFetch<CourseEquivalent[]>(`/course-config/${majorCode}/equivalents`),
+    queryKey: ['progress-equivalents', majorCode],
+    queryFn: () => progressEquivalents(majorCode!),
     enabled: Boolean(majorCode),
   })
 }
 
-export function useCourseAssignments(majorCode?: string) {
+export function useProgressAssignmentTypes(majorCode?: string) {
   return useQuery({
-    queryKey: ['course-assignments', majorCode],
-    queryFn: () => apiFetch<CourseAssignment[]>(`/course-config/${majorCode}/assignments`),
+    queryKey: ['progress-assignment-types', majorCode],
+    queryFn: () => progressAssignmentTypes(majorCode!),
     enabled: Boolean(majorCode),
   })
 }
 
-export function useAssignmentTypes(majorCode?: string) {
+export function useProgressAssignments(majorCode?: string, studentId?: string) {
   return useQuery({
-    queryKey: ['assignment-types', majorCode],
-    queryFn: () => apiFetch<AssignmentTypes>(`/course-config/${majorCode}/assignment-types`),
+    queryKey: ['progress-assignments', majorCode, studentId],
+    queryFn: () => progressAssignments(majorCode!, studentId),
     enabled: Boolean(majorCode),
   })
 }
 
-export function useProgressReport(majorCode?: string) {
+export function useProgressReport(
+  majorCode: string | undefined,
+  params: { showAllGrades?: boolean; page?: number; pageSize?: number; search?: string },
+) {
   return useQuery({
-    queryKey: ['progress-report', majorCode],
-    queryFn: () => apiFetch<ProgressReport>(`/progress/${majorCode}/report`),
+    queryKey: ['progress-report', majorCode, params],
+    queryFn: () => getProgressReport(majorCode!, params),
     enabled: Boolean(majorCode),
-    staleTime: 60_000,
   })
 }

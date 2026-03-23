@@ -559,6 +559,56 @@ export function WorkspacePage() {
                         <h4 style={{ margin: '0 0 0.4rem' }}>Advising Note</h4>
                         <p className="text-sm" style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{String((viewTarget.summary as Record<string, unknown>).note || '—')}</p>
                       </div>
+
+                      {/* Period-to-period diff */}
+                      {(() => {
+                        const idx = sessions.data?.findIndex((s) => s.id === viewTarget.id) ?? -1
+                        const prior = (sessions.data && idx >= 0) ? sessions.data[idx + 1] : undefined
+                        if (!prior) {
+                          return (
+                            <p className="text-muted text-sm" style={{ margin: 0, borderTop: '1px solid #e2e8f0', paddingTop: '1rem' }}>
+                              First recorded session — no earlier session to compare.
+                            </p>
+                          )
+                        }
+                        const vt = viewTarget.summary as Record<string, string[]>
+                        const pr = prior.summary as Record<string, string[]>
+                        const diffSection = (label: string, key: string) => {
+                          const curr = vt[key] ?? []
+                          const prev = pr[key] ?? []
+                          const added = curr.filter((c) => !prev.includes(c))
+                          const removed = prev.filter((c) => !curr.includes(c))
+                          if (added.length === 0 && removed.length === 0) return null
+                          return (
+                            <div key={key}>
+                              <div style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginBottom: '4px' }}>{label}</div>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                {added.map((c) => <span key={`+${c}`} style={{ background: '#dcfce7', color: '#166534', border: '1px solid #bbf7d0', borderRadius: '4px', padding: '1px 7px', fontSize: '0.78rem', fontFamily: 'monospace' }}>+{c}</span>)}
+                                {removed.map((c) => <span key={`-${c}`} style={{ background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca', borderRadius: '4px', padding: '1px 7px', fontSize: '0.78rem', fontFamily: 'monospace' }}>&minus;{c}</span>)}
+                              </div>
+                            </div>
+                          )
+                        }
+                        const sections = [
+                          diffSection('Advised Courses', 'advised'),
+                          diffSection('Optional Courses', 'optional'),
+                          diffSection('Repeat Courses', 'repeat'),
+                        ].filter(Boolean)
+                        return (
+                          <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '1rem' }}>
+                            <h4 style={{ margin: '0 0 0.6rem', fontSize: '0.9rem' }}>
+                              Changes from <code style={{ fontSize: '0.8rem', background: '#f1f5f9', padding: '1px 5px', borderRadius: '3px' }}>{prior.period_code ?? '—'}</code>
+                              {' → '}
+                              <code style={{ fontSize: '0.8rem', background: '#f1f5f9', padding: '1px 5px', borderRadius: '3px' }}>{viewTarget.period_code ?? '—'}</code>
+                            </h4>
+                            {sections.length > 0 ? (
+                              <div style={{ display: 'grid', gap: '0.6rem' }}>{sections}</div>
+                            ) : (
+                              <p className="text-muted text-sm" style={{ margin: 0 }}>No changes to courses between these sessions.</p>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </div>
                   </div>
                 )}

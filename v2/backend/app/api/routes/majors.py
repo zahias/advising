@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_admin, require_staff
 from app.models import Major, User
-from app.schemas.admin import MajorCreateRequest, MajorResponse
+from app.schemas.admin import MajorCreateRequest, MajorResponse, MajorUpdateRequest
 from app.services.audit import log_event
 
 router = APIRouter(prefix='/majors', tags=['majors'])
@@ -29,3 +29,28 @@ def create_major(payload: MajorCreateRequest, admin: User = Depends(require_admi
     db.commit()
     db.refresh(major)
     return major
+
+
+@router.put('/{code}', response_model=MajorResponse)
+def update_major(code: str, payload: MajorUpdateRequest, admin: User = Depends(require_admin), db: Session = Depends(get_db)) -> Major:
+    major = db.scalar(select(Major).where(Major.code == code))
+    if not major:
+        raise HTTPException(status_code=404, detail='Major not found')
+    if payload.name is not None:
+        major.name = payload.name
+    if payload.smtp_email is not None:
+        major.smtp_email = payload.smtp_email or None
+    if payload.smtp_password is not None:
+        major.smtp_password = payload.smtp_password or None
+    log_event(db, admin.id, 'major.updated', 'major', str(major.id), {'code': major.code})
+    db.commit()
+    db.refresh(major)
+    return major
+
+
+@router.get('/{code}/smtp-password')
+def reveal_smtp_password(code: str, _: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+    major = db.scalar(select(Major).where(Major.code == code))
+    if not major:
+        raise HTTPException(status_code=404, detail='Major not found')
+    return {'smtp_password': major.smtp_password or ''}

@@ -1,9 +1,8 @@
-import { ChangeEvent, useRef, useState } from 'react'
+import { ChangeEvent, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { read as xlsxRead, utils as xlsxUtils } from 'xlsx'
 
 import { API_BASE_URL } from '../../lib/api'
-import { useAssignmentTypes, useCourseAssignments, useCourseEquivalents, useDatasetVersions, usePeriods, useSessions, useStaleness, useStudents } from '../../lib/hooks'
+import { useDatasetVersions, usePeriods, useSessions, useStudents } from '../../lib/hooks'
 import { useMajorContext } from '../../lib/MajorContext'
 import { Tooltip } from '../../components/Tooltip'
 
@@ -47,36 +46,11 @@ export function AdviserSettingsPage() {
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
 
-  // Major mapping modal (for progress uploads)
-  const [mappingModalOpen, setMappingModalOpen] = useState(false)
-  const [fileMajorCodes, setFileMajorCodes] = useState<string[]>([])
-  const [majorMapping, setMajorMapping] = useState<Record<string, string>>({})
-  const [pendingUploadFile, setPendingUploadFile] = useState<File | null>(null)
-
-  // Course equivalents
-  const [newAlias, setNewAlias] = useState('')
-  const [newCanonical, setNewCanonical] = useState('')
-
-  // Course assignments
-  const [newStudentId, setNewStudentId] = useState('')
-  const [newAsmtType, setNewAsmtType] = useState('S.C.E')
-  const [newAsmtCourse, setNewAsmtCourse] = useState('')
-  const csvImportRef = useRef<HTMLInputElement>(null)
-
-  // Assignment types
-  const [editingTypes, setEditingTypes] = useState<string[] | null>(null)
-  const [newTypeInput, setNewTypeInput] = useState('')
-
   const periods = usePeriods(majorCode)
   const activePeriod = periods.data?.find((p) => p.is_active)
   const students = useStudents(majorCode, studentQuery)
   const sessions = useSessions(majorCode, activePeriod?.period_code)
   const versions = useDatasetVersions(majorCode)
-  const staleness = useStaleness(majorCode)
-  const equivalents = useCourseEquivalents(majorCode)
-  const assignments = useCourseAssignments(majorCode)
-  const asmtTypes = useAssignmentTypes(majorCode)
-  const activeCourses = versions.data?.find(v => v.dataset_type === 'courses' && v.is_active)
 
   function showMsg(type: 'success' | 'error', text: string) {
     setMessage({ type, text })
@@ -162,31 +136,15 @@ export function AdviserSettingsPage() {
     a.remove(); URL.revokeObjectURL(url)
   }
 
-  // ── MAJOR detection (progress files) ────────────────────────────────────
-  async function detectMajorCodes(file: File): Promise<string[]> {
-    const buf = await file.arrayBuffer()
-    const wb = xlsxRead(buf)
-    const ws = wb.Sheets[wb.SheetNames[0]]
-    const rows = xlsxUtils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' }) as Record<string, unknown>[]
-    const codes = new Set<string>()
-    for (const row of rows) {
-      const val = String(row['MAJOR'] ?? '').trim()
-      if (val) codes.add(val)
-    }
-    return Array.from(codes)
-  }
-
   // ── Data file upload ─────────────────────────────────────────────────────
-  async function doUpload(file: File, mapping: Record<string, string> | null) {
+  async function handleUpload() {
+    if (!uploadFile) return
     setUploading(true)
     const token = window.localStorage.getItem('advising_v2_token')
     const formData = new FormData()
     formData.append('major_code', majorCode)
     formData.append('dataset_type', uploadType)
-    formData.append('file', file)
-    if (mapping && Object.keys(mapping).length > 0) {
-      formData.append('major_mapping', JSON.stringify(mapping))
-    }
+    formData.append('file', uploadFile)
     const res = await fetch(`${API_BASE_URL}/api/datasets/upload`, {
       method: 'POST', body: formData,
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
@@ -195,102 +153,7 @@ export function AdviserSettingsPage() {
     if (!res.ok) { showMsg('error', await res.text()); return }
     showMsg('success', `${DATASET_LABELS[uploadType] ?? uploadType} uploaded successfully.`)
     setUploadFile(null)
-    setPendingUploadFile(null)
-    setMappingModalOpen(false)
     queryClient.invalidateQueries({ queryKey: ['dataset-versions', majorCode] })
-    queryClient.invalidateQueries({ queryKey: ['staleness', majorCode] })
-    queryClient.invalidateQueries({ queryKey: ['progress-report', majorCode] })
-  }
-
-  async function handleUpload() {
-    if (!uploadFile) return
-    if (uploadType === 'progress' && !activeCourses) {
-      showMsg('error', 'Upload a Course Catalog first before uploading a Progress Report.')
-      return
-    }
-    if (uploadType === 'progress') {
-      const codes = await detectMajorCodes(uploadFile)
-      if (codes.length > 0 && !codes.includes(majorCode)) {
-        setPendingUploadFile(uploadFile)
-        setFileMajorCodes(codes)
-        const init: Record<string, string> = {}
-        for (const c of codes) init[c] = ''
-        setMajorMapping(init)
-        setMappingModalOpen(true)
-        return
-      }
-    }
-    await doUpload(uploadFile, null)
-  }
-
-  async function handleMappingConfirm() {
-    if (!pendingUploadFile) return
-    await doUpload(pendingUploadFile, majorMapping)
-  }
-
-  // ── Course equivalents ───────────────────────────────────────────────────
-  async function handleAddEquivalent() {
-    if (!newAlias.trim() || !newCanonical.trim()) return
-    const res = await authedFetch(`/course-config/${majorCode}/equivalents`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ alias_code: newAlias.trim().toUpperCase(), canonical_code: newCanonical.trim().toUpperCase() }),
-    })
-    if (!res.ok) { showMsg('error', await res.text()); return }
-    setNewAlias(''); setNewCanonical('')
-    queryClient.invalidateQueries({ queryKey: ['course-equivalents', majorCode] })
-  }
-
-  async function handleDeleteEquivalent(id: number) {
-    const res = await authedFetch(`/course-config/${majorCode}/equivalents/${id}`, { method: 'DELETE' })
-    if (!res.ok) { showMsg('error', await res.text()); return }
-    queryClient.invalidateQueries({ queryKey: ['course-equivalents', majorCode] })
-  }
-
-  // ── Course assignments ───────────────────────────────────────────────────
-  async function handleAddAssignment() {
-    if (!newStudentId.trim() || !newAsmtCourse.trim()) return
-    const res = await authedFetch(`/course-config/${majorCode}/assignments`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ student_id: newStudentId.trim(), assignment_type: newAsmtType, course_code: newAsmtCourse.trim().toUpperCase() }),
-    })
-    if (!res.ok) { showMsg('error', await res.text()); return }
-    setNewStudentId(''); setNewAsmtCourse('')
-    queryClient.invalidateQueries({ queryKey: ['course-assignments', majorCode] })
-  }
-
-  async function handleDeleteAssignment(id: number) {
-    const res = await authedFetch(`/course-config/${majorCode}/assignments/${id}`, { method: 'DELETE' })
-    if (!res.ok) { showMsg('error', await res.text()); return }
-    queryClient.invalidateQueries({ queryKey: ['course-assignments', majorCode] })
-  }
-
-  async function handleBulkImportAssignments(file: File) {
-    const formData = new FormData()
-    formData.append('file', file)
-    const token = window.localStorage.getItem('advising_v2_token')
-    const res = await fetch(`${API_BASE_URL}/api/course-config/${majorCode}/assignments/bulk-import`, {
-      method: 'POST', body: formData,
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    })
-    if (!res.ok) { showMsg('error', await res.text()); return }
-    const body = await res.json().catch(() => null)
-    showMsg('success', body?.message || 'Assignments imported.')
-    queryClient.invalidateQueries({ queryKey: ['course-assignments', majorCode] })
-  }
-
-  // ── Assignment types ─────────────────────────────────────────────────────
-  async function handleSaveAssignmentTypes() {
-    if (!editingTypes) return
-    const res = await authedFetch(`/course-config/${majorCode}/assignment-types`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ types: editingTypes }),
-    })
-    if (!res.ok) { showMsg('error', await res.text()); return }
-    queryClient.invalidateQueries({ queryKey: ['assignment-types', majorCode] })
-    setEditingTypes(null)
   }
 
   return (
@@ -313,13 +176,6 @@ export function AdviserSettingsPage() {
         <div className={`alert mb-4 ${message.type === 'error' ? 'alert-error' : 'alert-success'}`}>
           {message.text}
           <button type="button" className="close-btn" onClick={() => setMessage(null)}>&times;</button>
-        </div>
-      )}
-
-      {staleness.data?.stale && (
-        <div className="alert mb-4" style={{ background: '#fefce8', border: '1px solid #fde047', color: '#854d0e' }}>
-          <strong>Progress data may be stale.</strong>{' '}
-          The course catalog was updated after the last progress upload. Re-upload the progress report to reflect the latest rules.
         </div>
       )}
 
@@ -459,11 +315,6 @@ export function AdviserSettingsPage() {
             })}
           </div>
 
-          {uploadType === 'progress' && !activeCourses && (
-            <div style={{ fontSize: '0.75rem', color: '#854d0e', background: '#fefce8', border: '1px solid #fde047', borderRadius: '8px', padding: '0.4rem 0.7rem', marginBottom: '0.4rem' }}>
-              ⚠ Upload the Course Catalog first before uploading a Progress Report.
-            </div>
-          )}
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
             <label style={{ flex: 1, padding: '0.55rem 0.9rem', background: '#f8fafc', border: '1px dashed var(--line)', borderRadius: '10px', cursor: 'pointer', fontSize: '0.875rem', color: uploadFile ? 'var(--ink)' : 'var(--muted)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -553,175 +404,6 @@ export function AdviserSettingsPage() {
           })()}
         </div>
       </div>
-
-      {/* Row 3: Course Equivalents + Assignment Types */}
-      <div className="grid-2 mt-6">
-        {/* Course Equivalents */}
-        <div className="panel stack">
-          <h3 style={{ margin: 0, marginBottom: '0.5rem' }}>
-            Course Equivalents{' '}
-            <Tooltip text="Map legacy or unofficial course codes to canonical codes used in the course catalog. Aliases are resolved before matching." />
-          </h3>
-          <p className="text-sm text-muted" style={{ margin: '0 0 0.75rem' }}>Alias codes in progress reports are normalized to their canonical equivalent before grade matching.</p>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '0.4rem', marginBottom: '0.75rem', alignItems: 'end' }}>
-            <div>
-              <label style={{ fontSize: '0.68rem', color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '2px' }}>Alias</label>
-              <input className="w-full" value={newAlias} onChange={(e) => setNewAlias(e.target.value)} placeholder="e.g. NURS101A" />
-            </div>
-            <div>
-              <label style={{ fontSize: '0.68rem', color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '2px' }}>Canonical</label>
-              <input className="w-full" value={newCanonical} onChange={(e) => setNewCanonical(e.target.value)} placeholder="e.g. NURS101" />
-            </div>
-            <button type="button" className="btn-primary btn-sm" onClick={handleAddEquivalent} disabled={!newAlias.trim() || !newCanonical.trim()}>Add</button>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', maxHeight: '220px', overflowY: 'auto' }}>
-            {equivalents.data?.length === 0 && (
-              <p className="text-muted text-sm" style={{ textAlign: 'center', padding: '1.5rem' }}>No equivalents defined.</p>
-            )}
-            {equivalents.data?.map(eq => (
-              <div key={eq.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.45rem 0.75rem', borderRadius: '8px', background: '#fafafa', border: '1px solid var(--line)', fontSize: '0.85rem' }}>
-                <span>
-                  <code style={{ background: '#eee', borderRadius: '4px', padding: '1px 5px' }}>{eq.alias_code}</code>
-                  <span style={{ color: 'var(--muted)', margin: '0 6px' }}>→</span>
-                  <code style={{ background: '#eee', borderRadius: '4px', padding: '1px 5px' }}>{eq.canonical_code}</code>
-                </span>
-                <button type="button" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--muted)', padding: '2px 6px' }} onClick={() => handleDeleteEquivalent(eq.id)}>✕</button>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Assignment Types */}
-        <div className="panel stack">
-          <div className="flex-between mb-2">
-            <h3 style={{ margin: 0 }}>
-              Assignment Types{' '}
-              <Tooltip text="Labels used to categorize per-student course assignments, e.g. S.C.E and F.E.C." />
-            </h3>
-            {editingTypes
-              ? <div style={{ display: 'flex', gap: '0.4rem' }}>
-                  <button type="button" className="btn-sm btn-outline" onClick={() => setEditingTypes(null)}>Cancel</button>
-                  <button type="button" className="btn-primary btn-sm" onClick={handleSaveAssignmentTypes}>Save</button>
-                </div>
-              : <button type="button" className="btn-sm btn-outline" onClick={() => setEditingTypes(asmtTypes.data?.types ?? [])}>Edit</button>
-            }
-          </div>
-          {editingTypes ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
-                {editingTypes.map((t, i) => (
-                  <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: '#e0f2fe', borderRadius: '20px', padding: '3px 10px 3px 12px', fontSize: '0.82rem', fontWeight: 500 }}>
-                    {t}
-                    <button type="button" onClick={() => setEditingTypes(editingTypes.filter((_, j) => j !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0369a1', padding: 0, lineHeight: 1 }}>✕</button>
-                  </span>
-                ))}
-              </div>
-              <div style={{ display: 'flex', gap: '0.4rem' }}>
-                <input className="w-full" placeholder="New type…" value={newTypeInput} onChange={(e) => setNewTypeInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && newTypeInput.trim()) { setEditingTypes([...editingTypes, newTypeInput.trim()]); setNewTypeInput('') } }} />
-                <button type="button" className="btn-sm btn-outline" onClick={() => { if (newTypeInput.trim()) { setEditingTypes([...editingTypes, newTypeInput.trim()]); setNewTypeInput('') } }}>+</button>
-              </div>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginTop: '0.25rem' }}>
-              {(asmtTypes.data?.types ?? []).map((t) => (
-                <span key={t} style={{ background: '#e0f2fe', borderRadius: '20px', padding: '3px 12px', fontSize: '0.82rem', fontWeight: 500, color: '#0369a1' }}>{t}</span>
-              ))}
-              {!asmtTypes.data?.types?.length && <p className="text-sm text-muted">No types defined. Click Edit to add.</p>}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Row 4: Course Assignments */}
-      <div className="mt-6">
-        <div className="panel stack">
-          <div className="flex-between mb-2">
-            <h3 style={{ margin: 0 }}>
-              Course Assignments (SCE / FEC){' '}
-              <Tooltip text="Per-student course assignments used during progress processing. Bulk-import with a CSV containing columns: student_id, assignment_type, course." />
-            </h3>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button type="button" className="btn-sm btn-outline" onClick={() => csvImportRef.current?.click()}>↑ Import CSV</button>
-              <input ref={csvImportRef} type="file" accept=".csv" style={{ display: 'none' }}
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleBulkImportAssignments(f); e.target.value = '' }} />
-            </div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr auto', gap: '0.4rem', marginBottom: '0.75rem', alignItems: 'end' }}>
-            <div>
-              <label style={{ fontSize: '0.68rem', color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '2px' }}>Student ID</label>
-              <input value={newStudentId} onChange={(e) => setNewStudentId(e.target.value)} placeholder="e.g. 202012345" />
-            </div>
-            <div>
-              <label style={{ fontSize: '0.68rem', color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '2px' }}>Type</label>
-              <select value={newAsmtType} onChange={(e) => setNewAsmtType(e.target.value)} style={{ width: 'auto' }}>
-                {(asmtTypes.data?.types ?? ['S.C.E', 'F.E.C']).map(t => <option key={t}>{t}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: '0.68rem', color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '2px' }}>Course Code</label>
-              <input value={newAsmtCourse} onChange={(e) => setNewAsmtCourse(e.target.value)} placeholder="e.g. NURS499" />
-            </div>
-            <button type="button" className="btn-primary btn-sm" onClick={handleAddAssignment} disabled={!newStudentId.trim() || !newAsmtCourse.trim()}>Add</button>
-          </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-              <thead>
-                <tr style={{ background: '#f8fafc', borderBottom: '2px solid var(--line)' }}>
-                  <th style={{ textAlign: 'left', padding: '0.45rem 0.75rem', fontWeight: 600 }}>Student ID</th>
-                  <th style={{ textAlign: 'left', padding: '0.45rem 0.75rem', fontWeight: 600 }}>Type</th>
-                  <th style={{ textAlign: 'left', padding: '0.45rem 0.75rem', fontWeight: 600 }}>Course</th>
-                  <th style={{ padding: '0.45rem 0.75rem' }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {assignments.data?.length === 0 && (
-                  <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--muted)', padding: '1.5rem', fontSize: '0.8rem' }}>No assignments yet. Use Add or Import CSV.</td></tr>
-                )}
-                {assignments.data?.map(a => (
-                  <tr key={a.id} style={{ borderBottom: '1px solid var(--line)' }}>
-                    <td style={{ padding: '0.4rem 0.75rem', fontFamily: 'monospace' }}>{a.student_id}</td>
-                    <td style={{ padding: '0.4rem 0.75rem' }}>{a.assignment_type}</td>
-                    <td style={{ padding: '0.4rem 0.75rem' }}><code style={{ background: '#eee', borderRadius: '4px', padding: '1px 5px' }}>{a.course_code}</code></td>
-                    <td style={{ padding: '0.4rem 0.75rem', textAlign: 'right' }}>
-                      <button type="button" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--muted)' }} onClick={() => handleDeleteAssignment(a.id)}>✕</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      {/* Major Mapping Modal */}
-      {mappingModalOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'white', borderRadius: '18px', padding: '2rem', maxWidth: '500px', width: '90%', maxHeight: '80vh', overflow: 'auto', boxShadow: '0 25px 60px rgba(0,0,0,0.3)' }}>
-            <h3 style={{ margin: '0 0 0.5rem' }}>Map Major Codes</h3>
-            <p className="text-sm text-muted" style={{ marginBottom: '1.25rem' }}>
-              The progress file contains MAJOR codes not matching <strong>{majorCode}</strong>. Map each code to an app major, or leave blank to skip those rows.
-            </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginBottom: '1.25rem' }}>
-              {fileMajorCodes.map(code => (
-                <div key={code} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '0.5rem', alignItems: 'center' }}>
-                  <label style={{ fontSize: '0.875rem' }}>File code: <code style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px' }}>{code}</code></label>
-                  <select style={{ width: '140px' }} value={majorMapping[code] ?? ''} onChange={(e) => setMajorMapping(prev => ({ ...prev, [code]: e.target.value }))}>
-                    <option value="">— skip —</option>
-                    <option value={majorCode}>{majorCode}</option>
-                  </select>
-                </div>
-              ))}
-            </div>
-            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-              <button type="button" className="btn-sm btn-outline" onClick={() => { setMappingModalOpen(false); setPendingUploadFile(null) }}>Cancel</button>
-              <button type="button" className="btn-primary btn-sm" onClick={handleMappingConfirm} disabled={uploading}>
-                {uploading ? 'Uploading…' : 'Confirm & Upload'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </section>
   )
 }

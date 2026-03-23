@@ -17,6 +17,7 @@ class DashboardMetrics(BaseModel):
     progress_percent: int
     graduating_soon_unadvised: list[GraduatingSoonStudent]
     recent_activity: list[dict[str, Any]]
+    credit_distribution: list[dict[str, Any]] = []
 
 
 class CourseOfferingRecommendation(BaseModel):

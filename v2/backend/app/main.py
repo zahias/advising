@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import inspect as sa_inspect, text
 
 from app.api.router import api_router
 from app.core.config import get_settings
@@ -22,6 +23,27 @@ app.include_router(api_router, prefix='/api')
 
 @app.on_event('startup')
 def on_startup() -> None:
+    # Add progress_version_id column to advising_periods if it doesn't exist yet
+    # (SQLite does not support ADD COLUMN IF NOT EXISTS, so we use inspect)
+    existing_cols = {col['name'] for col in sa_inspect(engine).get_columns('advising_periods')}
+    if 'progress_version_id' not in existing_cols:
+        with engine.connect() as conn:
+            conn.execute(text(
+                'ALTER TABLE advising_periods '
+                'ADD COLUMN progress_version_id INTEGER '
+                'REFERENCES dataset_versions(id)'
+            ))
+            conn.commit()
+
+    # Add per-major SMTP columns if they don't exist yet
+    major_cols = {col['name'] for col in sa_inspect(engine).get_columns('majors')}
+    with engine.connect() as conn:
+        if 'smtp_email' not in major_cols:
+            conn.execute(text('ALTER TABLE majors ADD COLUMN smtp_email VARCHAR(255)'))
+        if 'smtp_password' not in major_cols:
+            conn.execute(text('ALTER TABLE majors ADD COLUMN smtp_password VARCHAR(255)'))
+        conn.commit()
+
     Base.metadata.create_all(bind=engine)
     session = SessionLocal()
     try:

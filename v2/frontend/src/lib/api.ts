@@ -14,6 +14,8 @@ export type Major = {
   code: string
   name: string
   is_active: boolean
+  smtp_email: string | null
+  smtp_configured: boolean
 }
 
 export type DashboardMetrics = {
@@ -23,6 +25,7 @@ export type DashboardMetrics = {
   progress_percent: number
   graduating_soon_unadvised: { student_id: string; student_name: string }[]
   recent_activity: { student_name: string; created_at: string }[]
+  credit_distribution: { label: string; count: number }[]
 }
 
 export type CourseOfferingRecommendation = {
@@ -150,6 +153,7 @@ export type UserRecord = {
   role: string
   is_active: boolean
   created_at: string
+  major_codes: string[]
 }
 
 export type BackupRun = {
@@ -275,64 +279,6 @@ export type PlannerSelectionState = {
   saved_at: string | null
 }
 
-// ── Course config types ──────────────────────────────────────────────────────
-export type CourseEquivalent = {
-  id: number
-  alias_code: string
-  canonical_code: string
-}
-
-export type CourseAssignment = {
-  id: number
-  student_id: string
-  assignment_type: string
-  course_code: string
-}
-
-export type AssignmentTypes = {
-  types: string[]
-}
-
-// ── Progress types ───────────────────────────────────────────────────────────
-export type StalenessInfo = {
-  stale: boolean
-  rules_updated_at: string | null
-  progress_uploaded_at: string | null
-}
-
-export type ProgressCellData = {
-  raw: string
-  primary: string
-  status: 'pass' | 'cr' | 'nc' | 'empty'
-}
-
-export type ProgressStudentRow = {
-  student_id: string
-  student_name: string
-  credits_completed: number
-  credits_registered: number
-  credits_remaining: number
-  required: Record<string, ProgressCellData>
-  intensive: Record<string, ProgressCellData>
-}
-
-export type ProgressReport = {
-  required_courses: string[]
-  intensive_courses: string[]
-  students: ProgressStudentRow[]
-  extra_courses: ExtraCourseRow[]
-  assignment_types: string[]
-}
-
-export type ExtraCourseRow = {
-  student_id: string
-  student_name: string
-  course: string
-  grade: string
-  year: string
-  semester: string
-}
-
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const token = window.localStorage.getItem('advising_v2_token')
   const response = await fetch(`${API_BASE_URL}/api${path}`, {
@@ -359,4 +305,226 @@ export async function login(email: string, password: string) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   })
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Academic Progress types
+// ─────────────────────────────────────────────────────────────────
+
+export type ProgressReportStatus = {
+  has_report: boolean
+  student_count: number
+  uploaded_at: string | null
+}
+
+export type CourseConfigStatus = {
+  has_config: boolean
+  required_count: number
+  intensive_count: number
+}
+
+export type ProgressDataStatus = {
+  progress_report: ProgressReportStatus
+  course_config: CourseConfigStatus
+}
+
+export type EquivalentCourse = {
+  id: number
+  alias_code: string
+  canonical_code: string
+}
+
+export type AssignmentType = {
+  id: number
+  label: string
+  sort_order: number
+}
+
+export type ProgressAssignment = {
+  id: number
+  student_id: string
+  assignment_type: string
+  course_code: string
+}
+
+export type StudentProgressRow = {
+  student_id: string
+  name: string
+  courses: Record<string, string>
+  completed_credits: number
+  registered_credits: number
+  remaining_credits: number
+  total_credits: number
+  gpa: number | null
+}
+
+export type ProgressReportResponse = {
+  required: StudentProgressRow[]
+  intensive: StudentProgressRow[]
+  extra_courses: string[]
+  total_students: number
+  page: number
+  page_size: number
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Academic Progress fetchers
+// ─────────────────────────────────────────────────────────────────
+
+export function progressStatus(majorCode: string) {
+  return apiFetch<ProgressDataStatus>(`/progress/${majorCode}/status`)
+}
+
+export function progressEquivalents(majorCode: string) {
+  return apiFetch<EquivalentCourse[]>(`/progress/${majorCode}/equivalents`)
+}
+
+export function setProgressEquivalents(majorCode: string, pairs: { alias_code: string; canonical_code: string }[]) {
+  return apiFetch<EquivalentCourse[]>(`/progress/${majorCode}/equivalents`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(pairs),
+  })
+}
+
+export function progressAssignmentTypes(majorCode: string) {
+  return apiFetch<AssignmentType[]>(`/progress/${majorCode}/assignment-types`)
+}
+
+export function createProgressAssignmentType(majorCode: string, label: string, sort_order?: number) {
+  return apiFetch<AssignmentType>(`/progress/${majorCode}/assignment-types`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ label, sort_order: sort_order ?? 0 }),
+  })
+}
+
+export function deleteProgressAssignmentType(majorCode: string, typeId: number) {
+  return apiFetch<{ message: string }>(`/progress/${majorCode}/assignment-types/${typeId}`, {
+    method: 'DELETE',
+  })
+}
+
+export function progressAssignments(majorCode: string, studentId?: string) {
+  const qs = studentId ? `?student_id=${encodeURIComponent(studentId)}` : ''
+  return apiFetch<ProgressAssignment[]>(`/progress/${majorCode}/assignments${qs}`)
+}
+
+export function saveProgressAssignment(majorCode: string, payload: { student_id: string; assignment_type: string; course_code: string }) {
+  return apiFetch<ProgressAssignment>(`/progress/${majorCode}/assignments`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteProgressAssignment(majorCode: string, studentId: string, assignmentType: string) {
+  return apiFetch<{ message: string }>(
+    `/progress/${majorCode}/assignments/one?student_id=${encodeURIComponent(studentId)}&assignment_type=${encodeURIComponent(assignmentType)}`,
+    { method: 'DELETE' },
+  )
+}
+
+export function resetProgressAssignments(majorCode: string) {
+  return apiFetch<{ message: string }>(`/progress/${majorCode}/assignments`, { method: 'DELETE' })
+}
+
+export function getProgressReport(majorCode: string, params: { showAllGrades?: boolean; page?: number; pageSize?: number; search?: string }) {
+  const qs = new URLSearchParams()
+  if (params.showAllGrades) qs.set('show_all_grades', 'true')
+  if (params.page) qs.set('page', String(params.page))
+  if (params.pageSize) qs.set('page_size', String(params.pageSize))
+  if (params.search) qs.set('search', params.search)
+  return apiFetch<ProgressReportResponse>(`/progress/${majorCode}/report?${qs}`)
+}
+
+export function progressExportPath(majorCode: string, showAllGrades = false, collapseMode = false) {
+  const params = new URLSearchParams()
+  if (showAllGrades) params.set('show_all_grades', 'true')
+  if (collapseMode) params.set('collapse_mode', 'true')
+  const qs = params.size ? `?${params.toString()}` : ''
+  return `/progress/${majorCode}/report/export${qs}`
+}
+
+export function pushProgressToAdvising(majorCode: string) {
+  return apiFetch<{ message: string; version_id: number; student_count: number }>(
+    `/progress/${majorCode}/push-to-advising`,
+    { method: 'POST' },
+  )
+}
+
+export function createPeriod(payload: { major_code: string; semester: string; year: number; advisor_name: string }) {
+  return apiFetch<{ period_code: string; semester: string; year: number }>('/periods', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function uploadProgressReport(majorCode: string, file: File) {
+  const fd = new FormData()
+  fd.append('file', file)
+  return apiFetch<{ student_count: number; row_count: number }>(`/progress/${majorCode}/upload/progress-report`, {
+    method: 'POST',
+    body: fd,
+  })
+}
+
+export async function previewProgressReport(majorCode: string, file: File) {
+  const fd = new FormData()
+  fd.append('file', file)
+  return apiFetch<{ new_students: number; removed_students: number; grade_changes: number; total_students: number }>(
+    `/progress/${majorCode}/upload/progress-report/preview`,
+    { method: 'POST', body: fd },
+  )
+}
+
+export async function uploadCourseConfig(majorCode: string, file: File) {
+  const fd = new FormData()
+  fd.append('file', file)
+  return apiFetch<{ required_count: number; intensive_count: number }>(`/progress/${majorCode}/upload/course-config`, {
+    method: 'POST',
+    body: fd,
+  })
+}
+
+export async function uploadElectiveAssignments(majorCode: string, file: File) {
+  const fd = new FormData()
+  fd.append('file', file)
+  return apiFetch<{ upserted: number; skipped: number; errors: string[] }>(
+    `/progress/${majorCode}/upload/elective-assignments`,
+    { method: 'POST', body: fd },
+  )
+}
+
+export function updateUser(userId: number, payload: { full_name?: string; role?: string; major_codes?: string[]; new_password?: string }) {
+  return apiFetch<UserRecord>(`/users/${userId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteUser(userId: number) {
+  return apiFetch<{ deleted: boolean }>(`/users/${userId}`, { method: 'DELETE' })
+}
+
+export function createMajor(payload: { code: string; name: string }) {
+  return apiFetch<Major>('/majors', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateMajor(code: string, payload: { name?: string; smtp_email?: string; smtp_password?: string }) {
+  return apiFetch<Major>(`/majors/${code}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function revealSmtpPassword(code: string) {
+  return apiFetch<{ smtp_password: string }>(`/majors/${code}/smtp-password`)
 }

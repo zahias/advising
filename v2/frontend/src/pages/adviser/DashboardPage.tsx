@@ -102,6 +102,34 @@ export function DashboardPage() {
           )}
         </div>
       </div>
+
+      {/* Credit Distribution */}
+      {dashboard.data?.credit_distribution && dashboard.data.credit_distribution.length > 0 && (() => {
+        const maxCount = Math.max(...dashboard.data.credit_distribution.map((b) => b.count), 1)
+        return (
+          <div className="panel stack">
+            <div className="panel-header mb-4">
+              <h3>Credit Distribution</h3>
+              <p className="text-muted text-sm">Remaining credits across all enrolled students.</p>
+            </div>
+            <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', padding: '0 8px' }}>
+              {dashboard.data.credit_distribution.map((bucket) => {
+                const pct = Math.round((bucket.count / maxCount) * 100)
+                const color = bucket.label === '≤18' ? '#22c55e' : bucket.label === '19–36' ? '#f59e0b' : bucket.label === '37–72' ? '#94a3b8' : '#64748b'
+                return (
+                  <div key={bucket.label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a' }}>{bucket.count}</span>
+                    <div style={{ width: '100%', background: '#e2e8f0', borderRadius: '6px 6px 0 0', height: '80px', display: 'flex', alignItems: 'flex-end', overflow: 'hidden' }}>
+                      <div style={{ width: '100%', height: `${Math.max(pct, 4)}%`, background: color, transition: 'height 0.4s ease', borderRadius: '6px 6px 0 0' }} />
+                    </div>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>{bucket.label} cr</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })()}
     </section>
   )
 }

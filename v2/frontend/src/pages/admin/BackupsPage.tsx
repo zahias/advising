@@ -20,6 +20,8 @@ export function BackupsPage() {
   const backups = useBackups()
   const [triggering, setTriggering] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [restoreTarget, setRestoreTarget] = useState<{ id: number; date: string } | null>(null)
+  const [restoring, setRestoring] = useState(false)
 
   async function handleTrigger() {
     setTriggering(true)
@@ -33,6 +35,21 @@ export function BackupsPage() {
     }
     setMessage({ type: 'success', text: 'Backup completed successfully.' })
     queryClient.invalidateQueries({ queryKey: ['backups'] })
+  }
+
+  async function handleRestore() {
+    if (!restoreTarget) return
+    setRestoring(true)
+    setMessage(null)
+    const r = await authedFetch(`/backups/${restoreTarget.id}/restore`, { method: 'POST' })
+    setRestoring(false)
+    setRestoreTarget(null)
+    if (!r.ok) {
+      const body = await r.json().catch(() => null)
+      setMessage({ type: 'error', text: body?.detail || 'Restore failed.' })
+      return
+    }
+    setMessage({ type: 'success', text: 'Database restored successfully. Reload the page to see updated data.' })
   }
 
   return (
@@ -90,6 +107,7 @@ export function BackupsPage() {
                   <th>File Counts</th>
                   <th>Notes</th>
                   <th>Date</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -118,6 +136,17 @@ export function BackupsPage() {
                       </td>
                       <td style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>{b.notes ?? '—'}</td>
                       <td style={{ fontSize: '0.8rem', color: 'var(--muted)', whiteSpace: 'nowrap' }}>{new Date(b.created_at).toLocaleString()}</td>
+                      <td>
+                        {b.status === 'completed' && (
+                          <button
+                            className="btn-sm"
+                            style={{ fontSize: '0.7rem', padding: '2px 8px', color: '#dc2626' }}
+                            onClick={() => setRestoreTarget({ id: b.id, date: new Date(b.created_at).toLocaleString() })}
+                          >
+                            Restore
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   )
                 })}
@@ -126,6 +155,29 @@ export function BackupsPage() {
           </div>
         )}
       </div>
+
+      {/* Restore confirmation modal */}
+      {restoreTarget && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+             onClick={() => !restoring && setRestoreTarget(null)}>
+          <div className="panel stack" style={{ width: '420px' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: 0, color: '#dc2626' }}>Restore Database</h3>
+            <p style={{ margin: '0.5rem 0', fontSize: '0.875rem' }}>
+              This will <strong>overwrite the current database</strong> with backup #{restoreTarget.id} from <strong>{restoreTarget.date}</strong>.
+            </p>
+            <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--muted)' }}>
+              This action cannot be undone. Consider creating a new backup first.
+            </p>
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.75rem' }}>
+              <button className="btn-sm" disabled={restoring} onClick={() => setRestoreTarget(null)}>Cancel</button>
+              <button className="btn-sm" disabled={restoring} onClick={handleRestore}
+                style={{ background: '#dc2626', color: '#fff', fontWeight: 700 }}>
+                {restoring ? 'Restoring…' : 'Confirm Restore'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   )
 }

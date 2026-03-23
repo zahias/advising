@@ -26,6 +26,10 @@ class User(TimestampMixin, Base):
 
     major_access: Mapped[list['UserMajorAccess']] = relationship(back_populates='user', cascade='all, delete-orphan')
 
+    @property
+    def major_codes(self) -> list[str]:
+        return sorted([acc.major.code for acc in self.major_access])
+
 
 class Major(TimestampMixin, Base):
     __tablename__ = 'majors'
@@ -34,14 +38,11 @@ class Major(TimestampMixin, Base):
     code: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    assignment_types: Mapped[list] = mapped_column(JSON, default=lambda: ['S.C.E', 'F.E.C'], nullable=False)
-    rules_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    smtp_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, default=None)
+    smtp_password: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, default=None)
 
     datasets: Mapped[list['DatasetVersion']] = relationship(back_populates='major', cascade='all, delete-orphan')
     periods: Mapped[list['AdvisingPeriod']] = relationship(back_populates='major', cascade='all, delete-orphan')
-    course_equivalents: Mapped[list['CourseEquivalent']] = relationship(back_populates='major', cascade='all, delete-orphan')
-    course_rules: Mapped[list['CourseRule']] = relationship(back_populates='major', cascade='all, delete-orphan')
-    course_assignments: Mapped[list['CourseAssignment']] = relationship(back_populates='major', cascade='all, delete-orphan')
 
 
 class UserMajorAccess(TimestampMixin, Base):
@@ -96,6 +97,9 @@ class AdvisingPeriod(TimestampMixin, Base):
     advisor_name: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    progress_version_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey('dataset_versions.id', ondelete='SET NULL'), nullable=True, default=None
+    )
 
     major: Mapped['Major'] = relationship(back_populates='periods')
 
@@ -219,43 +223,3 @@ class AuditEvent(TimestampMixin, Base):
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
 
     actor: Mapped[Optional['User']] = relationship('User', foreign_keys=[actor_user_id])
-
-
-class CourseEquivalent(TimestampMixin, Base):
-    __tablename__ = 'course_equivalents'
-    __table_args__ = (UniqueConstraint('major_id', 'alias_code', name='uq_course_equivalent_scope'),)
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    major_id: Mapped[int] = mapped_column(ForeignKey('majors.id', ondelete='CASCADE'), index=True)
-    alias_code: Mapped[str] = mapped_column(String(64), index=True)
-    canonical_code: Mapped[str] = mapped_column(String(64))
-
-    major: Mapped['Major'] = relationship(back_populates='course_equivalents')
-
-
-class CourseRule(TimestampMixin, Base):
-    __tablename__ = 'course_rules'
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    major_id: Mapped[int] = mapped_column(ForeignKey('majors.id', ondelete='CASCADE'), index=True)
-    course_code: Mapped[str] = mapped_column(String(64), index=True)
-    credits: Mapped[int] = mapped_column(Integer, default=0)
-    passing_grades: Mapped[str] = mapped_column(Text, default='')
-    course_type: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
-    from_semester: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    to_semester: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-
-    major: Mapped['Major'] = relationship(back_populates='course_rules')
-
-
-class CourseAssignment(TimestampMixin, Base):
-    __tablename__ = 'course_assignments'
-    __table_args__ = (UniqueConstraint('major_id', 'student_id', 'assignment_type', name='uq_course_assignment_scope'),)
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    major_id: Mapped[int] = mapped_column(ForeignKey('majors.id', ondelete='CASCADE'), index=True)
-    student_id: Mapped[str] = mapped_column(String(64), index=True)
-    assignment_type: Mapped[str] = mapped_column(String(64))
-    course_code: Mapped[str] = mapped_column(String(64))
-
-    major: Mapped['Major'] = relationship(back_populates='course_assignments')

@@ -16,8 +16,6 @@ class Settings(BaseSettings):
     jwt_secret: str = Field(default='change-me', alias='JWT_SECRET')
     jwt_expiry_minutes: int = Field(default=480, alias='JWT_EXPIRY_MINUTES')
     cors_origins_raw: str = Field(default='http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:5176,http://127.0.0.1:5176', alias='CORS_ORIGINS')
-    smtp_email: Optional[str] = Field(default=None, alias='SMTP_EMAIL')
-    smtp_password: Optional[str] = Field(default=None, alias='SMTP_PASSWORD')
     r2_account_id: Optional[str] = Field(default=None, alias='R2_ACCOUNT_ID')
     r2_access_key_id: Optional[str] = Field(default=None, alias='R2_ACCESS_KEY_ID')
     r2_secret_access_key: Optional[str] = Field(default=None, alias='R2_SECRET_ACCESS_KEY')

@@ -16,6 +16,13 @@ class UserCreateRequest(BaseModel):
     major_codes: list[str] = []
 
 
+class UserUpdateRequest(BaseModel):
+    full_name: Optional[str] = None
+    role: Optional[str] = None
+    major_codes: Optional[list[str]] = None
+    new_password: Optional[str] = None
+
+
 class UserResponse(ORMModel):
     id: int
     email: EmailStr
@@ -23,6 +30,7 @@ class UserResponse(ORMModel):
     role: str
     is_active: bool
     created_at: datetime
+    major_codes: list[str] = []
 
 
 class MajorCreateRequest(BaseModel):
@@ -30,11 +38,35 @@ class MajorCreateRequest(BaseModel):
     name: str
 
 
+class MajorUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    smtp_email: Optional[str] = None
+    smtp_password: Optional[str] = None
+
+
 class MajorResponse(ORMModel):
     id: int
     code: str
     name: str
     is_active: bool
+    smtp_email: Optional[str] = None
+    smtp_configured: bool = False
+
+    @model_validator(mode='before')
+    @classmethod
+    def _fill_smtp_configured(cls, data: Any) -> Any:
+        # Works for both ORM objects and dicts
+        if hasattr(data, 'smtp_email'):
+            email = data.smtp_email
+            pwd = data.smtp_password
+        else:
+            email = data.get('smtp_email')
+            pwd = data.get('smtp_password')
+        if isinstance(data, dict):
+            data['smtp_configured'] = bool(email and pwd)
+        else:
+            data.__dict__['smtp_configured'] = bool(email and pwd)
+        return data
 
 
 class PeriodCreateRequest(BaseModel):
@@ -53,6 +85,7 @@ class PeriodResponse(ORMModel):
     advisor_name: str
     is_active: bool
     archived_at: Optional[datetime]
+    progress_version_id: Optional[int] = None
 
 
 class DatasetVersionResponse(ORMModel):

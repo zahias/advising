@@ -25,3 +25,16 @@ def trigger_backup(user: User = Depends(require_admin)):
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f'Backup failed: {exc}') from exc
     return run
+
+
+@router.post('/{backup_id}/restore')
+def restore_from_backup(backup_id: int, user: User = Depends(require_admin)):
+    """Restore the database from a completed backup. This overwrites the current database."""
+    from app.services.backup_job import restore_backup
+    try:
+        result = restore_backup(backup_id, triggered_by=user.full_name or user.email)
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f'Restore failed: {exc}') from exc
+    return result

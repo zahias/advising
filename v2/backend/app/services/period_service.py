@@ -6,7 +6,7 @@ from typing import Optional
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.models import AdvisingPeriod, Major
+from app.models import AdvisingPeriod, DatasetVersion, Major
 
 
 def get_or_create_default_period_code(major_code: str, semester: str, year: int, advisor_name: str) -> str:
@@ -27,6 +27,16 @@ def create_period(session: Session, *, major_code: str, semester: str, year: int
         raise ValueError(f'Unknown major: {major_code}')
 
     session.execute(update(AdvisingPeriod).where(AdvisingPeriod.major_id == major.id).values(is_active=False))
+
+    # Capture the currently active progress_report dataset so this period can restore it later
+    active_dv = session.scalar(
+        select(DatasetVersion).where(
+            DatasetVersion.major_id == major.id,
+            DatasetVersion.dataset_type == 'progress_report',
+            DatasetVersion.is_active.is_(True),
+        )
+    )
+
     period = AdvisingPeriod(
         major_id=major.id,
         period_code=get_or_create_default_period_code(major.code, semester, year, advisor_name),
@@ -34,6 +44,7 @@ def create_period(session: Session, *, major_code: str, semester: str, year: int
         year=year,
         advisor_name=advisor_name,
         is_active=True,
+        progress_version_id=active_dv.id if active_dv else None,
     )
     session.add(period)
     session.commit()
@@ -47,6 +58,23 @@ def activate_period(session: Session, period_code: str) -> AdvisingPeriod:
         raise ValueError(f'Unknown period: {period_code}')
     session.execute(update(AdvisingPeriod).where(AdvisingPeriod.major_id == period.major_id).values(is_active=False))
     period.is_active = True
+
+    # Restore the progress_report dataset that was active when this period was created
+    if period.progress_version_id is not None:
+        session.execute(
+            update(DatasetVersion)
+            .where(
+                DatasetVersion.major_id == period.major_id,
+                DatasetVersion.dataset_type == 'progress_report',
+            )
+            .values(is_active=False)
+        )
+        session.execute(
+            update(DatasetVersion)
+            .where(DatasetVersion.id == period.progress_version_id)
+            .values(is_active=True)
+        )
+
     session.commit()
     session.refresh(period)
     return period

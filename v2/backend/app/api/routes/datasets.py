@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from io import BytesIO
-from typing import Optional
 
 pandas_imported = False
 try:
@@ -24,11 +23,7 @@ from app.services.storage import StorageService
 
 _TEMPLATE_COLUMNS: dict[str, dict[str, list[str]]] = {
     'courses': {
-        'Courses': [
-            'Course Code', 'Course Title', 'Credits', 'Course Type',
-            'Semester Offered', 'Prerequisites', 'Corequisites',
-            'PassingGrades', 'RuleFromSemester', 'RuleToSemester',
-        ],
+        'Courses': ['Course Code', 'Course Title', 'Credits', 'Course Type', 'Semester Offered', 'Prerequisites', 'Corequisites'],
     },
     'progress': {
         'Required Courses': ['ID', 'NAME'],
@@ -36,6 +31,31 @@ _TEMPLATE_COLUMNS: dict[str, dict[str, list[str]]] = {
     },
     'email_roster': {
         'Email Roster': ['Student ID', 'Student Name', 'Email'],
+    },
+}
+
+_TEMPLATE_SAMPLE_ROWS: dict[str, dict[str, list]] = {
+    'courses': {
+        'Courses': [
+            ['PBHL201', 'Introduction to Public Health', 3, 'required', 'Fall+Spring', '', ''],
+            ['PBHL301', 'Epidemiology', 3, 'required', 'Fall', 'PBHL201', ''],
+            ['PBHL401', 'Health Policy', 3, 'elective', 'Spring', 'PBHL201', ''],
+        ],
+    },
+    'progress': {
+        'Required Courses': [
+            ['20210001', 'John Doe'],
+            ['20210002', 'Jane Smith'],
+        ],
+        'Intensive Courses': [
+            ['20210001', 'John Doe'],
+        ],
+    },
+    'email_roster': {
+        'Email Roster': [
+            ['20210001', 'John Doe', 'johndoe@university.edu'],
+            ['20210002', 'Jane Smith', 'janesmith@university.edu'],
+        ],
     },
 }
 
@@ -60,9 +80,11 @@ def download_template(dataset_type: str, user: User = Depends(require_staff)) ->
         raise HTTPException(status_code=400, detail=f'No template available for dataset type: {dataset_type}')
     import pandas as pd
     buf = BytesIO()
+    sample_rows = _TEMPLATE_SAMPLE_ROWS.get(dataset_type, {})
     with pd.ExcelWriter(buf, engine='openpyxl') as writer:
         for sheet_name, columns in sheets.items():
-            pd.DataFrame(columns=columns).to_excel(writer, sheet_name=sheet_name, index=False)
+            rows = sample_rows.get(sheet_name, [])
+            pd.DataFrame(rows, columns=columns).to_excel(writer, sheet_name=sheet_name, index=False)
     buf.seek(0)
     filename = f'{dataset_type}_template.xlsx'
     return Response(
@@ -126,18 +148,9 @@ async def upload_dataset_route(
     major_code: str = Form(...),
     dataset_type: str = Form(...),
     file: UploadFile = File(...),
-    major_mapping: Optional[str] = Form(default=None),
     user: User = Depends(require_staff),
     db: Session = Depends(get_db),
 ) -> DatasetVersion:
-    import json as _json
-    from typing import Optional as _Opt
-    mapping: _Opt[dict] = None
-    if major_mapping:
-        try:
-            mapping = _json.loads(major_mapping)
-        except Exception:
-            raise HTTPException(status_code=400, detail='major_mapping must be valid JSON')
     try:
         version = upload_dataset(
             db,
@@ -146,7 +159,6 @@ async def upload_dataset_route(
             filename=file.filename,
             content=await file.read(),
             user_id=user.id,
-            major_mapping=mapping,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

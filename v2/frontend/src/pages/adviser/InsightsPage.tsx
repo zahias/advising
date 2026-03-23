@@ -1,6 +1,6 @@
 import { ChangeEvent, useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import {
   API_BASE_URL,
@@ -17,12 +17,6 @@ import { Tooltip } from '../../components/Tooltip'
 
 type InsightTab = 'all' | 'qaa' | 'conflicts' | 'planner'
 type MatrixTab = 'required' | 'intensive' | 'all-courses'
-
-type SortConfig = { key: string; direction: 'asc' | 'desc' }
-type CellStatusFilter = { course: string; status: string }
-
-const STATUS_PRIORITY: Record<string, number> = { c: 0, b: 1, r: 2, s: 3, a: 4, ar: 5, na: 6, ne: 7 }
-const STANDING_ORDER = ['Freshman', 'Sophomore', 'Junior', 'Senior']
 
 function getSelectedValues(event: ChangeEvent<HTMLSelectElement>) {
   return Array.from(event.target.selectedOptions).map((option) => option.value)
@@ -54,13 +48,14 @@ function summarizeStatuses(rows: AllStudentsInsightsResponse['rows'], courseCode
 
 export function InsightsPage() {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { majorCode, setMajorCode, allowedMajors } = useMajorContext()
   const [tab, setTab] = useState<InsightTab>(() => {
     const t = searchParams.get('tab')
     return (t === 'planner' || t === 'qaa' || t === 'conflicts' || t === 'all') ? t as InsightTab : 'all'
   })
-  const [matrixTab, setMatrixTab] = useState<MatrixTab>('all-courses')
+  const [matrixTab, setMatrixTab] = useState<MatrixTab>('required')
   const [graduatingThreshold, setGraduatingThreshold] = useState(36)
   const [targetGroups, setTargetGroups] = useState(10)
   const [maxCoursesPerGroup, setMaxCoursesPerGroup] = useState(10)
@@ -74,14 +69,11 @@ export function InsightsPage() {
   const [requiredColumns, setRequiredColumns] = useState<string[]>([])
   const [intensiveColumns, setIntensiveColumns] = useState<string[]>([])
   const [showAllRows, setShowAllRows] = useState(false)
+  const [nameSearch, setNameSearch] = useState('')
+  const [notAdvisedOnly, setNotAdvisedOnly] = useState(false)
+  const [sortKey, setSortKey] = useState<'student_name' | 'remaining_credits' | 'standing' | 'missed' | 'advising_status' | null>(null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [simExpanded, setSimExpanded] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [standingFilter, setStandingFilter] = useState<string[]>([])
-  const [advisingStatusFilter, setAdvisingStatusFilter] = useState('All')
-  const [cellStatusFilter, setCellStatusFilter] = useState<CellStatusFilter | null>(null)
-  const [pendingCellCourse, setPendingCellCourse] = useState('')
-  const [pendingCellStatus, setPendingCellStatus] = useState('')
-  const [sortConfig, setSortConfig] = useState<SortConfig | null>(null)
   const [plannerThreshold, setPlannerThreshold] = useState(30)
   const [plannerMinEligible, setPlannerMinEligible] = useState(3)
   const [plannerSelection, setPlannerSelection] = useState<string[]>([])
@@ -144,43 +136,52 @@ export function InsightsPage() {
     })
   }, [allStudents.data])
 
-  const standingOptions = useMemo(
-    () => [...new Set((allStudents.data?.rows ?? []).map((r) => r.standing))].sort((a, b) => STANDING_ORDER.indexOf(a) - STANDING_ORDER.indexOf(b)),
-    [allStudents.data?.rows],
-  )
-
   const filteredRows = useMemo(() => {
     const rows = allStudents.data?.rows ?? []
-    const query = searchQuery.trim().toLowerCase()
     return rows.filter((row) => {
       if (remainingMin !== '' && row.remaining_credits < remainingMin) return false
       if (remainingMax !== '' && row.remaining_credits > remainingMax) return false
-      if (query && !row.student_name.toLowerCase().includes(query) && !row.student_id.toLowerCase().includes(query)) return false
-      if (standingFilter.length > 0 && !standingFilter.includes(row.standing)) return false
-      if (advisingStatusFilter !== 'All' && row.advising_status !== advisingStatusFilter) return false
-      if (cellStatusFilter && row.courses[cellStatusFilter.course] !== cellStatusFilter.status) return false
+      if (notAdvisedOnly && row.advising_status === 'Advised') return false
+      if (nameSearch) {
+        const q = nameSearch.toLowerCase()
+        if (!row.student_name.toLowerCase().includes(q) && !row.student_id.includes(nameSearch)) return false
+      }
       return true
     })
-  }, [allStudents.data?.rows, remainingMax, remainingMin, searchQuery, standingFilter, advisingStatusFilter, cellStatusFilter])
+  }, [allStudents.data?.rows, remainingMax, remainingMin, nameSearch, notAdvisedOnly])
 
-  const sortedRows = useMemo(() => {
-    if (!sortConfig) return filteredRows
-    const { key, direction } = sortConfig
-    const mult = direction === 'asc' ? 1 : -1
-    return [...filteredRows].sort((a, b) => {
-      if (key === 'student_name') return mult * a.student_name.localeCompare(b.student_name)
-      if (key === 'student_id') return mult * a.student_id.localeCompare(b.student_id)
-      if (key === 'remaining_credits') return mult * (a.remaining_credits - b.remaining_credits)
-      if (key === 'standing') return mult * (STANDING_ORDER.indexOf(a.standing) - STANDING_ORDER.indexOf(b.standing))
-      if (key === 'advising_status') return mult * a.advising_status.localeCompare(b.advising_status)
-      // Course column — sort by status priority
-      return mult * ((STATUS_PRIORITY[a.courses[key] ?? ''] ?? 8) - (STATUS_PRIORITY[b.courses[key] ?? ''] ?? 8))
-    })
-  }, [filteredRows, sortConfig])
-
-  const visibleRows = showAllRows ? sortedRows : sortedRows.slice(0, 80)
   const matrixColumns = matrixTab === 'all-courses' ? Object.keys(allStudents.data?.course_metadata ?? {}) : matrixTab === 'required' ? requiredColumns : intensiveColumns
   const matrixOptions = matrixTab === 'all-courses' ? Object.keys(allStudents.data?.course_metadata ?? {}) : matrixTab === 'required' ? (allStudents.data?.required_courses ?? []) : (allStudents.data?.intensive_courses ?? [])
+
+  const sortedRows = useMemo(() => {
+    if (!sortKey) return filteredRows
+    const cols = matrixTab === 'all-courses' ? Object.keys(allStudents.data?.course_metadata ?? {}) : matrixTab === 'required' ? requiredColumns : intensiveColumns
+    return [...filteredRows].sort((a, b) => {
+      let valA: number | string
+      let valB: number | string
+      if (sortKey === 'remaining_credits') {
+        valA = a.remaining_credits
+        valB = b.remaining_credits
+      } else if (sortKey === 'missed') {
+        valA = cols.filter((c) => a.courses[c] === 'na').length
+        valB = cols.filter((c) => b.courses[c] === 'na').length
+      } else if (sortKey === 'student_name') {
+        valA = a.student_name
+        valB = b.student_name
+      } else if (sortKey === 'standing') {
+        valA = a.standing
+        valB = b.standing
+      } else {
+        valA = a.advising_status
+        valB = b.advising_status
+      }
+      if (valA < valB) return sortDir === 'asc' ? -1 : 1
+      if (valA > valB) return sortDir === 'asc' ? 1 : -1
+      return 0
+    })
+  }, [filteredRows, sortKey, sortDir, matrixTab, requiredColumns, intensiveColumns, allStudents.data?.course_metadata])
+
+  const visibleRows = showAllRows ? sortedRows : sortedRows.slice(0, 80)
 
   const plannerImpact = useMemo(() => {
     const selected = new Set(plannerSelection)
@@ -200,15 +201,18 @@ export function InsightsPage() {
     setIntensiveColumns(next)
   }
 
-  function handleSort(key: string) {
-    setSortConfig((current) =>
-      current?.key === key ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' } : { key, direction: 'asc' },
-    )
+  function toggleSort(key: 'student_name' | 'remaining_credits' | 'standing' | 'missed' | 'advising_status') {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortKey(key)
+      setSortDir('asc')
+    }
   }
 
-  function SortIndicator({ col }: { col: string }) {
-    if (!sortConfig || sortConfig.key !== col) return <span style={{ opacity: 0.25, fontSize: '0.65rem', marginLeft: '3px' }}>↕</span>
-    return <span style={{ fontSize: '0.75rem', marginLeft: '3px' }}>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+  function sortIcon(key: 'student_name' | 'remaining_credits' | 'standing' | 'missed' | 'advising_status') {
+    if (sortKey !== key) return <span style={{ opacity: 0.3, fontSize: '0.65rem', marginLeft: '3px' }}>⇅</span>
+    return <span style={{ fontSize: '0.65rem', marginLeft: '3px' }}>{sortDir === 'asc' ? '▲' : '▼'}</span>
   }
 
   async function download(path: string, filename: string) {
@@ -338,7 +342,6 @@ export function InsightsPage() {
               </button>
             </div>
 
-            {/* ── Row 1: credits + semester + course-type tabs ── */}
             <div className="filter-bar">
               <div className="filter-group">
                 <label>Min Remaining Cr.</label>
@@ -355,6 +358,16 @@ export function InsightsPage() {
                 </select>
               </div>
 
+              <div className="filter-group">
+                <label>Search Student</label>
+                <input type="text" placeholder="Name or ID…" value={nameSearch} onChange={(event) => setNameSearch(event.target.value)} />
+              </div>
+
+              <div className="filter-group">
+                <label>&nbsp;</label>
+                <button type="button" className={notAdvisedOnly ? 'btn-primary btn-sm' : 'btn-outline btn-sm'} onClick={() => setNotAdvisedOnly((v) => !v)}>Not Advised Only</button>
+              </div>
+
               <div className="filter-group ml-auto">
                 <div className="workspace-tabs-nav p-0 border-none gap-0 scale-90 origin-right">
                   <button type="button" className={`tab-btn bg-white border ${matrixTab === 'all-courses' ? 'active shadow-sm' : ''}`} onClick={() => setMatrixTab('all-courses')}>All Courses</button>
@@ -363,114 +376,6 @@ export function InsightsPage() {
                 </div>
               </div>
             </div>
-
-            {/* ── Row 2: search + standing + advising status ── */}
-            <div className="filter-bar" style={{ marginTop: '8px' }}>
-              <div className="filter-group" style={{ flex: '2', minWidth: '180px' }}>
-                <label>Search Student</label>
-                <input
-                  type="text"
-                  placeholder="Name or ID…"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  style={{ paddingLeft: '8px' }}
-                />
-              </div>
-              <div className="filter-group">
-                <label>Standing</label>
-                <select
-                  multiple
-                  size={Math.min(standingOptions.length || 1, 4)}
-                  value={standingFilter}
-                  onChange={(e) => setStandingFilter(getSelectedValues(e))}
-                  title="Hold Ctrl / Cmd to select multiple"
-                >
-                  {standingOptions.map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
-              <div className="filter-group">
-                <label>Advising Status</label>
-                <select value={advisingStatusFilter} onChange={(e) => setAdvisingStatusFilter(e.target.value)}>
-                  <option value="All">All</option>
-                  <option value="Advised">Advised</option>
-                  <option value="Not Advised">Not Advised</option>
-                </select>
-              </div>
-
-              {/* Course-status filter */}
-              <div className="filter-group" style={{ flex: '3', minWidth: '260px' }}>
-                <label>Filter by Course Status</label>
-                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                  <select
-                    value={pendingCellCourse}
-                    onChange={(e) => setPendingCellCourse(e.target.value)}
-                    style={{ flex: 1 }}
-                  >
-                    <option value="">— Course —</option>
-                    {matrixColumns.map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                  <select
-                    value={pendingCellStatus}
-                    onChange={(e) => setPendingCellStatus(e.target.value)}
-                    style={{ flex: 1 }}
-                  >
-                    <option value="">— Status —</option>
-                    {(allStudents.data?.legend ?? []).map((item) => (
-                      <option key={item.code} value={item.code}>{item.code} – {item.label}</option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    className="btn-primary btn-sm"
-                    disabled={!pendingCellCourse || !pendingCellStatus}
-                    onClick={() => setCellStatusFilter({ course: pendingCellCourse, status: pendingCellStatus })}
-                  >Apply</button>
-                  {cellStatusFilter && (
-                    <button
-                      type="button"
-                      className="btn-outline btn-sm"
-                      onClick={() => { setCellStatusFilter(null); setPendingCellCourse(''); setPendingCellStatus('') }}
-                    >Clear</button>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* ── Active filter chips ── */}
-            {(searchQuery || standingFilter.length > 0 || advisingStatusFilter !== 'All' || cellStatusFilter || sortConfig) && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px', marginBottom: '4px' }}>
-                {searchQuery && (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 10px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '999px', fontSize: '0.78rem', color: '#1d4ed8' }}>
-                    Search: <strong>{searchQuery}</strong>
-                    <button type="button" onClick={() => setSearchQuery('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#93c5fd', fontWeight: 700, paddingLeft: '2px' }}>×</button>
-                  </span>
-                )}
-                {standingFilter.map((s) => (
-                  <span key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 10px', background: '#fefce8', border: '1px solid #fde68a', borderRadius: '999px', fontSize: '0.78rem', color: '#92400e' }}>
-                    Standing: <strong>{s}</strong>
-                    <button type="button" onClick={() => setStandingFilter((prev) => prev.filter((x) => x !== s))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fcd34d', fontWeight: 700, paddingLeft: '2px' }}>×</button>
-                  </span>
-                ))}
-                {advisingStatusFilter !== 'All' && (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 10px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '999px', fontSize: '0.78rem', color: '#166534' }}>
-                    <strong>{advisingStatusFilter}</strong>
-                    <button type="button" onClick={() => setAdvisingStatusFilter('All')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#86efac', fontWeight: 700, paddingLeft: '2px' }}>×</button>
-                  </span>
-                )}
-                {cellStatusFilter && (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 10px', background: '#fdf4ff', border: '1px solid #e9d5ff', borderRadius: '999px', fontSize: '0.78rem', color: '#7e22ce' }}>
-                    {cellStatusFilter.course} = <span className={`status-pill status-${cellStatusFilter.status}`} style={{ fontSize: '0.68rem' }}>{cellStatusFilter.status}</span>
-                    <button type="button" onClick={() => { setCellStatusFilter(null); setPendingCellCourse(''); setPendingCellStatus('') }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d8b4fe', fontWeight: 700, paddingLeft: '2px' }}>×</button>
-                  </span>
-                )}
-                {sortConfig && (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 10px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '999px', fontSize: '0.78rem', color: '#475569' }}>
-                    Sorted: <strong>{sortConfig.key}</strong> {sortConfig.direction === 'asc' ? '↑' : '↓'}
-                    <button type="button" onClick={() => setSortConfig(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontWeight: 700, paddingLeft: '2px' }}>×</button>
-                  </span>
-                )}
-              </div>
-            )}
 
             <div className="legend-row mb-4 p-4 bg-gray-50 rounded-xl text-sm border">
               <span className="font-semibold text-muted mr-4">Legend:</span>
@@ -485,7 +390,7 @@ export function InsightsPage() {
             </div>
 
             <div className="flex-between items-end mb-2">
-              <p className="text-sm text-muted">Showing {visibleRows.length} of {filteredRows.length} students.</p>
+              <p className="text-sm text-muted">Showing {visibleRows.length} of {sortedRows.length} students.</p>
               <button type="button" className="btn-outline btn-sm" onClick={() => setShowAllRows((current) => !current)}>{showAllRows ? 'Show Paginated (80 max)' : 'Show Full List'}</button>
             </div>
 
@@ -493,66 +398,49 @@ export function InsightsPage() {
               <table className="premium-table">
                 <thead>
                   <tr>
-                    <th
-                      className="sticky-col z-20 min-w-48 bg-gray-50 border-r"
-                      style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
-                      onClick={() => handleSort('student_name')}
-                      title="Sort by name"
-                    >
-                      Student Name<SortIndicator col="student_name" />
-                    </th>
-                    <th style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }} onClick={() => handleSort('student_id')} title="Sort by ID">
-                      ID<SortIndicator col="student_id" />
-                    </th>
-                    <th style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }} onClick={() => handleSort('remaining_credits')} title="Sort by remaining credits">
-                      Remaining<SortIndicator col="remaining_credits" />
-                    </th>
-                    <th style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }} onClick={() => handleSort('standing')} title="Sort by standing">
-                      Standing<SortIndicator col="standing" />
-                    </th>
-                    <th style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }} onClick={() => handleSort('advising_status')} title="Sort by advising status">
-                      Status<SortIndicator col="advising_status" />
-                    </th>
+                    <th className="sticky-col z-20 min-w-48 bg-gray-50 border-r cursor-pointer select-none hover:bg-gray-100" onClick={() => toggleSort('student_name')}>Student Name {sortIcon('student_name')}</th>
+                    <th>ID</th>
+                    <th className="text-center cursor-pointer select-none hover:bg-gray-100" onClick={() => toggleSort('remaining_credits')}>Remaining {sortIcon('remaining_credits')}</th>
+                    <th className="text-center cursor-pointer select-none hover:bg-gray-100" onClick={() => toggleSort('standing')}>Standing {sortIcon('standing')}</th>
+                    <th className="text-center cursor-pointer select-none hover:bg-gray-100" onClick={() => toggleSort('advising_status')}>Status {sortIcon('advising_status')}</th>
+                    <th className="text-center cursor-pointer select-none hover:bg-gray-100" onClick={() => toggleSort('missed')} title="Count of eligible-but-not-chosen (na) courses per student">Missed {sortIcon('missed')}</th>
                     {matrixColumns.map((courseCode) => {
                       const info = allStudents.data?.course_metadata[courseCode]
                       const summary = summarizeStatuses(filteredRows, courseCode)
-                      const isActive = sortConfig?.key === courseCode
-                      return (
-                        <th
-                          key={courseCode}
-                          title={`${info?.title || courseCode}\n${info?.requisites || 'None'}\n${summary}\n\nClick to sort by this course`}
-                          className="text-center min-w-24 border-l hover:bg-gray-100"
-                          style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap', background: isActive ? '#eef2ff' : undefined }}
-                          onClick={() => handleSort(courseCode)}
-                        >
-                          {courseCode}<SortIndicator col={courseCode} />
-                        </th>
-                      )
+                      return <th key={courseCode} title={`${info?.title || courseCode}\n${info?.requisites || 'None'}\n${summary}`} className="text-center min-w-24 border-l cursor-help hover:bg-gray-100">{courseCode}</th>
                     })}
                   </tr>
                 </thead>
                 <tbody>
                   {visibleRows.length === 0 ? (
-                    <tr><td colSpan={5 + matrixColumns.length} className="text-center p-8 text-muted">No students found matching your filters.</td></tr>
+                    <tr><td colSpan={6 + matrixColumns.length} className="text-center p-8 text-muted">No students found matching your filters.</td></tr>
                   ) : (
-                    visibleRows.map((item) => (
-                      <tr key={item.student_id}>
-                        <td className="sticky-col bg-white font-medium border-r shadow-[1px_0_0_rgba(0,0,0,0.05)]">{item.student_name}</td>
-                        <td className="mono text-muted text-sm">{item.student_id}</td>
-                        <td className="text-center">{item.remaining_credits}</td>
-                        <td className="text-center">{item.standing}</td>
-                        <td className="text-center">{item.advising_status}</td>
-                        {matrixColumns.map((courseCode) => (
-                          <td key={`${item.student_id}-${courseCode}`} className="text-center border-l bg-gray-50/30">
-                            {item.courses[courseCode] ? (
-                              <span className={`status-pill status-${item.courses[courseCode]}`}>{item.courses[courseCode]}</span>
-                            ) : (
-                              <span className="text-gray-300">-</span>
-                            )}
+                    visibleRows.map((item) => {
+                      const missedCount = matrixColumns.filter((c) => item.courses[c] === 'na').length
+                      return (
+                        <tr key={item.student_id} style={{ background: item.remaining_credits <= graduatingThreshold ? 'rgba(251,191,36,0.12)' : undefined }}>
+                          <td className="sticky-col bg-white font-medium border-r shadow-[1px_0_0_rgba(0,0,0,0.05)]">
+                            <button type="button" style={{ fontWeight: 600, color: 'inherit', padding: 0, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', width: '100%' }} onClick={() => navigate(`/adviser/workspace?student_id=${encodeURIComponent(item.student_id)}&major=${encodeURIComponent(majorCode)}`)}>
+                              {item.student_name}
+                            </button>
                           </td>
-                        ))}
-                      </tr>
-                    ))
+                          <td className="mono text-muted text-sm">{item.student_id}</td>
+                          <td className="text-center">{item.remaining_credits}</td>
+                          <td className="text-center">{item.standing}</td>
+                          <td className="text-center">{item.advising_status}</td>
+                          <td className="text-center font-semibold" style={{ color: missedCount > 0 ? '#d97706' : '#94a3b8' }}>{missedCount > 0 ? missedCount : '—'}</td>
+                          {matrixColumns.map((courseCode) => (
+                            <td key={`${item.student_id}-${courseCode}`} className="text-center border-l bg-gray-50/30">
+                              {item.courses[courseCode] ? (
+                                <span className={`status-pill status-${item.courses[courseCode]}`}>{item.courses[courseCode]}</span>
+                              ) : (
+                                <span className="text-gray-300">-</span>
+                              )}
+                            </td>
+                          ))}
+                        </tr>
+                      )
+                    })
                   )}
                 </tbody>
               </table>

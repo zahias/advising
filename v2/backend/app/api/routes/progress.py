@@ -1,139 +1,389 @@
-"""
-Progress report routes: serve the processed progress grid and staleness info.
-"""
 from __future__ import annotations
 
-from datetime import timezone
-from typing import Any, Optional
+import io
+from typing import Optional
 
-from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.api.deps import ensure_major_access, get_db, require_staff
-from app.models import DatasetVersion, Major, User
-from app.services.dataset_service import get_active_dataset, load_progress_excel
+from app.api.deps import ensure_major_access, get_db, require_admin, require_staff
+from app.models import User
+from app.schemas.common import MessageResponse
+from app.schemas.progress import (
+    AssignmentTypeIn,
+    AssignmentTypeOut,
+    BulkAssignmentResult,
+    CourseConfigStatus,
+    DataStatus,
+    EquivalentCourseIn,
+    EquivalentCourseOut,
+    ProgressAssignmentIn,
+    ProgressAssignmentOut,
+    ProgressReportStatus,
+    ReportResponse,
+    UploadCourseConfigResponse,
+    UploadProgressReportResponse,
+)
 from app.services.progress_service import (
-    collapse_pass_fail_value,
-    extract_primary_grade_from_full_value,
+    bulk_upsert_assignments_from_excel,
+    create_assignment_type,
+    delete_assignment,
+    delete_assignment_type,
+    export_report_excel,
+    generate_report,
+    get_data_status,
+    list_assignment_types,
+    list_assignments,
+    list_equivalents,
+    preview_progress_upload,
+    push_progress_to_advising,
+    replace_equivalents,
+    reset_all_assignments,
+    upload_course_config,
+    upload_progress_report,
+    upsert_assignment,
 )
 
 router = APIRouter(prefix='/progress', tags=['progress'])
 
+_PROGRESS_TEMPLATES: dict[str, dict] = {
+    'progress-report': {
+        'filename': 'progress_report_template.xlsx',
+        'sheet': 'Progress Report',
+        'columns': ['ID', 'NAME', 'Course Code', 'Grade', 'Year', 'Semester'],
+        'rows': [
+            ['20210001', 'John Doe', 'PBHL201', 'A', 2024, 'Fall'],
+            ['20210001', 'John Doe', 'PBHL301', 'B+', 2024, 'Fall'],
+            ['20210002', 'Jane Smith', 'PBHL201', 'A-', 2025, 'Spring'],
+            ['20210002', 'Jane Smith', 'PBHL310', 'CR', 2025, 'Spring'],
+        ],
+    },
+    'course-config': {
+        'filename': 'course_config_template.xlsx',
+        'sheet': 'Course Config',
+        'columns': ['Course', 'Type', 'Credits', 'PassingGrades', 'FromSemester', 'FromYear', 'ToSemester', 'ToYear'],
+        'rows': [
+            ['PBHL201', 'required', 3, 'A+,A,A-,B+,B,B-,C+,C,CR', '', '', '', ''],
+            ['PBHL301', 'required', 3, 'A+,A,A-,B+,B,B-,C+,C,CR', '', '', '', ''],
+            ['PBHL401', 'intensive', 3, 'A+,A,A-,B+,B', 'Fall', 2023, '', ''],
+        ],
+    },
+    'elective-assignments': {
+        'filename': 'elective_assignments_template.xlsx',
+        'sheet': 'Assignments',
+        'columns': ['Student ID', 'Assignment Type', 'Course Code'],
+        'rows': [
+            ['20210001', 'SCE', 'PBHL450'],
+            ['20210002', 'SCE', 'PBHL460'],
+            ['20210003', 'FEC', 'PBHL470'],
+        ],
+    },
+}
 
-def _get_major_or_404(db: Session, major_code: str) -> Major:
-    from fastapi import HTTPException
-    major = db.scalar(select(Major).where(Major.code == major_code))
-    if not major:
-        raise HTTPException(status_code=404, detail=f'Major not found: {major_code}')
-    return major
 
-
-@router.get('/{major_code}/staleness')
-def get_staleness(major_code: str, user: User = Depends(require_staff), db: Session = Depends(get_db)) -> dict[str, Any]:
-    """
-    Returns whether the progress data is stale (rules updated after last progress upload).
-    """
-    ensure_major_access(major_code, db, user)
-    major = _get_major_or_404(db, major_code)
-
-    progress_v = get_active_dataset(db, major_code, 'progress')
-
-    rules_updated_at = major.rules_updated_at
-    progress_uploaded_at = progress_v.created_at if progress_v else None
-
-    stale = False
-    if rules_updated_at and progress_uploaded_at:
-        # Normalise to UTC-aware for comparison
-        rup = rules_updated_at.replace(tzinfo=timezone.utc) if rules_updated_at.tzinfo is None else rules_updated_at
-        pup = progress_uploaded_at.replace(tzinfo=timezone.utc) if progress_uploaded_at.tzinfo is None else progress_uploaded_at
-        stale = rup > pup
-
-    return {
-        'stale': stale,
-        'rules_updated_at': rules_updated_at.isoformat() if rules_updated_at else None,
-        'progress_uploaded_at': progress_uploaded_at.isoformat() if progress_uploaded_at else None,
-    }
-
-
-@router.get('/{major_code}/report')
-def get_progress_report(major_code: str, user: User = Depends(require_staff), db: Session = Depends(get_db)) -> dict[str, Any]:
-    """
-    Return the processed progress grid for the Progress Report page.
-    """
-    from fastapi import HTTPException
+@router.get('/templates/{template_name}')
+def download_progress_template(
+    template_name: str,
+    user: User = Depends(require_staff),
+) -> Response:
+    """Download a sample XLSX template for a progress upload type."""
     import pandas as pd
+    tmpl = _PROGRESS_TEMPLATES.get(template_name)
+    if not tmpl:
+        raise HTTPException(status_code=404, detail=f'No template available for: {template_name}')
+    buf = io.BytesIO()
+    df = pd.DataFrame(tmpl['rows'], columns=tmpl['columns'])
+    with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name=tmpl['sheet'], index=False)
+    buf.seek(0)
+    return Response(
+        content=buf.read(),
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename="{tmpl["filename"]}"'},
+    )
 
+
+# ──────────────────────────────────────────────────────────────────
+# Status
+# ──────────────────────────────────────────────────────────────────
+
+@router.get('/{major_code}/status', response_model=DataStatus)
+def get_status(
+    major_code: str,
+    user: User = Depends(require_staff),
+    db: Session = Depends(get_db),
+):
     ensure_major_access(major_code, db, user)
-    major = _get_major_or_404(db, major_code)
-    progress_v = get_active_dataset(db, major_code, 'progress')
-    if not progress_v:
-        raise HTTPException(status_code=404, detail='No active progress dataset for this major.')
+    return get_data_status(db, major_code)
 
-    from app.services.storage import StorageService
-    storage = StorageService()
-    file_bytes = storage.get_bytes(progress_v.storage_key)
-    df = load_progress_excel(file_bytes)
 
-    base_cols = {'ID', 'NAME', '# of Credits Completed', '# Registered', '# Remaining', 'Total Credits'}
-    all_cols = list(df.columns)
-    course_cols = [c for c in all_cols if c not in base_cols]
+# ──────────────────────────────────────────────────────────────────
+# File uploads (admin only)
+# ──────────────────────────────────────────────────────────────────
 
-    # Determine which are required vs intensive by looking at which sheet they came from.
-    # load_progress_excel merges both sheets; we re-read to find required/intensive columns.
-    from io import BytesIO
-    sheets = pd.read_excel(BytesIO(file_bytes), sheet_name=None)
-    req_key = next((k for k in sheets if 'required' in k.lower()), None)
-    int_key = next((k for k in sheets if 'intensive' in k.lower()), None)
-    extra_key = next((k for k in sheets if 'extra' in k.lower()), None)
-    id_cols = ['ID', 'NAME']
-    required_courses = [c for c in (sheets[req_key].columns if req_key else []) if c not in id_cols and c not in base_cols]
-    intensive_courses = [c for c in (sheets[int_key].columns if int_key else []) if c not in id_cols and c not in base_cols]
+@router.post('/{major_code}/upload/progress-report/preview')
+def preview_progress(
+    major_code: str,
+    file: UploadFile,
+    user: User = Depends(require_staff),
+    db: Session = Depends(get_db),
+):
+    """Parse a progress report and return a diff summary without saving."""
+    ensure_major_access(major_code, db, user)
+    content = file.file.read()
+    try:
+        return preview_progress_upload(db, major_code, content)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    # Extra courses (flat rows)
-    extra_courses_rows: list[dict[str, Any]] = []
-    if extra_key:
-        exc_df = sheets[extra_key].fillna('')
-        for _, er in exc_df.iterrows():
-            extra_courses_rows.append({
-                'student_id': str(er.get('ID', '')),
-                'student_name': str(er.get('NAME', '')),
-                'course': str(er.get('Course', '')),
-                'grade': str(er.get('Grade', '')),
-                'year': str(er.get('Year', '')),
-                'semester': str(er.get('Semester', '')),
-            })
 
-    # Build student rows
-    students = []
-    credit_cols = ['# of Credits Completed', '# Registered', '# Remaining', 'Total Credits']
-    for _, row in df.iterrows():
-        def _cell(col: str) -> dict[str, Any]:
-            raw = str(row.get(col, 'NR') or 'NR')
-            primary_entry = extract_primary_grade_from_full_value(raw) if raw != 'NR' else 'NR'
-            raw_status = collapse_pass_fail_value(primary_entry)
-            # Map to frontend enum: 'c' → 'pass', 'cr' → 'cr', 'nc' → 'nc'
-            status = 'pass' if raw_status == 'c' else raw_status if raw_status in ('cr', 'nc') else 'nc'
-            return {'raw': raw, 'primary': primary_entry, 'status': status}
+@router.post('/{major_code}/upload/progress-report', response_model=UploadProgressReportResponse)
+def upload_progress(
+    major_code: str,
+    file: UploadFile,
+    user: User = Depends(require_staff),
+    db: Session = Depends(get_db),
+):
+    ensure_major_access(major_code, db, user)
+    content = file.file.read()
+    try:
+        result = upload_progress_report(db, major_code, file.filename or 'upload', content, user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return result
 
-        required_cells = {c: _cell(c) for c in required_courses}
-        intensive_cells = {c: _cell(c) for c in intensive_courses}
 
-        students.append({
-            'student_id': str(row.get('ID', '')),
-            'student_name': str(row.get('NAME', '')),
-            'credits_completed': row.get('# of Credits Completed'),
-            'credits_registered': row.get('# Registered'),
-            'credits_remaining': row.get('# Remaining'),
-            'total_credits': row.get('Total Credits'),
-            'required': required_cells,
-            'intensive': intensive_cells,
-        })
+@router.post('/{major_code}/upload/course-config', response_model=UploadCourseConfigResponse)
+def upload_config(
+    major_code: str,
+    file: UploadFile,
+    user: User = Depends(require_staff),
+    db: Session = Depends(get_db),
+):
+    ensure_major_access(major_code, db, user)
+    content = file.file.read()
+    try:
+        result = upload_course_config(db, major_code, file.filename or 'upload', content, user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return result
 
-    return {
-        'required_courses': required_courses,
-        'intensive_courses': intensive_courses,
-        'students': students,
-        'extra_courses': extra_courses_rows,
-        'assignment_types': major.assignment_types or [],
-    }
+
+# ──────────────────────────────────────────────────────────────────
+# Report
+# ──────────────────────────────────────────────────────────────────
+
+@router.get('/{major_code}/report', response_model=ReportResponse)
+def get_report(
+    major_code: str,
+    show_all_grades: bool = Query(False),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=500),
+    search: str = Query(''),
+    user: User = Depends(require_staff),
+    db: Session = Depends(get_db),
+):
+    ensure_major_access(major_code, db, user)
+    try:
+        return generate_report(db, major_code, show_all_grades, page, page_size, search)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get('/{major_code}/report/export')
+def export_report(
+    major_code: str,
+    show_all_grades: bool = Query(False),
+    collapse_mode: bool = Query(False),
+    user: User = Depends(require_staff),
+    db: Session = Depends(get_db),
+):
+    ensure_major_access(major_code, db, user)
+    try:
+        xlsx_bytes = export_report_excel(db, major_code, show_all_grades, collapse_mode)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return StreamingResponse(
+        iter([xlsx_bytes]),
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename="progress_{major_code}.xlsx"'},
+    )
+
+
+@router.post('/{major_code}/push-to-advising')
+def push_to_advising(
+    major_code: str,
+    user: User = Depends(require_staff),
+    db: Session = Depends(get_db),
+):
+    ensure_major_access(major_code, db, user)
+    try:
+        result = push_progress_to_advising(db, major_code, user.id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return result
+
+
+# ──────────────────────────────────────────────────────────────────
+# Equivalent courses
+# ──────────────────────────────────────────────────────────────────
+
+@router.get('/{major_code}/equivalents', response_model=list[EquivalentCourseOut])
+def get_equivalents(
+    major_code: str,
+    user: User = Depends(require_staff),
+    db: Session = Depends(get_db),
+):
+    ensure_major_access(major_code, db, user)
+    return list_equivalents(db, major_code)
+
+
+@router.put('/{major_code}/equivalents', response_model=list[EquivalentCourseOut])
+def set_equivalents(
+    major_code: str,
+    pairs: list[EquivalentCourseIn],
+    user: User = Depends(require_staff),
+    db: Session = Depends(get_db),
+):
+    ensure_major_access(major_code, db, user)
+    rows = replace_equivalents(db, major_code, [p.model_dump() for p in pairs])
+    db.commit()
+    for r in rows:
+        db.refresh(r)
+    return rows
+
+
+# ──────────────────────────────────────────────────────────────────
+# Assignment types (labels)
+# ──────────────────────────────────────────────────────────────────
+
+@router.get('/{major_code}/assignment-types', response_model=list[AssignmentTypeOut])
+def get_assignment_types(
+    major_code: str,
+    user: User = Depends(require_staff),
+    db: Session = Depends(get_db),
+):
+    ensure_major_access(major_code, db, user)
+    return list_assignment_types(db, major_code)
+
+
+@router.post('/{major_code}/assignment-types', response_model=AssignmentTypeOut, status_code=201)
+def add_assignment_type(
+    major_code: str,
+    body: AssignmentTypeIn,
+    user: User = Depends(require_staff),
+    db: Session = Depends(get_db),
+):
+    ensure_major_access(major_code, db, user)
+    try:
+        at = create_assignment_type(db, major_code, body.label, body.sort_order)
+        db.commit()
+        db.refresh(at)
+        return at
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.delete('/{major_code}/assignment-types/{type_id}', response_model=MessageResponse)
+def remove_assignment_type(
+    major_code: str,
+    type_id: int,
+    user: User = Depends(require_staff),
+    db: Session = Depends(get_db),
+):
+    ensure_major_access(major_code, db, user)
+    try:
+        delete_assignment_type(db, major_code, type_id)
+        db.commit()
+        return MessageResponse(message='Assignment type deleted.')
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+# ──────────────────────────────────────────────────────────────────
+# Per-student assignments
+# ──────────────────────────────────────────────────────────────────
+
+@router.get('/{major_code}/assignments', response_model=list[ProgressAssignmentOut])
+def get_assignments(
+    major_code: str,
+    student_id: Optional[str] = Query(None),
+    user: User = Depends(require_staff),
+    db: Session = Depends(get_db),
+):
+    ensure_major_access(major_code, db, user)
+    return list_assignments(db, major_code, student_id)
+
+
+@router.put('/{major_code}/assignments', response_model=ProgressAssignmentOut)
+def save_assignment(
+    major_code: str,
+    body: ProgressAssignmentIn,
+    user: User = Depends(require_staff),
+    db: Session = Depends(get_db),
+):
+    ensure_major_access(major_code, db, user)
+    try:
+        pa = upsert_assignment(db, major_code, body.student_id, body.assignment_type, body.course_code)
+        db.commit()
+        db.refresh(pa)
+        return pa
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.delete('/{major_code}/assignments/one', response_model=MessageResponse)
+def remove_assignment(
+    major_code: str,
+    student_id: str = Query(...),
+    assignment_type: str = Query(...),
+    user: User = Depends(require_staff),
+    db: Session = Depends(get_db),
+):
+    ensure_major_access(major_code, db, user)
+    try:
+        delete_assignment(db, major_code, student_id, assignment_type)
+        db.commit()
+        return MessageResponse(message='Assignment deleted.')
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.delete('/{major_code}/assignments', response_model=MessageResponse)
+def reset_assignments(
+    major_code: str,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    ensure_major_access(major_code, db, user)
+    n = reset_all_assignments(db, major_code)
+    db.commit()
+    return MessageResponse(message=f'Reset {n} assignment(s).')
+
+
+@router.post('/{major_code}/upload/elective-assignments', response_model=BulkAssignmentResult)
+def upload_elective_assignments(
+    major_code: str,
+    file: UploadFile,
+    user: User = Depends(require_staff),
+    db: Session = Depends(get_db),
+):
+    ensure_major_access(major_code, db, user)
+    content = file.file.read()
+    try:
+        result = bulk_upsert_assignments_from_excel(db, major_code, content)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    db.commit()
+    return result

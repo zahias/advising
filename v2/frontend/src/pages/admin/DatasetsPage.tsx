@@ -5,6 +5,7 @@ import { API_BASE_URL } from '../../lib/api'
 import { useDatasetVersions, useMajors } from '../../lib/hooks'
 
 const datasetTypes = ['courses', 'progress', 'advising_selections', 'email_roster']
+const TEMPLATED_TYPES = new Set(['courses', 'progress', 'email_roster'])
 
 const TYPE_LABELS: Record<string, string> = {
   courses: 'Course Catalog',
@@ -130,6 +131,9 @@ export function DatasetsPage() {
           <button type="submit" className="btn-primary btn-sm" disabled={!file}>Upload Dataset</button>
           {file && (
             <button type="button" className="btn-sm btn-outline" onClick={() => setFile(null)}>Clear</button>
+          )}
+          {TEMPLATED_TYPES.has(datasetType) && (
+            <button type="button" className="btn-sm btn-outline" onClick={() => downloadBlob(`/datasets/templates/${datasetType}`, `${datasetType}_template.xlsx`)}>↓ Template</button>
           )}
         </div>
       </form>

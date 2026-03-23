@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import logging
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
+logger = logging.getLogger(__name__)
+
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.models import Major
 from app.services.period_service import current_period
 from app.services.student_service import get_student_email, student_eligibility
 from app.services.template_service import list_templates
@@ -63,21 +67,41 @@ def build_student_email(session: Session, *, major_code: str, student_id: str, t
     }
 
 
-def send_student_email(session: Session, *, major_code: str, student_id: str, template_key: str = 'default') -> dict:
-    settings = get_settings()
-    if not settings.smtp_email or not settings.smtp_password:
-        return {'success': False, 'message': 'SMTP credentials are not configured.'}
+def send_student_email(session: Session, *, major_code: str, student_id: str, template_key: str = 'default', adviser_email: str | None = None) -> dict:
+    major = session.scalar(select(Major).where(Major.code == major_code))
+    if not major or not major.smtp_email or not major.smtp_password:
+        logger.warning('SMTP credentials not configured for major %s — email not sent.', major_code)
+        return {'success': False, 'message': f'SMTP credentials are not configured for {major_code}.'}
     email_data = build_student_email(session, major_code=major_code, student_id=student_id, template_key=template_key)
     recipient = email_data.get('recipient')
     if not recipient:
+        logger.warning('No email roster entry for student %s in %s — email not sent.', student_id, major_code)
         return {'success': False, 'message': 'No email roster entry found for this student.'}
     message = MIMEMultipart()
-    message['From'] = settings.smtp_email
+    message['From'] = major.smtp_email
     message['To'] = recipient
     message['Subject'] = str(email_data['subject'])
+    recipients = [recipient]
+    if adviser_email:
+        message['Cc'] = adviser_email
+        recipients.append(adviser_email)
     message.attach(MIMEText(str(email_data['preview_body']), 'plain'))
-    with smtplib.SMTP('smtp.office365.com', 587) as server:
-        server.starttls()
-        server.login(settings.smtp_email, settings.smtp_password)
-        server.sendmail(settings.smtp_email, [recipient], message.as_string())
-    return {'success': True, 'message': f'Email sent to {recipient}.'}
+    try:
+        logger.info('Connecting to smtp.office365.com:587 as %s → sending to %s (CC: %s)', major.smtp_email, recipient, adviser_email or 'none')
+        with smtplib.SMTP('smtp.office365.com', 587) as server:
+            server.set_debuglevel(1)
+            server.starttls()
+            server.login(major.smtp_email, major.smtp_password)
+            server.sendmail(major.smtp_email, recipients, message.as_string())
+        logger.info('Email accepted by SMTP server for %s', recipient)
+        return {'success': True, 'message': f'Email sent to {recipient}.'}
+    except smtplib.SMTPAuthenticationError as exc:
+        logger.error('SMTP auth failed for %s: %s', major.smtp_email, exc)
+        return {'success': False, 'message': f'SMTP authentication failed: {exc}'}
+    except smtplib.SMTPException as exc:
+        logger.error('SMTP error: %s', exc)
+        return {'success': False, 'message': f'SMTP error: {exc}'}
+    except OSError as exc:
+        logger.error('SMTP connection error: %s', exc)
+        return {'success': False, 'message': f'Could not connect to SMTP server: {exc}'}
+        return {'success': False, 'message': f'Could not connect to SMTP server: {exc}'}

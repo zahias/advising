@@ -1,14 +1,12 @@
 from __future__ import annotations
 
+from app.models import progress_models  # noqa: F401 — ensures tables are registered
 from app.models.entities import (
     AdvisingPeriod,
     AuditEvent,
     BackupRun,
     Bypass,
-    CourseAssignment,
-    CourseEquivalent,
     CourseExclusion,
-    CourseRule,
     DatasetVersion,
     EmailRosterEntry,
     EmailTemplate,
@@ -27,10 +25,7 @@ __all__ = [
     'AuditEvent',
     'BackupRun',
     'Bypass',
-    'CourseAssignment',
-    'CourseEquivalent',
     'CourseExclusion',
-    'CourseRule',
     'DatasetVersion',
     'EmailRosterEntry',
     'EmailTemplate',

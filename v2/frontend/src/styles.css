@@ -58,6 +58,13 @@ code, pre { font-family: ui-monospace, SFMono-Regular, monospace; }
   padding: 2rem;
   border-radius: 30px;
 }
+.login-credit {
+  margin-top: 1.25rem;
+  font-size: 0.72rem;
+  color: rgba(22, 34, 24, 0.38);
+  text-align: center;
+  letter-spacing: 0.04em;
+}
 .app-shell {
   min-height: 100vh;
   display: grid;
@@ -1830,12 +1837,11 @@ thead .sticky-col {
 .app-footer {
   text-align: center;
   padding: 0.6rem 1rem;
-  font-size: 0.76rem;
-  color: rgba(22, 34, 24, 0.55);
+  font-size: 0.72rem;
+  color: rgba(22, 34, 24, 0.35);
   border-top: 1px solid var(--line);
   background: white;
   letter-spacing: 0.04em;
-  font-weight: 500;
 }
 
 /* ====== TOOLTIP COMPONENT ====== */
@@ -2204,7 +2210,628 @@ thead .sticky-col {
   .content { padding: 1rem; }
 }
 
-/* Progress report grade cells */
-.grade-pass { background: #d1fae5; }
-.grade-cr   { background: #fef9c3; }
-.grade-nc   { background: #fee2e2; }
+/* ============================================================
+   HUB PORTAL — standalone landing page (no topbar/sidebar)
+   ============================================================ */
+
+.hub-portal {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.5rem;
+  background:
+    radial-gradient(circle at top left, rgba(217, 96, 64, 0.09), transparent 40%),
+    radial-gradient(circle at bottom right, rgba(30, 111, 92, 0.12), transparent 40%),
+    #f8f9fa;
+}
+
+.hub-hero {
+  text-align: center;
+  margin-bottom: 3rem;
+}
+
+.hub-hero-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, var(--accent), #274437);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 1.25rem;
+  box-shadow: 0 8px 24px rgba(30, 111, 92, 0.25);
+}
+
+.hub-hero h1 {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  margin: 0 0 0.5rem 0;
+  color: var(--ink);
+}
+
+.hub-hero p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+.hub-apps {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.25rem;
+  width: 100%;
+  max-width: 720px;
+}
+
+.hub-app-card {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 1.75rem 1.5rem;
+  background: white;
+  border: 1px solid rgba(22, 34, 24, 0.08);
+  border-radius: 24px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+  cursor: pointer;
+  text-align: left;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+  color: var(--ink);
+}
+
+.hub-app-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.1);
+  border-color: rgba(30, 111, 92, 0.25);
+}
+
+.hub-app-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.hub-app-icon--teal {
+  background: rgba(30, 111, 92, 0.1);
+  color: var(--accent);
+}
+
+.hub-app-icon--blue {
+  background: rgba(44, 115, 168, 0.1);
+  color: #1a4b72;
+}
+
+.hub-app-body {
+  flex: 1;
+}
+
+.hub-app-body h3 {
+  margin: 0 0 0.35rem 0;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.hub-app-body p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.hub-app-arrow {
+  color: var(--muted);
+  flex-shrink: 0;
+  transition: transform 0.15s ease, color 0.15s ease;
+}
+
+.hub-app-card:hover .hub-app-arrow {
+  transform: translateX(3px);
+  color: var(--accent);
+}
+
+@media (max-width: 600px) {
+  .hub-apps { grid-template-columns: 1fr; }
+  .hub-hero h1 { font-size: 1.5rem; }
+}
+
+/* ============================================================
+   UPLOAD ZONE — drag-and-drop file input
+   ============================================================ */
+
+.upload-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 2.5rem 1.5rem;
+  border: 2px dashed rgba(22, 34, 24, 0.18);
+  border-radius: 16px;
+  background: #fafafa;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  text-align: center;
+  color: var(--muted);
+  user-select: none;
+}
+
+.upload-zone:hover,
+.upload-zone:focus-within {
+  border-color: var(--accent);
+  background: rgba(30, 111, 92, 0.04);
+  color: var(--ink);
+}
+
+.upload-zone.drag-over {
+  border-color: var(--accent);
+  background: rgba(30, 111, 92, 0.07);
+  box-shadow: 0 0 0 4px rgba(30, 111, 92, 0.1);
+  color: var(--ink);
+}
+
+.upload-zone.uploading {
+  border-color: rgba(30, 111, 92, 0.4);
+  background: rgba(30, 111, 92, 0.04);
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.upload-zone-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: rgba(30, 111, 92, 0.08);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0.25rem;
+}
+
+.upload-zone.drag-over .upload-zone-icon,
+.upload-zone:hover .upload-zone-icon {
+  background: rgba(30, 111, 92, 0.14);
+}
+
+.upload-zone-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--ink);
+}
+
+.upload-zone-hint {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+/* ============================================================
+   PROGRESS REPORT – grade cell colours (collapse mode)
+   ============================================================ */
+
+/* Collapse mode — replaces inline-style with semantic classes */
+.grade-cell {
+  text-align: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  display: inline-block;
+  min-width: 28px;
+  line-height: 1.2;
+}
+
+/* Full-grade mode colours (mirrors existing inline gradeColor logic) */
+.grade-cell--passed   { background: rgba(61, 123, 78, 0.14); color: #1f4f2d; }
+.grade-cell--progress { background: rgba(232, 173, 34, 0.20); color: #805f00; }
+.grade-cell--failed   { background: rgba(217, 96, 64, 0.14); color: #7b2718; }
+.grade-cell--empty    { background: transparent; color: var(--muted); }
+
+/* Collapse mode: c / cr / nc */
+.grade-cell--c  { background: rgba(61, 123, 78, 0.14); color: #1a4f2d; }
+.grade-cell--cr { background: rgba(232, 173, 34, 0.20); color: #805f00; }
+.grade-cell--nc { background: rgba(22, 34, 24, 0.06); color: var(--muted); }
+
+/* ============================================================
+   ASSIGNMENT SLOTS — per-student elective assignment rows
+   ============================================================ */
+
+.assignment-slot {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fafafa;
+}
+
+.assignment-slot + .assignment-slot {
+  margin-top: 0.4rem;
+}
+
+.assignment-slot-label {
+  font-weight: 600;
+  font-size: 0.85rem;
+  min-width: 100px;
+  flex-shrink: 0;
+  color: var(--ink);
+}
+
+.assignment-slot-select {
+  flex: 1;
+  padding: 0.45rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: white;
+  font-size: 0.85rem;
+  cursor: pointer;
+  color: var(--ink);
+}
+
+.assignment-slot-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(30, 111, 92, 0.1);
+}
+
+.assignment-slot-status {
+  font-size: 0.75rem;
+  color: var(--muted);
+  flex-shrink: 0;
+  min-width: 60px;
+  text-align: right;
+}
+
+.assignment-slot-status--saved {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ============================================================
+   MISC UTILITIES used in progress pages
+   ============================================================ */
+
+.flex-row {
+  display: flex;
+}
+
+.gap-2 { gap: 0.5rem; }
+.gap-3 { gap: 0.75rem; }
+.flex-wrap { flex-wrap: wrap; }
+.align-center { align-items: center; }
+.align-self-center { align-self: center; }
+.text-center { text-align: center; }
+.text-right { text-align: right; }
+.text-xs { font-size: 0.73rem; }
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.65rem;
+  background: rgba(22, 34, 24, 0.06);
+  color: var(--ink);
+  border-radius: 99px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  border: 1px solid rgba(22, 34, 24, 0.1);
+}
+
+.link-btn {
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  box-shadow: none;
+  border-radius: 0;
+}
+
+.link-btn:hover { color: #155c48; }
+
+.input-inline {
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: white;
+  font-size: 0.85rem;
+}
+
+.input-inline:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(30, 111, 92, 0.08);
+}
+
+.text-danger { color: var(--accent-2); }
+
+.text-input {
+  padding: 0.55rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: white;
+  font-size: 0.9rem;
+  width: 100%;
+}
+
+.text-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(30, 111, 92, 0.08);
+}
+
+/* btn classes — keep .btn prefix consolidated */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem 1.1rem;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all 0.15s ease;
+  box-shadow: none;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn.btn-primary {
+  background: var(--ink);
+  color: white;
+}
+.btn.btn-primary:hover:not(:disabled) { background: #000; }
+
+.btn.btn-secondary {
+  background: white;
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+.btn.btn-secondary:hover:not(:disabled) { background: #f4f4f4; }
+
+.btn.btn-danger {
+  background: rgba(217, 96, 64, 0.08);
+  color: var(--accent-2);
+  border: 1px solid rgba(217, 96, 64, 0.2);
+}
+.btn.btn-danger:hover:not(:disabled) { background: rgba(217, 96, 64, 0.16); }
+
+/* stat-mini used in student credit summary */
+.stat-mini {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.75rem 1rem;
+  background: #fafafa;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+}
+
+/* status-badge-card used in Upload status */
+.status-badge-card {
+  padding: 1rem 1.25rem;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: white;
+}
+
+.status-badge-card.status-ok {
+  border-color: rgba(30, 111, 92, 0.25);
+  background: rgba(30, 111, 92, 0.04);
+}
+
+.status-badge-card.status-missing {
+  border-color: rgba(22, 34, 24, 0.1);
+  background: #fafafa;
+}
+
+.status-badge-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 0.35rem;
+}
+
+.status-badge-value {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+/* progress-report pivot table — dense cells override */
+.progress-report-table td {
+  padding: 0.45rem 0.6rem;
+  font-size: 0.82rem;
+}
+
+.progress-report-table th {
+  padding: 0.65rem 0.6rem;
+}
+
+/* grid-layout-sidebar — workspace-style 2-col layout */
+.grid-layout-sidebar {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.sidebar-panel {
+  position: sticky;
+  top: 72px;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 1rem;
+  max-height: calc(100vh - 90px);
+  overflow-y: auto;
+}
+
+.main-panel {
+  min-height: 400px;
+}
+
+.student-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.student-list-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  text-align: left;
+  padding: 0.6rem 0.75rem;
+  border-radius: 10px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s;
+  color: var(--ink);
+  box-shadow: none;
+  gap: 0.1rem;
+}
+
+.student-list-item:hover {
+  background: rgba(22, 34, 24, 0.04);
+}
+
+.student-list-item.active {
+  background: rgba(30, 111, 92, 0.07);
+  color: var(--accent);
+}
+
+/* filter-bar */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  background: white;
+  padding: 0.85rem 1.25rem;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.02);
+}
+
+/* toggle pill button (on/off) */
+.toggle-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: 99px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--muted);
+  box-shadow: none;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.toggle-pill:hover {
+  background: rgba(22,34,24,0.04);
+  color: var(--ink);
+}
+
+.toggle-pill.active {
+  background: rgba(30, 111, 92, 0.1);
+  color: var(--accent);
+  border-color: rgba(30, 111, 92, 0.3);
+}
+
+/* ============================================================
+   WORKSPACE TABS (reuse for progress page tabs)
+   ============================================================ */
+
+.page-tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 2px solid rgba(22, 34, 24, 0.06);
+  margin-bottom: 1.25rem;
+}
+
+.page-tab-btn {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0.65rem 1.1rem;
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  position: relative;
+  transition: color 0.15s;
+  box-shadow: none;
+  white-space: nowrap;
+}
+
+.page-tab-btn:hover { color: var(--ink); }
+
+.page-tab-btn.active {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.page-tab-btn.active::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--ink);
+  border-radius: 2px 2px 0 0;
+}
+
+/* ─── Inline alert (push-to-advising feedback) ──────────────────── */
+.inline-alert {
+  padding: 0.55rem 1rem;
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+.inline-alert--success {
+  background: #d1fae5;
+  color: #065f46;
+  border: 1px solid #6ee7b7;
+}
+.inline-alert--error {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+}
