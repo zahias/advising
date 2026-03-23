@@ -23,8 +23,10 @@ app.include_router(api_router, prefix='/api')
 
 @app.on_event('startup')
 def on_startup() -> None:
+    # Create tables first (essential for fresh databases like Neon)
+    Base.metadata.create_all(bind=engine)
+
     # Add progress_version_id column to advising_periods if it doesn't exist yet
-    # (SQLite does not support ADD COLUMN IF NOT EXISTS, so we use inspect)
     existing_cols = {col['name'] for col in sa_inspect(engine).get_columns('advising_periods')}
     if 'progress_version_id' not in existing_cols:
         with engine.connect() as conn:
@@ -44,7 +46,6 @@ def on_startup() -> None:
             conn.execute(text('ALTER TABLE majors ADD COLUMN smtp_password VARCHAR(255)'))
         conn.commit()
 
-    Base.metadata.create_all(bind=engine)
     session = SessionLocal()
     try:
         seed_defaults(session)
