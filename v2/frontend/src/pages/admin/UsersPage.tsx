@@ -1,9 +1,8 @@
 import { FormEvent, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 
-import { apiFetch, updateUser, deleteUser, type UserRecord } from '../../lib/api'
+import { createUser, updateUser, deleteUser, toggleUserActive, type UserRecord } from '../../lib/api'
 import { useMajors, useUsers } from '../../lib/hooks'
-import { API_BASE_URL } from '../../lib/api'
 
 const LABEL: React.CSSProperties = { display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--muted)', marginBottom: '4px', textTransform: 'uppercase' }
 
@@ -54,16 +53,14 @@ export function UsersPage() {
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
-    const token = window.localStorage.getItem('advising_v2_token')
-    const res = await fetch(`${API_BASE_URL}/api/users`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: JSON.stringify(payload),
-    })
-    if (!res.ok) { setMessage({ type: 'error', text: await res.text() }); return }
-    setMessage({ type: 'success', text: `User ${payload.full_name} created.` })
-    setPayload({ email: '', full_name: '', password: '', role: 'adviser', major_codes: [] })
-    queryClient.invalidateQueries({ queryKey: ['users'] })
+    try {
+      await createUser(payload)
+      setMessage({ type: 'success', text: `User ${payload.full_name} created.` })
+      setPayload({ email: '', full_name: '', password: '', role: 'adviser', major_codes: [] })
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+    } catch (err: unknown) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Creation failed.' })
+    }
   }
 
   async function handleSaveEdit() {
@@ -84,15 +81,14 @@ export function UsersPage() {
   }
 
   async function handleToggle(userId: number, isActive: boolean) {
-    const token = window.localStorage.getItem('advising_v2_token')
-    const action = isActive ? 'deactivate' : 'activate'
-    const res = await fetch(`${API_BASE_URL}/api/users/${userId}/${action}`, {
-      method: 'PATCH',
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    })
-    if (!res.ok) { setMessage({ type: 'error', text: await res.text() }); return }
-    setMessage({ type: 'success', text: `User ${action}d.` })
-    queryClient.invalidateQueries({ queryKey: ['users'] })
+    const action = isActive ? 'deactivated' : 'activated'
+    try {
+      await toggleUserActive(userId, isActive)
+      setMessage({ type: 'success', text: `User ${action}.` })
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+    } catch (err: unknown) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Toggle failed.' })
+    }
   }
 
   async function handleDelete(userId: number) {

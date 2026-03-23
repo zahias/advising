@@ -497,6 +497,14 @@ export async function uploadElectiveAssignments(majorCode: string, file: File) {
   )
 }
 
+export function createUser(payload: { email: string; full_name: string; password: string; role: string; major_codes: string[] }) {
+  return apiFetch<UserRecord>('/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
 export function updateUser(userId: number, payload: { full_name?: string; role?: string; major_codes?: string[]; new_password?: string }) {
   return apiFetch<UserRecord>(`/users/${userId}`, {
     method: 'PATCH',
@@ -507,6 +515,11 @@ export function updateUser(userId: number, payload: { full_name?: string; role?:
 
 export function deleteUser(userId: number) {
   return apiFetch<{ deleted: boolean }>(`/users/${userId}`, { method: 'DELETE' })
+}
+
+export function toggleUserActive(userId: number, isActive: boolean) {
+  const action = isActive ? 'deactivate' : 'activate'
+  return apiFetch<UserRecord>(`/users/${userId}/${action}`, { method: 'PATCH' })
 }
 
 export function createMajor(payload: { code: string; name: string }) {
