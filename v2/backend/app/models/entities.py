@@ -100,6 +100,12 @@ class AdvisingPeriod(TimestampMixin, Base):
     progress_version_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey('dataset_versions.id', ondelete='SET NULL'), nullable=True, default=None
     )
+    progress_dataset_version_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey('dataset_versions.id', ondelete='SET NULL'), nullable=True, default=None
+    )
+    config_version_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey('dataset_versions.id', ondelete='SET NULL'), nullable=True, default=None
+    )
 
     major: Mapped['Major'] = relationship(back_populates='periods')
 

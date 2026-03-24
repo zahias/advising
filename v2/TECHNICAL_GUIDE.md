@@ -276,7 +276,7 @@ All tables inherit `TimestampMixin` (auto `created_at`, `updated_at` via `func.n
 | `user_major_access` | M2M join table — which advisers can access which majors |
 | `upload_batches` | Audit record of every file upload |
 | `dataset_versions` | Parsed dataset payloads stored as JSON in `parsed_payload` column. One active version per `(major_id, dataset_type)` at a time. |
-| `advising_periods` | Semester + year + advisor scoped to a major. Only one `is_active=True` per major. |
+| `advising_periods` | Semester + year + advisor scoped to a major. Only one `is_active=True` per major. Snapshots three dataset version FKs: `progress_version_id` (progress_report), `progress_dataset_version_id` (progress), `config_version_id` (course_config). |
 | `student_selections` | Current advised/optional/repeat course lists per `(major, period, student)`. Unique per that triple. |
 | `session_snapshots` | Immutable point-in-time snapshots of selections, created on every save. |
 | `course_exclusions` | Courses excluded from a specific student's view (multi-student bulk operation). |
@@ -359,8 +359,9 @@ Services contain all business logic. Route handlers call services and do nothing
 - `replace_hidden_courses / replace_exclusions` — replaces hidden/excluded course lists atomically.
 
 #### `period_service.py`
-- `create_period(session, *, major_code, semester, year, advisor_name)` — deactivates all other periods for the major, creates a new active one.
-- `activate_period / archive_period / delete_period` — lifecycle management.
+- `create_period(session, *, major_code, semester, year, advisor_name)` — deactivates all other periods for the major, creates a new active one. Captures the currently active `progress_report`, `progress`, and `course_config` dataset version IDs so they can be restored later.
+- `activate_period(session, period_code)` — restores all three snapshotted datasets (`progress_report`, `progress`, `course_config`) to the versions that were active when the period was created. This ensures switching back to an older period loads the correct historical student data and course configuration.
+- `archive_period / delete_period` — lifecycle management.
 - `current_period(session, major_code)` — returns the active `AdvisingPeriod` or None.
 - Period code format: `{major}-{semester}-{year}-{advisor-slug}` (e.g., `pbhl-spring-2026-dr-smith`).
 
@@ -399,6 +400,7 @@ Orchestration layer for the Academic Progress feature:
 - `upload_course_config(session, *, major_code, filename, content, user_id)` → delegates to `upload_dataset` with type `course_config`.
 - `get_data_status(session, major_code)` → `DataStatus` — reports whether both files are uploaded and their metadata.
 - `generate_report(session, major_code, show_all_grades, page, page_size, search)` → `ReportResponse` — loads both datasets, applies aliases from `equivalent_courses`, runs `process_progress_report`, paginates, applies per-student assignments.
+- `push_progress_to_advising(session, major_code, user_id)` → generates collapsed c/cr/nc Excel, stores it as `progress` dataset, and links the new version to the currently active advising period's `progress_dataset_version_id`.
 - `export_report_excel(session, major_code, show_all_grades)` → `bytes` — two-sheet XLSX (Required + Intensive) with color-coded cells using `openpyxl`.
 - `list_equivalents / replace_equivalents` — bulk-replace `equivalent_courses` for a major.
 - `list_assignment_types / create_assignment_type / delete_assignment_type` — CRUD on `assignment_types`.

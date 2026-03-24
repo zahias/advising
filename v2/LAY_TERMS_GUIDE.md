@@ -88,7 +88,7 @@ The app reads these two files and automatically computes eligibility for every s
 ## The Advising Workflow (Step by Step)
 
 1. **Admin uploads** the semester's courses file and progress file for a program.
-2. **Admin creates an advising period** (e.g., "Spring 2026, Dr. Smith").
+2. **Admin creates an advising period** (e.g., "Spring 2026, Dr. Smith"). The app takes a snapshot of the current data (student progress and course configuration) so it can be restored later.
 3. **Adviser logs in** and sees their Dashboard — showing how many students still need advising.
 4. **Adviser opens the Workspace** and searches for a student.
 5. The app shows the student's profile: standing, credits left, and a grid of courses.
@@ -97,6 +97,8 @@ The app reads these two files and automatically computes eligibility for every s
 8. **Adviser clicks Save** — the selection is stored in the database.
 9. **Adviser clicks Email** (optional) — the app generates an email using the configured template and sends it to the student's email address.
 10. The dashboard updates to show one more advised student.
+
+When a new semester starts and new data is uploaded, creating a new period captures the new data. **Switching back to an older period automatically restores the student progress and course configuration that were active at that time** — so graduated students and old course setups are preserved in their original periods.
 
 ---
 

@@ -10,7 +10,7 @@ from openpyxl.styles import PatternFill
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.models import DatasetVersion, Major
+from app.models import AdvisingPeriod, DatasetVersion, Major
 from app.models.progress_models import AssignmentType, EquivalentCourse, ProgressAssignment
 from app.schemas.progress import (
     DataStatus,
@@ -615,6 +615,20 @@ def push_progress_to_advising(
         content=xlsx_bytes,
         user_id=user_id,
     )
+
+    # Link the new progress dataset to the currently active advising period
+    major = session.scalar(select(Major).where(Major.code == major_code))
+    if major:
+        active_period = session.scalar(
+            select(AdvisingPeriod).where(
+                AdvisingPeriod.major_id == major.id,
+                AdvisingPeriod.is_active.is_(True),
+            )
+        )
+        if active_period:
+            active_period.progress_dataset_version_id = version.id
+            session.commit()
+
     student_count = len(version.parsed_payload.get('records', []))
     return {'message': f'Progress report pushed for {major_code} ({student_count} students).', 'version_id': version.id, 'student_count': student_count}
 

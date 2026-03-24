@@ -21,21 +21,23 @@ def list_periods(session: Session, major_code: str) -> list[AdvisingPeriod]:
     return list(session.scalars(select(AdvisingPeriod).where(AdvisingPeriod.major_id == major.id).order_by(AdvisingPeriod.created_at.desc())))
 
 
+def _active_version_id(session: Session, major_id: int, dataset_type: str) -> int | None:
+    dv = session.scalar(
+        select(DatasetVersion).where(
+            DatasetVersion.major_id == major_id,
+            DatasetVersion.dataset_type == dataset_type,
+            DatasetVersion.is_active.is_(True),
+        )
+    )
+    return dv.id if dv else None
+
+
 def create_period(session: Session, *, major_code: str, semester: str, year: int, advisor_name: str) -> AdvisingPeriod:
     major = session.scalar(select(Major).where(Major.code == major_code))
     if not major:
         raise ValueError(f'Unknown major: {major_code}')
 
     session.execute(update(AdvisingPeriod).where(AdvisingPeriod.major_id == major.id).values(is_active=False))
-
-    # Capture the currently active progress_report dataset so this period can restore it later
-    active_dv = session.scalar(
-        select(DatasetVersion).where(
-            DatasetVersion.major_id == major.id,
-            DatasetVersion.dataset_type == 'progress_report',
-            DatasetVersion.is_active.is_(True),
-        )
-    )
 
     period = AdvisingPeriod(
         major_id=major.id,
@@ -44,12 +46,30 @@ def create_period(session: Session, *, major_code: str, semester: str, year: int
         year=year,
         advisor_name=advisor_name,
         is_active=True,
-        progress_version_id=active_dv.id if active_dv else None,
+        progress_version_id=_active_version_id(session, major.id, 'progress_report'),
+        progress_dataset_version_id=_active_version_id(session, major.id, 'progress'),
+        config_version_id=_active_version_id(session, major.id, 'course_config'),
     )
     session.add(period)
     session.commit()
     session.refresh(period)
     return period
+
+
+def _restore_dataset(session: Session, major_id: int, dataset_type: str, version_id: int | None) -> None:
+    """Deactivate all versions of *dataset_type* for the major, then activate the given version."""
+    if version_id is None:
+        return
+    session.execute(
+        update(DatasetVersion)
+        .where(DatasetVersion.major_id == major_id, DatasetVersion.dataset_type == dataset_type)
+        .values(is_active=False)
+    )
+    session.execute(
+        update(DatasetVersion)
+        .where(DatasetVersion.id == version_id)
+        .values(is_active=True)
+    )
 
 
 def activate_period(session: Session, period_code: str) -> AdvisingPeriod:
@@ -59,21 +79,10 @@ def activate_period(session: Session, period_code: str) -> AdvisingPeriod:
     session.execute(update(AdvisingPeriod).where(AdvisingPeriod.major_id == period.major_id).values(is_active=False))
     period.is_active = True
 
-    # Restore the progress_report dataset that was active when this period was created
-    if period.progress_version_id is not None:
-        session.execute(
-            update(DatasetVersion)
-            .where(
-                DatasetVersion.major_id == period.major_id,
-                DatasetVersion.dataset_type == 'progress_report',
-            )
-            .values(is_active=False)
-        )
-        session.execute(
-            update(DatasetVersion)
-            .where(DatasetVersion.id == period.progress_version_id)
-            .values(is_active=True)
-        )
+    # Restore all snapshotted datasets to the versions captured when this period was created
+    _restore_dataset(session, period.major_id, 'progress_report', period.progress_version_id)
+    _restore_dataset(session, period.major_id, 'progress', period.progress_dataset_version_id)
+    _restore_dataset(session, period.major_id, 'course_config', period.config_version_id)
 
     session.commit()
     session.refresh(period)

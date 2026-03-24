@@ -56,6 +56,17 @@ def on_startup() -> None:
             ))
             conn.commit()
 
+    # Add progress_dataset_version_id and config_version_id to advising_periods
+    for col_name in ('progress_dataset_version_id', 'config_version_id'):
+        if col_name not in existing_cols:
+            with engine.connect() as conn:
+                conn.execute(text(
+                    f'ALTER TABLE advising_periods '
+                    f'ADD COLUMN {col_name} INTEGER '
+                    f'REFERENCES dataset_versions(id)'
+                ))
+                conn.commit()
+
     # Add per-major SMTP columns if they don't exist yet
     major_cols = {col['name'] for col in sa_inspect(engine).get_columns('majors')}
     with engine.connect() as conn:
