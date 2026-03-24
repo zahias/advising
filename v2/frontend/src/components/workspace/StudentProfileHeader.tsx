@@ -9,6 +9,7 @@ interface Props {
   templates: { id: number; template_key: string; display_name: string }[]
   onTemplateChange: (key: string) => void
   onEmail: () => void
+  emailSending?: boolean
   onRecommend: () => void
   onDownloadReport: () => void
 }
@@ -21,6 +22,7 @@ export function StudentProfileHeader({
   templates,
   onTemplateChange,
   onEmail,
+  emailSending,
   onRecommend,
   onDownloadReport,
 }: Props) {
@@ -89,7 +91,9 @@ export function StudentProfileHeader({
           <button type="button" className="btn-outline btn-sm" onClick={loadPreview} disabled={previewLoading} title="Preview email">
             {previewLoading ? '…' : showPreview ? 'Hide' : '👁 Preview'}
           </button>
-          <button type="button" className="btn-primary" onClick={onEmail}>Email Student</button>
+          <button type="button" className="btn-primary" onClick={onEmail} disabled={emailSending}>
+            {emailSending ? 'Sending…' : 'Email Student'}
+          </button>
         </div>
       </div>
 

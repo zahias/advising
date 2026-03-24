@@ -104,4 +104,3 @@ def send_student_email(session: Session, *, major_code: str, student_id: str, te
     except OSError as exc:
         logger.error('SMTP connection error: %s', exc)
         return {'success': False, 'message': f'Could not connect to SMTP server: {exc}'}
-        return {'success': False, 'message': f'Could not connect to SMTP server: {exc}'}

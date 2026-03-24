@@ -53,6 +53,7 @@ export function WorkspacePage() {
   const [restoreTarget, setRestoreTarget] = useState<{ id: number; title: string } | null>(null)
   const [viewTarget, setViewTarget] = useState<SessionSummary | null>(null)
   const [restoring, setRestoring] = useState(false)
+  const [emailSending, setEmailSending] = useState(false)
   const [templateKey, setTemplateKey] = useState('default')
   const [bypassCourse, setBypassCourse] = useState('')
   const [bypassNote, setBypassNote] = useState('')
@@ -191,6 +192,7 @@ export function WorkspacePage() {
 
   async function handleSendEmail() {
     if (!selectedStudentId) return
+    setEmailSending(true)
     try {
       const r = await authedFetch(`/emails/${majorCode}/${selectedStudentId}?template_key=${encodeURIComponent(templateKey)}`, { method: 'POST' })
       const body = await r.json().catch(() => null)
@@ -198,6 +200,8 @@ export function WorkspacePage() {
       setMessage({ type: 'success', text: body?.message || 'Email sent.' })
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Network error sending email.' })
+    } finally {
+      setEmailSending(false)
     }
   }
 
@@ -334,6 +338,7 @@ export function WorkspacePage() {
             templates={templates.data || []}
             onTemplateChange={setTemplateKey}
             onEmail={handleSendEmail}
+            emailSending={emailSending}
             onRecommend={handleRecommend}
             onDownloadReport={handleDownloadReport}
           />
