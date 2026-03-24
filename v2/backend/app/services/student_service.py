@@ -22,7 +22,16 @@ from app.schemas.advising import CourseCatalogItem, EligibilityCourse, Exclusion
 from app.services.dataset_service import dataset_dataframe
 from app.services.period_service import current_period
 
-ROOT_DIR = Path(__file__).resolve().parents[4]
+def _find_legacy_root() -> Path:
+    """Walk up from this file until we find eligibility_utils.py (the workspace root)."""
+    d = Path(__file__).resolve().parent
+    for _ in range(8):
+        if (d / 'eligibility_utils.py').exists():
+            return d
+        d = d.parent
+    return Path(__file__).resolve().parents[4]  # fallback
+
+ROOT_DIR = _find_legacy_root()
 import sys
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 from fastapi import APIRouter
@@ -13,14 +12,19 @@ router = APIRouter(prefix='/health', tags=['health'])
 @router.get('')
 def health_check():
     s = get_settings()
-    # Check if legacy modules are reachable
-    root_dir = Path(__file__).resolve().parents[4]
-    legacy_ok = (root_dir / 'eligibility_utils.py').exists()
+    # Search upward for legacy modules
+    d = Path(__file__).resolve().parent
+    legacy_root = None
+    for _ in range(8):
+        if (d / 'eligibility_utils.py').exists():
+            legacy_root = d
+            break
+        d = d.parent
     return {
         'status': 'ok',
         'cors_origins': s.cors_origins,
         'db_driver': 'postgresql' if 'postgresql' in s.database_url else 'sqlite',
-        'root_dir': str(root_dir),
-        'legacy_modules_found': legacy_ok,
+        'legacy_root': str(legacy_root) if legacy_root else None,
+        'legacy_modules_found': legacy_root is not None,
         'cwd': str(Path.cwd()),
     }

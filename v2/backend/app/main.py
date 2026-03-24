@@ -70,3 +70,16 @@ def on_startup() -> None:
         seed_defaults(session)
     finally:
         session.close()
+
+    # Fix PostgreSQL sequences that are out of sync (e.g. after data migration)
+    if 'postgresql' in settings.database_url:
+        with engine.connect() as conn:
+            tables = sa_inspect(engine).get_table_names()
+            for table in tables:
+                pk_cols = sa_inspect(engine).get_pk_constraint(table).get('constrained_columns', [])
+                if len(pk_cols) == 1 and pk_cols[0] == 'id':
+                    conn.execute(text(
+                        f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
+                        f"COALESCE((SELECT MAX(id) FROM \"{table}\"), 0) + 1, false)"
+                    ))
+            conn.commit()
