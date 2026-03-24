@@ -1,7 +1,7 @@
 import { FormEvent, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 
-import { API_BASE_URL, AppTemplate } from '../../lib/api'
+import { apiFetch, AppTemplate } from '../../lib/api'
 import { useTemplates } from '../../lib/hooks'
 
 const BLANK_PAYLOAD = {
@@ -57,22 +57,18 @@ export function TemplatesPage() {
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
-    const token = window.localStorage.getItem('advising_v2_token')
-    const response = await fetch(`${API_BASE_URL}/api/templates`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify(payload),
-    })
-    if (!response.ok) {
-      setMessage({ type: 'error', text: await response.text() })
-      return
+    try {
+      await apiFetch<AppTemplate>('/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      setMessage({ type: 'success', text: editingId ? 'Template updated.' : 'Template created.' })
+      setEditingId(null)
+      queryClient.invalidateQueries({ queryKey: ['templates'] })
+    } catch (err: unknown) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Save failed.' })
     }
-    setMessage({ type: 'success', text: editingId ? 'Template updated.' : 'Template created.' })
-    setEditingId(null)
-    queryClient.invalidateQueries({ queryKey: ['templates'] })
   }
 
   return (

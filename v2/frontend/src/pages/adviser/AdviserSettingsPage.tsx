@@ -140,20 +140,21 @@ export function AdviserSettingsPage() {
   async function handleUpload() {
     if (!uploadFile) return
     setUploading(true)
-    const token = window.localStorage.getItem('advising_v2_token')
-    const formData = new FormData()
-    formData.append('major_code', majorCode)
-    formData.append('dataset_type', uploadType)
-    formData.append('file', uploadFile)
-    const res = await fetch(`${API_BASE_URL}/api/datasets/upload`, {
-      method: 'POST', body: formData,
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    })
-    setUploading(false)
-    if (!res.ok) { showMsg('error', await res.text()); return }
-    showMsg('success', `${DATASET_LABELS[uploadType] ?? uploadType} uploaded successfully.`)
-    setUploadFile(null)
-    queryClient.invalidateQueries({ queryKey: ['dataset-versions', majorCode] })
+    try {
+      const formData = new FormData()
+      formData.append('major_code', majorCode)
+      formData.append('dataset_type', uploadType)
+      formData.append('file', uploadFile)
+      const res = await authedFetch('/datasets/upload', { method: 'POST', body: formData })
+      if (!res.ok) { showMsg('error', await res.text()); return }
+      showMsg('success', `${DATASET_LABELS[uploadType] ?? uploadType} uploaded successfully.`)
+      setUploadFile(null)
+      queryClient.invalidateQueries({ queryKey: ['dataset-versions', majorCode] })
+    } catch (err: unknown) {
+      showMsg('error', err instanceof Error ? err.message : 'Upload failed.')
+    } finally {
+      setUploading(false)
+    }
   }
 
   return (

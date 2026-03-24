@@ -48,23 +48,22 @@ export function DatasetsPage() {
   async function handleUpload(event: FormEvent) {
     event.preventDefault()
     if (!file) return
-    const token = window.localStorage.getItem('advising_v2_token')
-    const formData = new FormData()
-    formData.append('major_code', majorCode)
-    formData.append('dataset_type', datasetType)
-    formData.append('file', file)
-    const response = await fetch(`${API_BASE_URL}/api/datasets/upload`, {
-      method: 'POST',
-      body: formData,
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    })
-    if (!response.ok) {
-      setMessage({ type: 'error', text: await response.text() })
-      return
+    try {
+      const formData = new FormData()
+      formData.append('major_code', majorCode)
+      formData.append('dataset_type', datasetType)
+      formData.append('file', file)
+      const response = await authedFetch('/datasets/upload', { method: 'POST', body: formData })
+      if (!response.ok) {
+        setMessage({ type: 'error', text: await response.text() })
+        return
+      }
+      setMessage({ type: 'success', text: 'Dataset uploaded successfully.' })
+      setFile(null)
+      queryClient.invalidateQueries({ queryKey: ['dataset-versions', majorCode] })
+    } catch (err: unknown) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Upload failed.' })
     }
-    setMessage({ type: 'success', text: 'Dataset uploaded successfully.' })
-    setFile(null)
-    queryClient.invalidateQueries({ queryKey: ['dataset-versions', majorCode] })
   }
 
   async function handleActivateVersion(versionId: number) {
