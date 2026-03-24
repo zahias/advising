@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import logging
 import smtplib
+import socket
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 logger = logging.getLogger(__name__)
+
+_SMTP_TIMEOUT = 15  # seconds — prevents hanging when SMTP host is unreachable
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -88,8 +91,7 @@ def send_student_email(session: Session, *, major_code: str, student_id: str, te
     message.attach(MIMEText(str(email_data['preview_body']), 'plain'))
     try:
         logger.info('Connecting to smtp.office365.com:587 as %s → sending to %s (CC: %s)', major.smtp_email, recipient, adviser_email or 'none')
-        with smtplib.SMTP('smtp.office365.com', 587) as server:
-            server.set_debuglevel(1)
+        with smtplib.SMTP('smtp.office365.com', 587, timeout=_SMTP_TIMEOUT) as server:
             server.starttls()
             server.login(major.smtp_email, major.smtp_password)
             server.sendmail(major.smtp_email, recipients, message.as_string())
@@ -101,6 +103,6 @@ def send_student_email(session: Session, *, major_code: str, student_id: str, te
     except smtplib.SMTPException as exc:
         logger.error('SMTP error: %s', exc)
         return {'success': False, 'message': f'SMTP error: {exc}'}
-    except OSError as exc:
+    except (OSError, socket.timeout) as exc:
         logger.error('SMTP connection error: %s', exc)
         return {'success': False, 'message': f'Could not connect to SMTP server: {exc}'}
