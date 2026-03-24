@@ -5,8 +5,6 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urljoin
 
-import boto3
-
 from app.core.config import get_settings
 
 
@@ -17,6 +15,7 @@ class StorageService:
         self.local_root.mkdir(parents=True, exist_ok=True)
         self._client = None
         if self.settings.r2_account_id and self.settings.r2_access_key_id and self.settings.r2_secret_access_key and self.settings.r2_bucket:
+            import boto3
             endpoint = f"https://{self.settings.r2_account_id}.r2.cloudflarestorage.com"
             self._client = boto3.client(
                 's3',
@@ -47,9 +46,15 @@ class StorageService:
 
     def get_bytes(self, key: str) -> bytes:
         if self._client and self.bucket:
-            response = self._client.get_object(Bucket=self.bucket, Key=key)
-            return response['Body'].read()
-        return (self.local_root / key).read_bytes()
+            try:
+                response = self._client.get_object(Bucket=self.bucket, Key=key)
+                return response['Body'].read()
+            except self._client.exceptions.NoSuchKey:
+                raise FileNotFoundError(f'Object not found in R2: {key}')
+        path = self.local_root / key
+        if not path.exists():
+            raise FileNotFoundError(f'File not found in local storage: {key}')
+        return path.read_bytes()
 
     def public_url(self, key: str) -> Optional[str]:
         if self.settings.r2_public_base_url:

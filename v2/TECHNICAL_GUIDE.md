@@ -411,9 +411,11 @@ Orchestration layer for the Academic Progress feature:
 - `seed_defaults(session)` — idempotent seed of: 4 default majors, admin + adviser users, default email templates, major access grants for all users.
 
 #### `storage.py` — `StorageService`
-- **Two backends**: if R2 credentials are configured → uses boto3 S3 client pointed at Cloudflare R2 endpoint (`https://{account_id}.r2.cloudflarestorage.com`). Otherwise → writes to `LOCAL_STORAGE_PATH` on disk.
+- **Two backends**: if R2 credentials are configured → lazy-imports boto3 and uses S3 client pointed at Cloudflare R2 endpoint (`https://{account_id}.r2.cloudflarestorage.com`). Otherwise → writes to `LOCAL_STORAGE_PATH` on disk. boto3 is only imported when R2 is configured, saving ~50 MB of RAM on deployments that use local storage only.
 - Methods: `put_bytes(key, content)`, `get_bytes(key)`, `public_url(key)`.
+- `get_bytes(key)` raises `FileNotFoundError` when the requested file does not exist (both R2 `NoSuchKey` and local missing-file cases). Callers must handle this — e.g. the dataset download route returns HTTP 404 with a re-upload prompt.
 - Storage key conventions: `datasets/{major_code}/{type}/{checksum}-{filename}`, `backups/{timestamp}/database.sql.gz`, `legacy-imports/{major_code}/{filename}`.
+- **Ephemeral storage warning**: on platforms with ephemeral filesystems (e.g. Render free tier), locally-stored files are lost on every deploy. The actual parsed data survives in the database (`DatasetVersion.parsed_payload`), but the raw uploaded files will not be downloadable after a restart unless R2 is configured.
 
 ---
 
@@ -444,11 +446,15 @@ These are injected via `sys.path.insert(0, ROOT_DIR)` inside each service file. 
 
 ### 4.9 Storage Abstraction
 
-`StorageService` is instantiated fresh per call (no singleton). It auto-detects R2 vs local mode at construction time based on whether all four R2 env vars are present.
+`StorageService` is instantiated fresh per call (no singleton). It auto-detects R2 vs local mode at construction time based on whether all four R2 env vars are present. When R2 is not configured, boto3 is never imported.
 
 In R2 mode, content-type is guessed from filename via `mimetypes.guess_type`. Public URL is `R2_PUBLIC_BASE_URL/{key}`.
 
 In local mode, files are written under `LOCAL_STORAGE_PATH/{key}` with directories created on demand. Public URL returns the absolute local path.
+
+#### Error Handling
+
+The global exception handler (`main.py`) catches any unhandled exception and returns a JSON 500 response with explicit CORS headers, ensuring cross-origin clients always receive a usable error response even if middleware fails to add headers.
 
 ---
 

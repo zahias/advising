@@ -30,7 +30,14 @@ app.include_router(api_router, prefix='/api')
 async def global_exception_handler(request: Request, exc: Exception):
     """Catch-all so unhandled crashes still return JSON with CORS headers."""
     logger.exception('Unhandled error on %s %s', request.method, request.url.path)
-    return JSONResponse(status_code=500, content={'detail': 'Internal server error'})
+    origin = request.headers.get('origin', '')
+    headers = {}
+    if origin in settings.cors_origins:
+        headers = {
+            'access-control-allow-origin': origin,
+            'access-control-allow-credentials': 'true',
+        }
+    return JSONResponse(status_code=500, content={'detail': 'Internal server error'}, headers=headers)
 
 
 @app.on_event('startup')

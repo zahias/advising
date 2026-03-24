@@ -102,7 +102,10 @@ def download_current_file(major_code: str, dataset_type: str, user: User = Depen
     if not version:
         raise HTTPException(status_code=404, detail='No active file for this dataset type.')
     storage = StorageService()
-    content = storage.get_bytes(version.storage_key)
+    try:
+        content = storage.get_bytes(version.storage_key)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='File no longer available. Please re-upload the dataset.')
     filename = version.original_filename or f'{dataset_type}.xlsx'
     media_type = 'text/csv' if filename.lower().endswith('.csv') else 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     return StreamingResponse(
