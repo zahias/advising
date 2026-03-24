@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { useProgressStatus } from '../../lib/hooks'
+import { useProgressStatus, useDatasetVersions } from '../../lib/hooks'
 import { uploadProgressReport, previewProgressReport, uploadCourseConfig, uploadElectiveAssignments, API_BASE_URL } from '../../lib/api'
 import { useMajorContext } from '../../lib/MajorContext'
 import { useQueryClient } from '@tanstack/react-query'
@@ -79,6 +79,12 @@ export function UploadPage() {
   const { majorCode, setMajorCode, allowedMajors } = useMajorContext()
   const queryClient = useQueryClient()
   const status = useProgressStatus(majorCode)
+  const versions = useDatasetVersions(majorCode)
+
+  const activeVersions: Record<string, { original_filename: string | null }> = {}
+  for (const v of versions.data ?? []) {
+    if (v.is_active) activeVersions[v.dataset_type] = v
+  }
 
   const [prLoading, setPrLoading] = useState(false)
   const [ccLoading, setCcLoading] = useState(false)
@@ -196,7 +202,12 @@ export function UploadPage() {
               Long format (ID, NAME, Course, Grade, Year, Semester) or wide format (COURSE_* columns).
               Excel (.xlsx) or CSV.
             </p>
-            <button type="button" className="btn-sm btn-outline" style={{ fontSize: '0.72rem', padding: '1px 8px', width: 'fit-content' }} onClick={() => downloadTemplate('/progress/templates/progress-report', 'progress_report_template.xlsx')}>↓ Template</button>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button type="button" className="btn-sm btn-outline" style={{ fontSize: '0.72rem', padding: '1px 8px', width: 'fit-content' }} onClick={() => downloadTemplate('/progress/templates/progress-report', 'progress_report_template.xlsx')}>↓ Template</button>
+              {activeVersions['progress_report'] && (
+                <button type="button" className="btn-sm btn-outline" style={{ fontSize: '0.72rem', padding: '1px 8px', width: 'fit-content' }} onClick={() => downloadTemplate(`/datasets/${majorCode}/progress_report/download`, activeVersions['progress_report'].original_filename || 'progress_report.xlsx')}>↓ Current File</button>
+              )}
+            </div>
           </div>
           <UploadZone
             label="Drop progress report here or click to browse"
@@ -218,7 +229,12 @@ export function UploadPage() {
               Required columns: <strong>Course, Type, Credits, PassingGrades</strong>.
               Optional: FromSemester, FromYear, ToSemester, ToYear. Excel or CSV.
             </p>
-            <button type="button" className="btn-sm btn-outline" style={{ fontSize: '0.72rem', padding: '1px 8px', width: 'fit-content' }} onClick={() => downloadTemplate('/progress/templates/course-config', 'course_config_template.xlsx')}>↓ Template</button>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button type="button" className="btn-sm btn-outline" style={{ fontSize: '0.72rem', padding: '1px 8px', width: 'fit-content' }} onClick={() => downloadTemplate('/progress/templates/course-config', 'course_config_template.xlsx')}>↓ Template</button>
+              {activeVersions['course_config'] && (
+                <button type="button" className="btn-sm btn-outline" style={{ fontSize: '0.72rem', padding: '1px 8px', width: 'fit-content' }} onClick={() => downloadTemplate(`/datasets/${majorCode}/course_config/download`, activeVersions['course_config'].original_filename || 'course_config.xlsx')}>↓ Current File</button>
+              )}
+            </div>
           </div>
           <UploadZone
             label="Drop course config here or click to browse"
@@ -246,7 +262,12 @@ export function UploadPage() {
             Required columns: <strong>Student ID</strong> (or <strong>ID</strong>), <strong>Assignment Type</strong> (e.g.&nbsp;SCE), <strong>Course Code</strong>.
             One row per assignment. Existing assignments for those students are overwritten.
           </p>
-          <button type="button" className="btn-sm btn-outline" style={{ fontSize: '0.72rem', padding: '1px 8px', width: 'fit-content' }} onClick={() => downloadTemplate('/progress/templates/elective-assignments', 'elective_assignments_template.xlsx')}>↓ Template</button>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <button type="button" className="btn-sm btn-outline" style={{ fontSize: '0.72rem', padding: '1px 8px', width: 'fit-content' }} onClick={() => downloadTemplate('/progress/templates/elective-assignments', 'elective_assignments_template.xlsx')}>↓ Template</button>
+            {activeVersions['elective_assignments'] && (
+              <button type="button" className="btn-sm btn-outline" style={{ fontSize: '0.72rem', padding: '1px 8px', width: 'fit-content' }} onClick={() => downloadTemplate(`/datasets/${majorCode}/elective_assignments/download`, activeVersions['elective_assignments'].original_filename || 'elective_assignments.xlsx')}>↓ Current File</button>
+            )}
+          </div>
         </div>
         <UploadZone
           label="Drop elective assignments Excel here or click to browse"
