@@ -13,8 +13,18 @@ _url = settings.database_url
 if _url.startswith('postgresql://'):
     _url = _url.replace('postgresql://', 'postgresql+psycopg://', 1)
 
-connect_args = {'check_same_thread': False} if _url.startswith('sqlite') else {}
-engine = create_engine(_url, future=True, pool_pre_ping=True, connect_args=connect_args)
+_is_sqlite = _url.startswith('sqlite')
+connect_args: dict = {'check_same_thread': False} if _is_sqlite else {}
+
+# For Neon serverless Postgres: recycle stale connections aggressively so cold-start
+# suspensions don't leave dead connections in the pool.
+engine = create_engine(
+    _url,
+    future=True,
+    pool_pre_ping=True,
+    connect_args=connect_args,
+    **({} if _is_sqlite else {'pool_recycle': 300, 'pool_size': 5, 'max_overflow': 10}),
+)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 
 
