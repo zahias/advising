@@ -191,10 +191,14 @@ export function WorkspacePage() {
 
   async function handleSendEmail() {
     if (!selectedStudentId) return
-    const r = await authedFetch(`/emails/${majorCode}/${selectedStudentId}?template_key=${encodeURIComponent(templateKey)}`, { method: 'POST' })
-    const body = await r.json().catch(() => null)
-    if (!r.ok) { setMessage({ type: 'error', text: body?.detail || body?.message || 'Email failed.' }); return }
-    setMessage({ type: 'success', text: body?.message || 'Email sent.' })
+    try {
+      const r = await authedFetch(`/emails/${majorCode}/${selectedStudentId}?template_key=${encodeURIComponent(templateKey)}`, { method: 'POST' })
+      const body = await r.json().catch(() => null)
+      if (!r.ok) { setMessage({ type: 'error', text: body?.detail || body?.message || `Email failed (${r.status}).` }); return }
+      setMessage({ type: 'success', text: body?.message || 'Email sent.' })
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Network error sending email.' })
+    }
   }
 
   async function handleSavePlacements() {

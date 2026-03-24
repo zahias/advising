@@ -18,6 +18,21 @@ from app.services.storage import StorageService
 logger = logging.getLogger(__name__)
 
 
+def _pg_url(database_url: str) -> str:
+    """Convert a SQLAlchemy database URL to a plain libpq connection string.
+
+    Strips the '+driver' dialect suffix (e.g. postgresql+psycopg → postgresql)
+    and removes channel_binding param which pg_dump/psql don't support.
+    """
+    import re
+    url = re.sub(r'^postgresql\+\w+://', 'postgresql://', database_url)
+    url = re.sub(r'[&?]channel_binding=[^&]*', '', url)
+    # If the first remaining param lost its '?', fix it
+    url = re.sub(r'\?&', '?', url)
+    url = url.replace('&', '?', 1) if '?' not in url and '&' in url else url
+    return url
+
+
 def _find_pg_dump() -> str:
     """Locate pg_dump executable, searching common install paths."""
     found = shutil.which('pg_dump')
@@ -65,7 +80,7 @@ def run_backup(triggered_by: str = 'scheduled') -> BackupRun:
         dump_path = Path('/tmp') / f'advising-v2-{timestamp}.sql.gz'
         pg_dump_bin = _find_pg_dump()
         with dump_path.open('wb') as handle:
-            proc = subprocess.run([pg_dump_bin, '--dbname', database_url], check=True, capture_output=True)
+            proc = subprocess.run([pg_dump_bin, '--dbname', _pg_url(database_url)], check=True, capture_output=True)
             handle.write(gzip.compress(proc.stdout))
         key = f'backups/{timestamp}/database.sql.gz'
 
@@ -148,7 +163,7 @@ def restore_backup(backup_id: int, triggered_by: str = 'admin') -> dict:
     else:
         psql_bin = _find_psql()
         proc = subprocess.run(
-            [psql_bin, '--dbname', database_url],
+            [psql_bin, '--dbname', _pg_url(database_url)],
             input=raw,
             capture_output=True,
         )
