@@ -54,3 +54,14 @@ def reveal_smtp_password(code: str, _: User = Depends(require_admin), db: Sessio
     if not major:
         raise HTTPException(status_code=404, detail='Major not found')
     return {'smtp_password': major.smtp_password or ''}
+
+
+@router.delete('/{code}')
+def delete_major(code: str, admin: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+    major = db.scalar(select(Major).where(Major.code == code))
+    if not major:
+        raise HTTPException(status_code=404, detail='Major not found')
+    log_event(db, admin.id, 'major.deleted', 'major', str(major.id), {'code': major.code, 'name': major.name})
+    db.delete(major)
+    db.commit()
+    return {'deleted': True}

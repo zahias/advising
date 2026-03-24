@@ -541,3 +541,7 @@ export function updateMajor(code: string, payload: { name?: string; smtp_email?:
 export function revealSmtpPassword(code: string) {
   return apiFetch<{ smtp_password: string }>(`/majors/${code}/smtp-password`)
 }
+
+export function deleteMajor(code: string) {
+  return apiFetch<{ deleted: boolean }>(`/majors/${code}`, { method: 'DELETE' })
+}

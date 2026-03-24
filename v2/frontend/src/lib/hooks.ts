@@ -6,6 +6,7 @@ export function useCurrentUser() {
     queryKey: ['me'],
     queryFn: () => apiFetch<CurrentUser>('/auth/me'),
     retry: false,
+    staleTime: Infinity,
   })
 }
 

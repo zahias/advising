@@ -1,7 +1,7 @@
 import { FormEvent, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 
-import { createMajor, updateMajor, revealSmtpPassword, Major } from '../../lib/api'
+import { createMajor, updateMajor, revealSmtpPassword, deleteMajor, Major } from '../../lib/api'
 import { useMajors } from '../../lib/hooks'
 
 export function MajorsPage() {
@@ -18,6 +18,19 @@ export function MajorsPage() {
   const [editSmtpPassword, setEditSmtpPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState<string | null>(null)
+
+  async function handleDelete(majorCode: string) {
+    if (!confirm(`Delete major "${majorCode}" and ALL its data (datasets, periods, selections, snapshots)? This cannot be undone.`)) return
+    setDeleting(majorCode)
+    try {
+      await deleteMajor(majorCode)
+      setMessage({ type: 'success', text: `Major ${majorCode} deleted.` })
+      queryClient.invalidateQueries({ queryKey: ['majors'] })
+    } catch (err: unknown) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to delete major.' })
+    } finally { setDeleting(null) }
+  }
 
   function openEdit(m: Major) {
     setEditing(m)
@@ -157,7 +170,17 @@ export function MajorsPage() {
                     </span>
                   </td>
                   <td>
-                    <button className="btn-sm" style={{ fontSize: '0.75rem', padding: '2px 10px' }} onClick={() => openEdit(m)}>Edit</button>
+                    <div style={{ display: 'flex', gap: '0.35rem' }}>
+                      <button className="btn-sm" style={{ fontSize: '0.75rem', padding: '2px 10px' }} onClick={() => openEdit(m)}>Edit</button>
+                      <button
+                        className="btn-sm"
+                        style={{ fontSize: '0.75rem', padding: '2px 10px', color: '#dc2626', borderColor: '#fca5a5' }}
+                        disabled={deleting === m.code}
+                        onClick={() => handleDelete(m.code)}
+                      >
+                        {deleting === m.code ? 'Deleting…' : 'Delete'}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
