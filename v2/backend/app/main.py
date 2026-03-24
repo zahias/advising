@@ -37,7 +37,7 @@ async def global_exception_handler(request: Request, exc: Exception):
             'access-control-allow-origin': origin,
             'access-control-allow-credentials': 'true',
         }
-    return JSONResponse(status_code=500, content={'detail': 'Internal server error'}, headers=headers)
+    return JSONResponse(status_code=500, content={'detail': f'{type(exc).__name__}: {exc}'}, headers=headers)
 
 
 @app.on_event('startup')
