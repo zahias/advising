@@ -3,12 +3,49 @@ from __future__ import annotations
 import logging
 import smtplib
 import socket
+import ssl
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 logger = logging.getLogger(__name__)
 
 _SMTP_TIMEOUT = 15  # seconds — prevents hanging when SMTP host is unreachable
+_SMTP_HOST = 'smtp.office365.com'
+
+
+def _resolve_ipv4(host: str, port: int) -> str:
+    """Resolve hostname to an IPv4 address (skip IPv6 which fails on Render)."""
+    results = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
+    if not results:
+        raise OSError(f'Could not resolve {host} to an IPv4 address')
+    return results[0][4][0]
+
+
+def _smtp_connect_and_send(
+    smtp_email: str, smtp_password: str, recipients: list[str], msg_string: str,
+) -> None:
+    """Try port 587 (STARTTLS) first, then fall back to port 465 (implicit SSL)."""
+    ipv4 = _resolve_ipv4(_SMTP_HOST, 587)
+    logger.info('Resolved %s → %s (IPv4)', _SMTP_HOST, ipv4)
+
+    # Attempt 1: port 587 with STARTTLS
+    try:
+        with smtplib.SMTP(ipv4, 587, timeout=_SMTP_TIMEOUT) as server:
+            server.ehlo(_SMTP_HOST)
+            server.starttls()
+            server.ehlo(_SMTP_HOST)
+            server.login(smtp_email, smtp_password)
+            server.sendmail(smtp_email, recipients, msg_string)
+        return
+    except (OSError, smtplib.SMTPException) as exc:
+        logger.warning('Port 587 failed (%s), trying 465 (SSL)…', exc)
+
+    # Attempt 2: port 465 with implicit SSL
+    ctx = ssl.create_default_context()
+    with smtplib.SMTP_SSL(ipv4, 465, timeout=_SMTP_TIMEOUT, context=ctx) as server:
+        server.ehlo(_SMTP_HOST)
+        server.login(smtp_email, smtp_password)
+        server.sendmail(smtp_email, recipients, msg_string)
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -90,11 +127,8 @@ def send_student_email(session: Session, *, major_code: str, student_id: str, te
         recipients.append(adviser_email)
     message.attach(MIMEText(str(email_data['preview_body']), 'plain'))
     try:
-        logger.info('Connecting to smtp.office365.com:587 as %s → sending to %s (CC: %s)', major.smtp_email, recipient, adviser_email or 'none')
-        with smtplib.SMTP('smtp.office365.com', 587, timeout=_SMTP_TIMEOUT, source_address=('0.0.0.0', 0)) as server:
-            server.starttls()
-            server.login(major.smtp_email, major.smtp_password)
-            server.sendmail(major.smtp_email, recipients, message.as_string())
+        logger.info('Sending email as %s → %s (CC: %s)', major.smtp_email, recipient, adviser_email or 'none')
+        _smtp_connect_and_send(major.smtp_email, major.smtp_password, recipients, message.as_string())
         logger.info('Email accepted by SMTP server for %s', recipient)
         return {'success': True, 'message': f'Email sent to {recipient}.'}
     except smtplib.SMTPAuthenticationError as exc:
