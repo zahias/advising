@@ -91,7 +91,7 @@ def send_student_email(session: Session, *, major_code: str, student_id: str, te
     message.attach(MIMEText(str(email_data['preview_body']), 'plain'))
     try:
         logger.info('Connecting to smtp.office365.com:587 as %s → sending to %s (CC: %s)', major.smtp_email, recipient, adviser_email or 'none')
-        with smtplib.SMTP('smtp.office365.com', 587, timeout=_SMTP_TIMEOUT) as server:
+        with smtplib.SMTP('smtp.office365.com', 587, timeout=_SMTP_TIMEOUT, source_address=('0.0.0.0', 0)) as server:
             server.starttls()
             server.login(major.smtp_email, major.smtp_password)
             server.sendmail(major.smtp_email, recipients, message.as_string())
