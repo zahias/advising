@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     google_client_secret: Optional[str] = Field(default=None, alias='GOOGLE_CLIENT_SECRET')
     google_refresh_token: Optional[str] = Field(default=None, alias='GOOGLE_REFRESH_TOKEN')
     google_folder_id: Optional[str] = Field(default=None, alias='GOOGLE_FOLDER_ID')
+    graph_tenant_id: Optional[str] = Field(default=None, alias='GRAPH_TENANT_ID')
+    graph_client_id: Optional[str] = Field(default=None, alias='GRAPH_CLIENT_ID')
+    graph_client_secret: Optional[str] = Field(default=None, alias='GRAPH_CLIENT_SECRET')
 
     @property
     def cors_origins(self) -> List[str]:
