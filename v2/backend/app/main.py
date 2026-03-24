@@ -1,13 +1,18 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+import logging
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import inspect as sa_inspect, text
 
 from app.api.router import api_router
 from app.core.config import get_settings
 from app.db import Base, engine, SessionLocal
 from app.services.bootstrap import seed_defaults
+
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name)
@@ -19,6 +24,13 @@ app.add_middleware(
     allow_headers=['*'],
 )
 app.include_router(api_router, prefix='/api')
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Catch-all so unhandled crashes still return JSON with CORS headers."""
+    logger.exception('Unhandled error on %s %s', request.method, request.url.path)
+    return JSONResponse(status_code=500, content={'detail': 'Internal server error'})
 
 
 @app.on_event('startup')
