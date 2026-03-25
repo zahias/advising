@@ -30,6 +30,38 @@ def _graph_credentials() -> tuple[str, str, str] | None:
     return None
 
 
+def _send_via_brevo(
+    api_key: str,
+    sender_email: str, sender_name: str,
+    recipient: str, subject: str, body: str,
+    cc: str | None = None,
+) -> dict:
+    """Send email via Brevo (Sendinblue) SMTP API — sends from verified sender address."""
+    payload: dict = {
+        'sender': {'name': sender_name or 'Advising', 'email': sender_email},
+        'to': [{'email': recipient}],
+        'subject': subject,
+        'textContent': body,
+    }
+    if cc:
+        payload['cc'] = [{'email': cc}]
+    try:
+        resp = httpx.post('https://api.brevo.com/v3/smtp/email', json=payload, headers={
+            'api-key': api_key,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+        }, timeout=15)
+        if resp.status_code in (200, 201):
+            logger.info('Email sent via Brevo from %s to %s (CC: %s)', sender_email, recipient, cc or 'none')
+            return {'success': True, 'message': f'Email sent to {recipient}.'}
+        detail = resp.json().get('message', resp.text) if resp.headers.get('content-type', '').startswith('application/json') else resp.text
+        logger.error('Brevo API error (%d): %s', resp.status_code, detail)
+        return {'success': False, 'message': f'Brevo API error ({resp.status_code}): {detail}'}
+    except httpx.HTTPError as exc:
+        logger.error('Brevo HTTP error: %s', exc)
+        return {'success': False, 'message': f'Brevo API request failed: {exc}'}
+
+
 def _send_via_resend(
     api_key: str,
     sender_email: str, recipient: str, subject: str, body: str,
@@ -219,7 +251,20 @@ def send_student_email(session: Session, *, major_code: str, student_id: str, te
     body = str(email_data['preview_body'])
     s = get_settings()
 
-    # Priority 1: Resend API (simplest — one API key, HTTPS)
+    # Priority 1: Brevo (sends from verified university email directly)
+    if s.brevo_api_key:
+        logger.info('Sending via Brevo for %s → %s', major.smtp_email, recipient)
+        return _send_via_brevo(
+            api_key=s.brevo_api_key,
+            sender_email=major.smtp_email,
+            sender_name=major.smtp_email.split('@')[0].replace('.', ' ').title(),
+            recipient=recipient,
+            subject=subject,
+            body=body,
+            cc=adviser_email,
+        )
+
+    # Priority 2: Resend API (fallback — sends from onboarding@resend.dev with Reply-To)
     if s.resend_api_key:
         logger.info('Sending via Resend API for %s → %s', major.smtp_email, recipient)
         return _send_via_resend(
@@ -231,7 +276,7 @@ def send_student_email(session: Session, *, major_code: str, student_id: str, te
             cc=adviser_email,
         )
 
-    # Priority 2: Microsoft Graph API (HTTPS, needs Azure AD app)
+    # Priority 3: Microsoft Graph API (HTTPS, needs Azure AD app)
     graph_creds = _graph_credentials()
     if graph_creds:
         logger.info('Sending via Microsoft Graph API for %s → %s', major.smtp_email, recipient)
