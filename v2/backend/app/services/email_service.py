@@ -51,11 +51,13 @@ def _send_via_brevo(
             'Content-Type': 'application/json',
             'Accept': 'application/json',
         }, timeout=15)
+        resp_data = resp.json() if resp.headers.get('content-type', '').startswith('application/json') else {}
         if resp.status_code in (200, 201):
-            logger.info('Email sent via Brevo from %s to %s (CC: %s)', sender_email, recipient, cc or 'none')
-            return {'success': True, 'message': f'Email sent to {recipient}.'}
-        detail = resp.json().get('message', resp.text) if resp.headers.get('content-type', '').startswith('application/json') else resp.text
-        logger.error('Brevo API error (%d): %s', resp.status_code, detail)
+            msg_id = resp_data.get('messageId', 'unknown')
+            logger.info('Email sent via Brevo from %s to %s (CC: %s) messageId=%s', sender_email, recipient, cc or 'none', msg_id)
+            return {'success': True, 'message': f'Email sent to {recipient} (ref: {msg_id}).'}
+        detail = resp_data.get('message', resp.text)
+        logger.error('Brevo API error (%d): %s | sender=%s recipient=%s', resp.status_code, detail, sender_email, recipient)
         return {'success': False, 'message': f'Brevo API error ({resp.status_code}): {detail}'}
     except httpx.HTTPError as exc:
         logger.error('Brevo HTTP error: %s', exc)
