@@ -240,9 +240,18 @@ def build_student_email(session: Session, *, major_code: str, student_id: str, t
 
 def send_student_email(session: Session, *, major_code: str, student_id: str, template_key: str = 'default', adviser_email: str | None = None) -> dict:
     major = session.scalar(select(Major).where(Major.code == major_code))
-    if not major or not major.smtp_email or not major.smtp_password:
-        logger.warning('SMTP credentials not configured for major %s — email not sent.', major_code)
-        return {'success': False, 'message': f'SMTP credentials are not configured for {major_code}.'}
+    s = get_settings()
+    sender_email = major.smtp_email if (major and major.smtp_email) else None
+
+    # When using Brevo/Resend/Graph we only need a sender address, not SMTP password
+    has_api_transport = bool(s.brevo_api_key or s.resend_api_key or _graph_credentials())
+    if not major or (not sender_email and not has_api_transport):
+        logger.warning('No sender email configured for major %s — email not sent.', major_code)
+        return {'success': False, 'message': f'Sender email is not configured for {major_code}. Set the SMTP Email in major settings.'}
+    if not sender_email and not (major.smtp_email and major.smtp_password):
+        logger.warning('No sender email and no SMTP credentials for major %s — email not sent.', major_code)
+        return {'success': False, 'message': f'Sender email is not configured for {major_code}. Set the SMTP Email in major settings.'}
+
     email_data = build_student_email(session, major_code=major_code, student_id=student_id, template_key=template_key)
     recipient = email_data.get('recipient')
     if not recipient:
@@ -251,10 +260,10 @@ def send_student_email(session: Session, *, major_code: str, student_id: str, te
 
     subject = str(email_data['subject'])
     body = str(email_data['preview_body'])
-    s = get_settings()
 
     logger.info(
-        'Email transport check — brevo_key=%s resend_key=%s graph=%s smtp=%s',
+        'Email transport check — sender=%s brevo_key=%s resend_key=%s graph=%s smtp=%s',
+        sender_email,
         'SET' if s.brevo_api_key else 'MISSING',
         'SET' if s.resend_api_key else 'MISSING',
         'SET' if _graph_credentials() else 'MISSING',
@@ -263,11 +272,11 @@ def send_student_email(session: Session, *, major_code: str, student_id: str, te
 
     # Priority 1: Brevo (sends from verified university email directly)
     if s.brevo_api_key:
-        logger.info('Sending via Brevo for %s → %s', major.smtp_email, recipient)
+        logger.info('Sending via Brevo for %s → %s', sender_email, recipient)
         return _send_via_brevo(
             api_key=s.brevo_api_key,
-            sender_email=major.smtp_email,
-            sender_name=major.smtp_email.split('@')[0].replace('.', ' ').title(),
+            sender_email=sender_email,
+            sender_name=sender_email.split('@')[0].replace('.', ' ').title(),
             recipient=recipient,
             subject=subject,
             body=body,
@@ -276,10 +285,10 @@ def send_student_email(session: Session, *, major_code: str, student_id: str, te
 
     # Priority 2: Resend API (fallback — sends from onboarding@resend.dev with Reply-To)
     if s.resend_api_key:
-        logger.info('Sending via Resend API for %s → %s', major.smtp_email, recipient)
+        logger.info('Sending via Resend API for %s → %s', sender_email, recipient)
         return _send_via_resend(
             api_key=s.resend_api_key,
-            sender_email=major.smtp_email,
+            sender_email=sender_email,
             recipient=recipient,
             subject=subject,
             body=body,
@@ -289,10 +298,10 @@ def send_student_email(session: Session, *, major_code: str, student_id: str, te
     # Priority 3: Microsoft Graph API (HTTPS, needs Azure AD app)
     graph_creds = _graph_credentials()
     if graph_creds:
-        logger.info('Sending via Microsoft Graph API for %s → %s', major.smtp_email, recipient)
+        logger.info('Sending via Microsoft Graph API for %s → %s', sender_email, recipient)
         return _send_via_graph(
             *graph_creds,
-            sender_email=major.smtp_email,
+            sender_email=sender_email,
             recipient=recipient,
             subject=subject,
             body=body,
@@ -300,9 +309,11 @@ def send_student_email(session: Session, *, major_code: str, student_id: str, te
         )
 
     # Fallback to direct SMTP
-    logger.info('Graph API not configured — falling back to SMTP for %s → %s', major.smtp_email, recipient)
+    if not major.smtp_password:
+        return {'success': False, 'message': 'No API email transport configured and SMTP password is missing.'}
+    logger.info('Falling back to SMTP for %s → %s', sender_email, recipient)
     return _send_via_smtp(
-        smtp_email=major.smtp_email,
+        smtp_email=sender_email,
         smtp_password=major.smtp_password,
         recipient=recipient,
         subject=subject,
