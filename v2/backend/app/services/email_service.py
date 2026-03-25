@@ -37,8 +37,9 @@ def _send_via_resend(
 ) -> dict:
     """Send email via Resend API (HTTPS, works everywhere, simplest setup)."""
     payload: dict = {
-        'from': sender_email,
+        'from': f'Advising <onboarding@resend.dev>',
         'to': [recipient],
+        'reply_to': sender_email,
         'subject': subject,
         'text': body,
     }
