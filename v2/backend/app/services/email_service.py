@@ -251,6 +251,14 @@ def send_student_email(session: Session, *, major_code: str, student_id: str, te
     body = str(email_data['preview_body'])
     s = get_settings()
 
+    logger.info(
+        'Email transport check — brevo_key=%s resend_key=%s graph=%s smtp=%s',
+        'SET' if s.brevo_api_key else 'MISSING',
+        'SET' if s.resend_api_key else 'MISSING',
+        'SET' if _graph_credentials() else 'MISSING',
+        'SET' if (major.smtp_email and major.smtp_password) else 'MISSING',
+    )
+
     # Priority 1: Brevo (sends from verified university email directly)
     if s.brevo_api_key:
         logger.info('Sending via Brevo for %s → %s', major.smtp_email, recipient)
