@@ -439,6 +439,15 @@ def list_exclusions(session: Session, major_code: str) -> list[ExclusionSummary]
     ]
 
 
+def delete_session(session: Session, major_code: str, snapshot_id: int) -> None:
+    major = _major(session, major_code)
+    snapshot = session.get(SessionSnapshot, snapshot_id)
+    if not snapshot or snapshot.major_id != major.id:
+        raise ValueError('Session not found.')
+    session.delete(snapshot)
+    session.commit()
+
+
 def clear_period_selections(session: Session, major_code: str, period_code: str) -> int:
     major = _major(session, major_code)
     period = _period_for_code(session, major.id, period_code)

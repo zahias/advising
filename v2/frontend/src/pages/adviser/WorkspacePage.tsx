@@ -165,6 +165,14 @@ export function WorkspacePage() {
     setActiveTab('schedule')
   }
 
+  async function handleDeleteSession(snapshotId: number) {
+    if (!confirm('Delete this advising session? This cannot be undone.')) return
+    const r = await authedFetch(`/advising/sessions/${majorCode}/snapshot/${snapshotId}`, { method: 'DELETE' })
+    if (!r.ok) { setMessage({ type: 'error', text: await r.text() }); return }
+    setMessage({ type: 'success', text: 'Session deleted.' })
+    queryClient.invalidateQueries({ queryKey: ['sessions'] })
+  }
+
   async function handleRecommend() {
     if (!selectedStudentId) return
     const r = await apiFetch<{ courses: string[] }>(`/advising/recommendations/${majorCode}/${selectedStudentId}`)
@@ -511,6 +519,15 @@ export function WorkspacePage() {
                                   title={activePeriod ? 'Restore this session to the active period' : 'No active period'}
                                 >
                                   Restore
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn-sm btn-outline"
+                                  style={{ color: '#ef4444', borderColor: '#fca5a5' }}
+                                  onClick={() => handleDeleteSession(s.id)}
+                                  title="Delete this session"
+                                >
+                                  Delete
                                 </button>
                               </div>
                             </td>

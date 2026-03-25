@@ -102,6 +102,14 @@ export function AdviserSettingsPage() {
     queryClient.invalidateQueries({ queryKey: ['sessions', majorCode, activePeriod.period_code] })
   }
 
+  async function handleDeleteSession(snapshotId: number) {
+    if (!confirm('Delete this advising session? This cannot be undone.')) return
+    const res = await authedFetch(`/advising/sessions/${majorCode}/snapshot/${snapshotId}`, { method: 'DELETE' })
+    if (!res.ok) { showMsg('error', await res.text()); return }
+    showMsg('success', 'Session deleted.')
+    queryClient.invalidateQueries({ queryKey: ['sessions'] })
+  }
+
   // ── Period actions ───────────────────────────────────────────────────────
   async function handleCreatePeriod() {
     const res = await authedFetch('/periods', {
@@ -397,6 +405,9 @@ export function AdviserSettingsPage() {
                     </div>
                     <button type="button" style={{ flexShrink: 0, padding: '4px 12px', fontSize: '0.78rem', background: 'transparent', border: '1px solid var(--line)', borderRadius: '8px', color: 'var(--ink)', cursor: 'pointer' }} onClick={() => handleRestoreSession(session.id, session.student_id)}>
                       Restore
+                    </button>
+                    <button type="button" style={{ flexShrink: 0, padding: '4px 12px', fontSize: '0.78rem', background: 'transparent', border: '1px solid #fca5a5', borderRadius: '8px', color: '#ef4444', cursor: 'pointer' }} onClick={() => handleDeleteSession(session.id)}>
+                      Delete
                     </button>
                   </div>
                 ))}

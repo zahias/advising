@@ -22,6 +22,7 @@ from app.schemas.common import MessageResponse
 from app.services.student_service import (
     bulk_restore_sessions,
     clear_period_selections,
+    delete_session,
     list_exclusions,
     list_sessions,
     recommended_courses,
@@ -90,6 +91,16 @@ def restore_snapshot_route(major_code: str, snapshot_id: int, user: User = Depen
     student_name = snapshot.payload.get('student_name', snapshot.student_id)
     save_selection(db, major_code=major_code, period_code=period_code, student_id=snapshot.student_id, student_name=student_name, payload=payload, user_id=user.id, create_snapshot=False)
     return MessageResponse(message='Session restored to active period.')
+
+
+@router.delete('/sessions/{major_code}/snapshot/{snapshot_id}', response_model=MessageResponse)
+def delete_session_route(major_code: str, snapshot_id: int, user: User = Depends(require_staff), db: Session = Depends(get_db)):
+    ensure_major_access(major_code, db, user)
+    try:
+        delete_session(db, major_code, snapshot_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return MessageResponse(message='Session deleted.')
 
 
 @router.post('/sessions/restore-all', response_model=MessageResponse)
