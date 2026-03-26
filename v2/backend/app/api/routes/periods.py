@@ -49,7 +49,7 @@ def activate_period_route(period_code: str, user: User = Depends(require_staff),
 
 
 @router.delete('/{major_code}/{period_code}', status_code=204)
-def delete_period_route(major_code: str, period_code: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+def delete_period_route(major_code: str, period_code: str, user: User = Depends(require_staff), db: Session = Depends(get_db)):
     ensure_major_access(major_code, db, user)
     try:
         delete_period(db, major_code, period_code)

@@ -132,6 +132,19 @@ export function AdviserSettingsPage() {
     queryClient.invalidateQueries({ queryKey: ['periods', majorCode] })
   }
 
+  async function handleDeletePeriod(periodCode: string) {
+    if (!confirm(`Delete period "${periodCode}"? This will remove all session history for this period. This cannot be undone.`)) return
+    const res = await authedFetch(`/periods/${majorCode}/${periodCode}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const body = await res.json().catch(() => null)
+      showMsg('error', body?.detail || 'Could not delete period.')
+      return
+    }
+    showMsg('success', 'Period deleted.')
+    queryClient.invalidateQueries({ queryKey: ['periods', majorCode] })
+    queryClient.invalidateQueries({ queryKey: ['sessions'] })
+  }
+
   // ── Data file downloads ──────────────────────────────────────────────────
   async function handleDownloadFile(path: string, filename: string) {
     const res = await authedFetch(path)
@@ -241,7 +254,10 @@ export function AdviserSettingsPage() {
                   {p.is_active && <span style={{ marginLeft: '0.5rem', fontSize: '0.68rem', background: '#15803d', color: 'white', padding: '1px 6px', borderRadius: '4px' }}>ACTIVE</span>}
                 </span>
                 {!p.is_active && (
-                  <button type="button" className="btn-sm btn-outline" style={{ fontSize: '0.75rem' }} onClick={() => handleActivatePeriod(p.period_code)}>Activate</button>
+                  <div style={{ display: 'flex', gap: '0.35rem' }}>
+                    <button type="button" className="btn-sm btn-outline" style={{ fontSize: '0.75rem' }} onClick={() => handleActivatePeriod(p.period_code)}>Activate</button>
+                    <button type="button" className="btn-sm btn-outline" style={{ fontSize: '0.75rem', color: '#ef4444', borderColor: '#fca5a5' }} onClick={() => handleDeletePeriod(p.period_code)}>Delete</button>
+                  </div>
                 )}
               </div>
             ))}
