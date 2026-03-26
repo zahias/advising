@@ -10,8 +10,31 @@ import pandas as pd
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.models import DatasetVersion, EmailRosterEntry, Major, UploadBatch
+from app.models import AdvisingPeriod, DatasetVersion, EmailRosterEntry, Major, UploadBatch
 from app.services.storage import StorageService
+
+
+# Map dataset_type → the AdvisingPeriod column that tracks its snapshot
+_SNAPSHOT_COLUMN = {
+    'progress_report': 'progress_version_id',
+    'progress': 'progress_dataset_version_id',
+    'course_config': 'config_version_id',
+}
+
+
+def _link_to_active_period(session: Session, major_id: int, dataset_type: str, version_id: int) -> None:
+    """Update the active period's snapshot pointer so it tracks the latest upload."""
+    col_name = _SNAPSHOT_COLUMN.get(dataset_type)
+    if not col_name:
+        return
+    active_period = session.scalar(
+        select(AdvisingPeriod).where(
+            AdvisingPeriod.major_id == major_id,
+            AdvisingPeriod.is_active.is_(True),
+        )
+    )
+    if active_period:
+        setattr(active_period, col_name, version_id)
 
 def _find_legacy_root() -> Path:
     """Walk up from this file until we find eligibility_utils.py (the workspace root)."""
@@ -166,6 +189,8 @@ def upload_dataset(session: Session, *, major_code: str, dataset_type: str, file
 
     if dataset_type == 'email_roster':
         _refresh_email_roster(session, major.id, parsed_payload)
+
+    _link_to_active_period(session, major.id, dataset_type, version.id)
 
     session.commit()
     session.refresh(version)

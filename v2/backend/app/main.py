@@ -5,7 +5,7 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import inspect as sa_inspect, text
+from sqlalchemy import inspect as sa_inspect, select, text
 
 from app.api.router import api_router
 from app.core.config import get_settings
@@ -79,6 +79,35 @@ def on_startup() -> None:
     session = SessionLocal()
     try:
         seed_defaults(session)
+
+        # Backfill NULL snapshot columns on existing periods
+        from app.models import AdvisingPeriod, DatasetVersion
+        snapshot_map = {
+            'progress_report': 'progress_version_id',
+            'progress': 'progress_dataset_version_id',
+            'course_config': 'config_version_id',
+        }
+        periods = session.scalars(select(AdvisingPeriod)).all()
+        patched = 0
+        for period in periods:
+            for ds_type, col_name in snapshot_map.items():
+                if getattr(period, col_name) is not None:
+                    continue
+                # Find the latest dataset version for this major+type created at or before the period
+                nearest = session.scalar(
+                    select(DatasetVersion)
+                    .where(
+                        DatasetVersion.major_id == period.major_id,
+                        DatasetVersion.dataset_type == ds_type,
+                        DatasetVersion.created_at <= period.created_at,
+                    )
+                    .order_by(DatasetVersion.created_at.desc())
+                )
+                if nearest:
+                    setattr(period, col_name, nearest.id)
+                    patched += 1
+        if patched:
+            session.commit()
     finally:
         session.close()
 

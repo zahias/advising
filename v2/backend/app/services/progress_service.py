@@ -617,6 +617,8 @@ def push_progress_to_advising(
     )
 
     # Link the new progress dataset to the currently active advising period
+    # (Note: upload_dataset already calls _link_to_active_period for 'progress',
+    #  but we also explicitly set it here for clarity and backward compat)
     major = session.scalar(select(Major).where(Major.code == major_code))
     if major:
         active_period = session.scalar(
