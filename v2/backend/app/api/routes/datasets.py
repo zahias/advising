@@ -61,6 +61,8 @@ _TEMPLATE_SAMPLE_ROWS: dict[str, dict[str, list]] = {
 
 router = APIRouter(prefix='/datasets', tags=['datasets'])
 
+_MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
+
 
 @router.get('/{major_code}', response_model=list[DatasetVersionResponse])
 def list_dataset_versions(major_code: str, user: User = Depends(require_staff), db: Session = Depends(get_db)) -> list[DatasetVersion]:
@@ -154,13 +156,16 @@ async def upload_dataset_route(
     user: User = Depends(require_staff),
     db: Session = Depends(get_db),
 ) -> DatasetVersion:
+    content = await file.read()
+    if len(content) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail=f'File too large. Maximum upload size is {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB.')
     try:
         version = upload_dataset(
             db,
             major_code=major_code,
             dataset_type=dataset_type,
             filename=file.filename,
-            content=await file.read(),
+            content=content,
             user_id=user.id,
         )
     except ValueError as exc:

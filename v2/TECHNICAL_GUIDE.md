@@ -351,7 +351,7 @@ Services contain all business logic. Route handlers call services and do nothing
 
 #### `student_service.py`
 - `search_students(session, major_code, query)` — filters progress DataFrame by name/ID, computes standings.
-- `student_eligibility(session, major_code, student_id)` — main eligibility computation. Loads courses + progress DFs, calls into `eligibility_utils` for each course, assembles `StudentEligibilityResponse`. Loads selection, bypasses, hidden courses, excluded courses from DB.
+- `student_eligibility(session, major_code, student_id)` — main eligibility computation. Loads courses + progress DFs, calls into `eligibility_utils` for each course, assembles `StudentEligibilityResponse`. Each `EligibilityCourse` includes `credits` (float) and `suggested_semester` (string) sourced from the courses dataset. Loads selection, bypasses, hidden courses, excluded courses from DB.
 - `save_selection(session, *, major_code, period_code, student_id, student_name, payload, user_id, create_snapshot=True)` — upserts `StudentSelection`, optionally creates `SessionSnapshot`.
 - `recommended_courses(session, major_code, student_id)` — returns eligible, non-completed, offered courses sorted by suggested semester.
 - `export_student_report(session, major_code, student_id)` — generates an Excel workbook (calls `apply_excel_formatting` from legacy `reporting.py`).
@@ -624,9 +624,17 @@ Two panels:
 
 #### `CourseSelectionBuilder`
 - Receives `eligibility[]`, `formState`, `onChange`, `onSave` props.
+- **Stacked layout**: full-width course pool on top, full-width selections row below (4-column grid: Advised | Optional | Repeat | Advisor Note). Responsive — collapses to 2-col at 1100px, 1-col at 640px.
+- **Search/filter bar** at the top of the course pool — instant client-side filter by course code or title.
+- **Show not offered toggle**: checkbox next to the search bar. When enabled, courses not offered this semester appear greyed out with an "○ Not offered" label and no action buttons. Off by default.
+- **Semester grouping**: courses are grouped by `suggested_semester` (from the courses dataset) into collapsible sections with course count badges. Courses without a suggested semester appear in an "Other" group.
 - Renders course cards in a grid. Main courses and intensive courses are in separate sections.
-- Each card shows status dot (green=eligible, grey=in eligible, yellow=registered, dark grey=completed), title, and action buttons (Advise / Optional / Repeat).
+- Each card shows status dot (green=eligible, grey=ineligible, yellow=registered, dark grey=completed, light grey=not offered), title, and action buttons (Advise / Optional / Repeat).
+- **Status background colors**: cards have tinted backgrounds — green for completed, yellow for registered, grey for ineligible/not-offered, white for eligible.
+- **Prerequisites inline**: ineligible course cards show requisite text (Prereq/Conc/Coreq) directly below the "Not eligible" label.
 - Running credit bar: `advisedCredits / remainingCredits` with percentage.
+- **Credit breakdown**: per-category display (Advised / Optional / Repeat credits) below the progress bar.
+- **Credit load warnings**: orange warning when total advised credits exceed 18 (heavy load), red warning when exceeding remaining credits.
 - Undo stack (up to 20 states) stored in `useRef`.
 
 #### `EligibilityTables`
@@ -637,8 +645,11 @@ Two panels:
 - Active bypasses list with delete button.
 
 #### `StudentProfileHeader`
-- Flat row: identity (name, ID), stats (standing, remaining credits, active period), action buttons (Recommend, Download Report, Email, View Preview).
+- Flat row: identity (name, ID), stats (standing, remaining credits, active period, completed count, registered count, eligible count), action buttons (Recommend, Download Report, Email, View Preview).
+- **Course counters**: computed from the `eligibility[]` prop — shows how many courses are completed, registered, and eligible at a glance.
+- **Recommend preview**: clicking "Recommend" shows a preview modal listing the recommended courses with titles and credit values. The adviser can Accept (apply to advised list) or Cancel.
 - Email preview loads via `GET /templates/preview?...` and renders inline.
+- **Tab persistence**: switching between students no longer resets the active tab — the last-viewed tab (Schedule Builder, Academic Record, Degree Plan, Bypass, History) is preserved across student switches within the session.
 
 ---
 

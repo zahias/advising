@@ -230,6 +230,8 @@ def student_eligibility(session: Session, major_code: str, student_id: str) -> S
                 course_code=code,
                 title=str(info.get('Title', '') or info.get('Course Title', '') or code),
                 course_type=str(info.get('Type', '')),
+                credits=credits,
+                suggested_semester=str(info.get('Suggested Semester', '') or '').strip(),
                 requisites=build_requisites_str(info),
                 eligibility_status=status,
                 justification=justification,

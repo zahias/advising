@@ -65,6 +65,8 @@ export type EligibilityCourse = {
   course_code: string
   title: string
   course_type: string
+  credits: number
+  suggested_semester: string
   requisites: string
   eligibility_status: string
   justification: string

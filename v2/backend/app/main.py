@@ -48,33 +48,42 @@ def on_startup() -> None:
     # Add progress_version_id column to advising_periods if it doesn't exist yet
     existing_cols = {col['name'] for col in sa_inspect(engine).get_columns('advising_periods')}
     if 'progress_version_id' not in existing_cols:
-        with engine.connect() as conn:
-            conn.execute(text(
-                'ALTER TABLE advising_periods '
-                'ADD COLUMN progress_version_id INTEGER '
-                'REFERENCES dataset_versions(id)'
-            ))
-            conn.commit()
+        try:
+            with engine.connect() as conn:
+                conn.execute(text(
+                    'ALTER TABLE advising_periods '
+                    'ADD COLUMN progress_version_id INTEGER '
+                    'REFERENCES dataset_versions(id)'
+                ))
+                conn.commit()
+        except Exception:
+            logger.debug('Column progress_version_id already exists or migration skipped', exc_info=True)
 
     # Add progress_dataset_version_id and config_version_id to advising_periods
     for col_name in ('progress_dataset_version_id', 'config_version_id'):
         if col_name not in existing_cols:
-            with engine.connect() as conn:
-                conn.execute(text(
-                    f'ALTER TABLE advising_periods '
-                    f'ADD COLUMN {col_name} INTEGER '
-                    f'REFERENCES dataset_versions(id)'
-                ))
-                conn.commit()
+            try:
+                with engine.connect() as conn:
+                    conn.execute(text(
+                        f'ALTER TABLE advising_periods '
+                        f'ADD COLUMN {col_name} INTEGER '
+                        f'REFERENCES dataset_versions(id)'
+                    ))
+                    conn.commit()
+            except Exception:
+                logger.debug('Column %s already exists or migration skipped', col_name, exc_info=True)
 
     # Add per-major SMTP columns if they don't exist yet
     major_cols = {col['name'] for col in sa_inspect(engine).get_columns('majors')}
-    with engine.connect() as conn:
-        if 'smtp_email' not in major_cols:
-            conn.execute(text('ALTER TABLE majors ADD COLUMN smtp_email VARCHAR(255)'))
-        if 'smtp_password' not in major_cols:
-            conn.execute(text('ALTER TABLE majors ADD COLUMN smtp_password VARCHAR(255)'))
-        conn.commit()
+    try:
+        with engine.connect() as conn:
+            if 'smtp_email' not in major_cols:
+                conn.execute(text('ALTER TABLE majors ADD COLUMN smtp_email VARCHAR(255)'))
+            if 'smtp_password' not in major_cols:
+                conn.execute(text('ALTER TABLE majors ADD COLUMN smtp_password VARCHAR(255)'))
+            conn.commit()
+    except Exception:
+        logger.debug('SMTP columns already exist or migration skipped', exc_info=True)
 
     session = SessionLocal()
     try:

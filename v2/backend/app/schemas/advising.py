@@ -33,6 +33,8 @@ class EligibilityCourse(BaseModel):
     course_code: str
     title: str
     course_type: str
+    credits: float = 3
+    suggested_semester: str = ''
     requisites: str
     eligibility_status: str
     justification: str

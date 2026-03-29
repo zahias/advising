@@ -91,12 +91,16 @@ The app reads these two files and automatically computes eligibility for every s
 2. **Admin creates an advising period** (e.g., "Spring 2026, Dr. Smith"). The app takes a snapshot of the current data (student progress and course configuration) so it can be restored later.
 3. **Adviser logs in** and sees their Dashboard — showing how many students still need advising.
 4. **Adviser opens the Workspace** and searches for a student.
-5. The app shows the student's profile: standing, credits left, and a grid of courses.
-6. **Adviser clicks "Advise"** on courses they recommend, "Optional" for optional ones, or "Repeat" for repeated courses.
-7. The selected courses are tracked in a running credit counter so the adviser can see the total being recommended.
-8. **Adviser clicks Save** — the selection is stored in the database.
-9. **Adviser clicks Email** (optional) — the app generates an email using the configured template and sends it to the student's email address.
-10. The dashboard updates to show one more advised student.
+5. The app shows the student's profile: standing, credits left, course completion counts (completed, registered, eligible), and a full-width grid of courses.
+6. Courses are **grouped by semester** (e.g., "Fall-1", "Spring-2") so the adviser can quickly find what's relevant. A **search bar** lets the adviser filter by course code or title instantly. A **"Show not offered" toggle** reveals courses not available this semester — they appear greyed out so the adviser knows they exist but can't be selected.
+7. Each course card is **color-coded** — green tint for completed, yellow for registered, white for eligible, grey for ineligible or not offered. Ineligible courses show the missing prerequisites right on the card.
+8. **Adviser clicks "Advise"** on courses they recommend, "Optional" for optional ones, or "Repeat" for repeated courses.
+9. The selected courses appear in a **horizontal row below the course grid** — showing Advised, Optional, Repeat, and an Advisor Note box side by side. A running credit counter with a **per-category breakdown** (Advised / Optional / Repeat) warns if the total exceeds the student's remaining credits or looks unusually heavy (more than 18 credits).
+10. **Adviser clicks "Recommend"** (optional) — the app suggests courses automatically and shows a **preview** of what will be added. The adviser reviews and clicks Accept or Cancel.
+11. **Adviser clicks Save** — the selection is stored in the database.
+12. **Adviser clicks Email** (optional) — the app generates an email using the configured template and sends it to the student's email address.
+13. The dashboard updates to show one more advised student.
+14. When switching between students, the **currently viewed tab** (Schedule, Academic Record, Degree Plan, etc.) stays the same — no need to re-navigate each time.
 
 When a new semester starts and new data is uploaded, creating a new period captures the new data. **Switching back to an older period automatically restores the student progress and course configuration that were active at that time** — so graduated students and old course setups are preserved in their original periods.
 

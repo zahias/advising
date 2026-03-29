@@ -3,9 +3,21 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, EmailStr, computed_field, model_validator
+from pydantic import BaseModel, EmailStr, computed_field, field_validator, model_validator
 
 from app.schemas.common import ORMModel
+
+_MIN_PASSWORD_LENGTH = 8
+
+
+def _validate_password_strength(v: str) -> str:
+    if len(v) < _MIN_PASSWORD_LENGTH:
+        raise ValueError(f'Password must be at least {_MIN_PASSWORD_LENGTH} characters')
+    if not any(c.isdigit() for c in v):
+        raise ValueError('Password must contain at least one digit')
+    if not any(c.isalpha() for c in v):
+        raise ValueError('Password must contain at least one letter')
+    return v
 
 
 class UserCreateRequest(BaseModel):
@@ -15,12 +27,24 @@ class UserCreateRequest(BaseModel):
     role: str
     major_codes: list[str] = []
 
+    @field_validator('password')
+    @classmethod
+    def check_password(cls, v: str) -> str:
+        return _validate_password_strength(v)
+
 
 class UserUpdateRequest(BaseModel):
     full_name: Optional[str] = None
     role: Optional[str] = None
     major_codes: Optional[list[str]] = None
     new_password: Optional[str] = None
+
+    @field_validator('new_password')
+    @classmethod
+    def check_new_password(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v.strip():
+            return _validate_password_strength(v)
+        return v
 
 
 class UserResponse(ORMModel):

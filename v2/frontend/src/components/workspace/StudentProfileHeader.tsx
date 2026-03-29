@@ -1,8 +1,9 @@
-import { useState } from 'react'
-import { API_BASE_URL, StudentEligibility, TemplatePreview } from '../../lib/api'
+import { useMemo, useState } from 'react'
+import { API_BASE_URL, EligibilityCourse, StudentEligibility, TemplatePreview } from '../../lib/api'
 
 interface Props {
   student: StudentEligibility
+  eligibility: EligibilityCourse[]
   activePeriod?: { semester: string; year: number }
   majorCode: string
   templateKey: string
@@ -16,6 +17,7 @@ interface Props {
 
 export function StudentProfileHeader({
   student,
+  eligibility,
   activePeriod,
   majorCode,
   templateKey,
@@ -29,6 +31,10 @@ export function StudentProfileHeader({
   const [showPreview, setShowPreview] = useState(false)
   const [preview, setPreview] = useState<TemplatePreview | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+
+  const completedCount = useMemo(() => eligibility.filter((c) => c.completed).length, [eligibility])
+  const registeredCount = useMemo(() => eligibility.filter((c) => c.registered).length, [eligibility])
+  const eligibleCount = useMemo(() => eligibility.filter((c) => !c.completed && !c.registered && (c.eligibility_status === 'Eligible' || c.eligibility_status === 'Eligible (Bypass)')).length, [eligibility])
 
   async function loadPreview() {
     if (showPreview) { setShowPreview(false); return }
@@ -69,6 +75,18 @@ export function StudentProfileHeader({
           <span className="profile-stat">
             <span className="eyebrow">Period</span>
             <strong>{activePeriod ? `${activePeriod.semester} ${activePeriod.year}` : '—'}</strong>
+          </span>
+          <span className="profile-stat">
+            <span className="eyebrow">Completed</span>
+            <strong>{completedCount}</strong>
+          </span>
+          <span className="profile-stat">
+            <span className="eyebrow">Registered</span>
+            <strong>{registeredCount}</strong>
+          </span>
+          <span className="profile-stat">
+            <span className="eyebrow">Eligible</span>
+            <strong>{eligibleCount}</strong>
           </span>
         </div>
 

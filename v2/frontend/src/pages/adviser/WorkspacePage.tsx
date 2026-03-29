@@ -60,6 +60,7 @@ export function WorkspacePage() {
   const [excludedCourses, setExcludedCourses] = useState<string[]>([])
   const [originalExcludedCourses, setOriginalExcludedCourses] = useState<string[]>([])
   const [formState, setFormState] = useState({ advised: [] as string[], optional: [] as string[], repeat: [] as string[], note: '' })
+  const [recommendPreview, setRecommendPreview] = useState<string[] | null>(null)
 
   const loadedForStudentRef = useRef<string | undefined>(undefined)
 
@@ -91,7 +92,6 @@ export function WorkspacePage() {
       setComboQuery('')
       setShowDropdown(false)
       setMessage(null)
-      setActiveTab('schedule')
     }
   }, [allowedMajors, majorCode, searchParams, selectedStudentId, setMajorCode])
 
@@ -106,7 +106,6 @@ export function WorkspacePage() {
     setExcludedCourses(student.data.excluded_courses)
     if (selectedStudentId !== loadedForStudentRef.current) {
       setOriginalExcludedCourses(student.data.excluded_courses)
-      setActiveTab('schedule')
       loadedForStudentRef.current = selectedStudentId
     }
   }, [student.data, selectedStudentId])
@@ -130,7 +129,6 @@ export function WorkspacePage() {
     setComboQuery('')
     setShowDropdown(false)
     setMessage(null)
-    setActiveTab('schedule')
   }
 
   function handleComboBlur() {
@@ -177,13 +175,19 @@ export function WorkspacePage() {
     if (!selectedStudentId) return
     const r = await apiFetch<{ courses: string[] }>(`/advising/recommendations/${majorCode}/${selectedStudentId}`)
     if (!r.courses.length) { setMessage({ type: 'success', text: 'All available courses are already selected.' }); return }
+    setRecommendPreview(r.courses)
+  }
+
+  function applyRecommendPreview() {
+    if (!recommendPreview) return
     setFormState((cur) => ({
       ...cur,
-      advised: Array.from(new Set([...cur.advised, ...r.courses])),
-      optional: cur.optional.filter((c) => !r.courses.includes(c)),
-      repeat: cur.repeat.filter((c) => !r.courses.includes(c)),
+      advised: Array.from(new Set([...cur.advised, ...recommendPreview])),
+      optional: cur.optional.filter((c) => !recommendPreview.includes(c)),
+      repeat: cur.repeat.filter((c) => !recommendPreview.includes(c)),
     }))
-    setMessage({ type: 'success', text: `Recommended ${r.courses.length} courses.` })
+    setMessage({ type: 'success', text: `Recommended ${recommendPreview.length} courses.` })
+    setRecommendPreview(null)
   }
 
   async function handleDownloadReport() {
@@ -340,6 +344,7 @@ export function WorkspacePage() {
 
           <StudentProfileHeader
             student={student.data}
+            eligibility={student.data.eligibility}
             activePeriod={activePeriod}
             majorCode={majorCode}
             templateKey={templateKey}
@@ -658,6 +663,33 @@ export function WorkspacePage() {
                 )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Recommend Preview Modal */}
+      {recommendPreview && student.data && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div className="panel stack" style={{ maxWidth: '520px', width: '94%', maxHeight: '70vh', overflowY: 'auto' }}>
+            <h3 style={{ margin: 0 }}>Recommended Courses</h3>
+            <p className="text-muted text-sm" style={{ margin: '4px 0 0' }}>
+              The following {recommendPreview.length} course{recommendPreview.length !== 1 ? 's' : ''} will be added to your advised list.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: '0.5rem' }}>
+              {recommendPreview.map((code) => {
+                const c = student.data!.eligibility.find((x) => x.course_code === code)
+                return (
+                  <div key={code} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.4rem 0.6rem', background: '#f0fdf4', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
+                    <span style={{ fontSize: '0.85rem' }}><strong style={{ fontFamily: 'monospace' }}>{code}</strong>{c ? ` — ${c.title}` : ''}</span>
+                    <span className="badge badge-primary" style={{ fontSize: '0.7rem' }}>{c?.credits ?? 3} cr</span>
+                  </div>
+                )
+              })}
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.75rem' }}>
+              <button type="button" className="btn-sm btn-outline" onClick={() => setRecommendPreview(null)}>Cancel</button>
+              <button type="button" className="btn-primary btn-sm" onClick={applyRecommendPreview}>Accept</button>
+            </div>
           </div>
         </div>
       )}

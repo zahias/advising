@@ -131,6 +131,7 @@ def _find_psql() -> str:
 def restore_backup(backup_id: int, triggered_by: str = 'admin') -> dict:
     """Restore a database from a completed backup.
 
+    - Creates a safety backup before restoring.
     - SQLite: decompress .db.gz and overwrite the database file, then dispose engine pool.
     - PostgreSQL: decompress .sql.gz and pipe into psql.
     """
@@ -153,6 +154,13 @@ def restore_backup(backup_id: int, triggered_by: str = 'admin') -> dict:
         raw = gzip.decompress(compressed)
     finally:
         session.close()
+
+    # Safety net: create a pre-restore backup so the current state is recoverable
+    try:
+        safety = run_backup(triggered_by=f'pre-restore-safety (before restoring #{backup_id})')
+        logger.info('Pre-restore safety backup created: #%d (%s)', safety.id, safety.storage_key)
+    except Exception:
+        logger.warning('Pre-restore safety backup failed — proceeding with restore anyway', exc_info=True)
 
     if database_url.startswith('sqlite'):
         db_path = Path(database_url.split(':///')[-1])

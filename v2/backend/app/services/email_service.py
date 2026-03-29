@@ -5,6 +5,7 @@ import smtplib
 import socket
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from string import Template
 
 import httpx
 
@@ -62,37 +63,6 @@ def _send_via_brevo(
     except httpx.HTTPError as exc:
         logger.error('Brevo HTTP error: %s', exc)
         return {'success': False, 'message': f'Brevo API request failed: {exc}'}
-
-
-def _send_via_resend(
-    api_key: str,
-    sender_email: str, recipient: str, subject: str, body: str,
-    cc: str | None = None,
-) -> dict:
-    """Send email via Resend API (HTTPS, works everywhere, simplest setup)."""
-    payload: dict = {
-        'from': f'Advising <onboarding@resend.dev>',
-        'to': [recipient],
-        'reply_to': sender_email,
-        'subject': subject,
-        'text': body,
-    }
-    if cc:
-        payload['cc'] = [cc]
-    try:
-        resp = httpx.post('https://api.resend.com/emails', json=payload, headers={
-            'Authorization': f'Bearer {api_key}',
-            'Content-Type': 'application/json',
-        }, timeout=15)
-        if resp.status_code in (200, 201):
-            logger.info('Email sent via Resend to %s (CC: %s)', recipient, cc or 'none')
-            return {'success': True, 'message': f'Email sent to {recipient}.'}
-        detail = resp.json().get('message', resp.text) if resp.headers.get('content-type', '').startswith('application/json') else resp.text
-        logger.error('Resend API error (%d): %s', resp.status_code, detail)
-        return {'success': False, 'message': f'Email API error ({resp.status_code}): {detail}'}
-    except httpx.HTTPError as exc:
-        logger.error('Resend HTTP error: %s', exc)
-        return {'success': False, 'message': f'Email API request failed: {exc}'}
 
 
 def _send_via_graph(
@@ -197,20 +167,17 @@ def build_student_email(session: Session, *, major_code: str, student_id: str, t
     semester = period.semester if period else 'Current'
     year = str(period.year) if period else ''
     advisor_name = period.advisor_name if period else ''
-    subject = template.subject_template.format(
+    template_vars = dict(
         major=major_code,
         student_name=payload.student_name,
         semester=semester,
         year=year,
         advisor_name=advisor_name,
     )
-    body = template.body_template.format(
-        student_name=payload.student_name,
-        major=major_code,
-        semester=semester,
-        year=year,
-        advisor_name=advisor_name,
-    )
+    subject = Template(template.subject_template.replace('{', '${')
+                       ).safe_substitute(template_vars)
+    body = Template(template.body_template.replace('{', '${')
+                    ).safe_substitute(template_vars)
     lines = [body, '', 'Advised Courses:']
     lines.extend(f'- {course}' for course in payload.selection.advised)
     if payload.selection.optional:
@@ -243,8 +210,8 @@ def send_student_email(session: Session, *, major_code: str, student_id: str, te
     s = get_settings()
     sender_email = major.smtp_email if (major and major.smtp_email) else None
 
-    # When using Brevo/Resend/Graph we only need a sender address, not SMTP password
-    has_api_transport = bool(s.brevo_api_key or s.resend_api_key or _graph_credentials())
+    # When using Brevo/Graph we only need a sender address, not SMTP password
+    has_api_transport = bool(s.brevo_api_key or _graph_credentials())
     if not major or (not sender_email and not has_api_transport):
         logger.warning('No sender email configured for major %s — email not sent.', major_code)
         return {'success': False, 'message': f'Sender email is not configured for {major_code}. Set the SMTP Email in major settings.'}
@@ -262,10 +229,9 @@ def send_student_email(session: Session, *, major_code: str, student_id: str, te
     body = str(email_data['preview_body'])
 
     logger.info(
-        'Email transport check — sender=%s brevo_key=%s resend_key=%s graph=%s smtp=%s',
+        'Email transport check — sender=%s brevo_key=%s graph=%s smtp=%s',
         sender_email,
         'SET' if s.brevo_api_key else 'MISSING',
-        'SET' if s.resend_api_key else 'MISSING',
         'SET' if _graph_credentials() else 'MISSING',
         'SET' if (major.smtp_email and major.smtp_password) else 'MISSING',
     )
@@ -283,19 +249,7 @@ def send_student_email(session: Session, *, major_code: str, student_id: str, te
             cc=adviser_email,
         )
 
-    # Priority 2: Resend API (fallback — sends from onboarding@resend.dev with Reply-To)
-    if s.resend_api_key:
-        logger.info('Sending via Resend API for %s → %s', sender_email, recipient)
-        return _send_via_resend(
-            api_key=s.resend_api_key,
-            sender_email=sender_email,
-            recipient=recipient,
-            subject=subject,
-            body=body,
-            cc=adviser_email,
-        )
-
-    # Priority 3: Microsoft Graph API (HTTPS, needs Azure AD app)
+    # Priority 2: Microsoft Graph API (HTTPS, needs Azure AD app)
     graph_creds = _graph_credentials()
     if graph_creds:
         logger.info('Sending via Microsoft Graph API for %s → %s', sender_email, recipient)
