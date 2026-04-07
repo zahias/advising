@@ -56,7 +56,48 @@ def parse_requirements(req_str: str) -> List[str]:
     if not s or s.upper() == "N/A":
         return []
     parts = [p.strip() for chunk in s.replace(" and ", ",").split(",") for p in chunk.split(";")]
-    return [p for p in parts if p]
+    # Flatten any OR-groups (separated by " / ") into individual tokens for
+    # callers that still need a flat list (display, bottleneck map, etc.)
+    flat: List[str] = []
+    for p in parts:
+        if p:
+            for alt in p.split(" / "):
+                alt = alt.strip()
+                if alt:
+                    flat.append(alt)
+    return flat
+
+
+def parse_requirements_grouped(req_str: str) -> List[List[str]]:
+    """Return AND-groups of OR-alternatives.
+
+    Outer list  = AND (all groups must be satisfied).
+    Inner list  = OR  (any alternative satisfies the group).
+
+    Example: "INEG200 / INEG300, CHEM201"
+       → [["INEG200", "INEG300"], ["CHEM201"]]
+
+    Separators:
+      AND: comma (,), semicolon (;), ' and '
+      OR:  ' / '
+
+    Backward compatible: entries without ' / ' produce single-item inner lists.
+    """
+    if pd.isna(req_str) or req_str is None:
+        return []
+    s = str(req_str).strip()
+    if not s or s.upper() == "N/A":
+        return []
+    # Split into AND-groups first (same logic as parse_requirements)
+    and_chunks = [p.strip() for chunk in s.replace(" and ", ",").split(",") for p in chunk.split(";")]
+    result: List[List[str]] = []
+    for chunk in and_chunks:
+        if not chunk:
+            continue
+        ors = [alt.strip() for alt in chunk.split(" / ") if alt.strip()]
+        if ors:
+            result.append(ors)
+    return result
 
 
 def is_course_offered(courses_df: pd.DataFrame, course_code: str) -> bool:
@@ -247,10 +288,12 @@ def check_eligibility(
         return comp or reg or adv or sim
 
     prereq_str = course_row["Prerequisite"].iloc[0] if "Prerequisite" in course_row.columns else ""
-    prereqs = parse_requirements(prereq_str)
-    for r in prereqs:
-        if not _satisfies_prerequisite(r):
-            reasons.append(f"Prerequisite '{r}' not satisfied.")
+    for or_group in parse_requirements_grouped(prereq_str):
+        if not any(_satisfies_prerequisite(alt) for alt in or_group):
+            if len(or_group) == 1:
+                reasons.append(f"Prerequisite '{or_group[0]}' not satisfied.")
+            else:
+                reasons.append(f"Prerequisite not satisfied (need one of: {', '.join(or_group)}).")
     
     my_mutual_courses = mutual_pairs.get(course_code, [])
     
@@ -258,11 +301,14 @@ def check_eligibility(
         ("Concurrent", "Concurrent requirement"),
         ("Corequisite", "Corequisite"),
     ]:
-        reqs = parse_requirements(course_row[col].iloc[0] if col in course_row.columns else "")
-        for r in reqs:
-            is_mutual = r in my_mutual_courses
-            if not _satisfies_concurrent_or_coreq(r, is_mutual=is_mutual):
-                reasons.append(f"{label} '{r}' not satisfied.")
+        req_str_col = course_row[col].iloc[0] if col in course_row.columns else ""
+        for or_group in parse_requirements_grouped(req_str_col):
+            is_mutual_group = any(r in my_mutual_courses for r in or_group)
+            if not any(_satisfies_concurrent_or_coreq(alt, is_mutual=is_mutual_group) for alt in or_group):
+                if len(or_group) == 1:
+                    reasons.append(f"{label} '{or_group[0]}' not satisfied.")
+                else:
+                    reasons.append(f"{label} not satisfied (need one of: {', '.join(or_group)}).")
 
     if reasons:
         just = "; ".join(reasons)

@@ -120,3 +120,5 @@ cython_debug/
 
 # Windows files
 Thumbs.db
+node_modules/
+frontend/node_modules/

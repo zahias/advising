@@ -40,6 +40,7 @@ from eligibility_utils import (  # noqa: E402
     get_mutual_concurrent_pairs,
     get_student_standing,
     parse_requirements,
+    parse_requirements_grouped,
 )
 from reporting import add_summary_sheet, apply_full_report_formatting, apply_individual_compact_formatting  # noqa: E402
 
@@ -344,11 +345,12 @@ def _build_prerequisite_map(courses_df: pd.DataFrame) -> dict[str, list[str]]:
     prereq_map: dict[str, list[str]] = {}
     for _, row in courses_df.iterrows():
         course_code = str(row.get('Course Code', ''))
-        prereqs = parse_requirements(row.get('Prerequisite'))
-        concurrent = parse_requirements(row.get('Concurrent'))
-        corequisite = parse_requirements(row.get('Corequisite'))
-        for prereq in set([*prereqs, *concurrent, *corequisite]):
-            prereq_map.setdefault(prereq, []).append(course_code)
+        # Use grouped parser so that OR-alternatives (separated by ' / ') each
+        # map to this course individually — either one can unlock it.
+        for col in ('Prerequisite', 'Concurrent', 'Corequisite'):
+            for or_group in parse_requirements_grouped(row.get(col)):
+                for alt in or_group:
+                    prereq_map.setdefault(alt, []).append(course_code)
     return prereq_map
 
 

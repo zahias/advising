@@ -50,7 +50,7 @@ import sys
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-DATASET_TYPES = {'courses', 'progress', 'advising_selections', 'email_roster', 'progress_report', 'course_config'}
+DATASET_TYPES = {'courses', 'progress', 'advising_selections', 'email_roster', 'progress_report', 'course_config', 'placements'}
 
 
 def _json_safe_records(df: pd.DataFrame) -> list[dict[str, Any]]:
@@ -138,6 +138,12 @@ def _parse_dataset(dataset_type: str, file_bytes: bytes, filename: str) -> tuple
         # Store the config dict as a single-element records list so the standard
         # DatasetVersion.parsed_payload['records'] access pattern still works.
         return [config], {'type': 'course_config', 'required_count': len(config.get('target_courses', {})), 'intensive_count': len(config.get('intensive_courses', {}))}
+    if dataset_type == 'placements':
+        try:
+            df = pd.read_excel(BytesIO(file_bytes)) if not filename.lower().endswith('.csv') else pd.read_csv(BytesIO(file_bytes))
+        except Exception:
+            df = pd.read_csv(BytesIO(file_bytes))
+        return _json_safe_records(df), {'rows': len(df)}
     raise ValueError(f'Unsupported dataset type: {dataset_type}')
 
 
