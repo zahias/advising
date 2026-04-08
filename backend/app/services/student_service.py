@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from io import BytesIO
-from pathlib import Path
 from typing import Any, Optional
 
 import pandas as pd
@@ -22,21 +21,7 @@ from app.schemas.advising import CourseCatalogItem, EligibilityCourse, Exclusion
 from app.services.dataset_service import dataset_dataframe
 from app.services.period_service import current_period
 
-def _find_legacy_root() -> Path:
-    """Walk up from this file until we find eligibility_utils.py (the workspace root)."""
-    d = Path(__file__).resolve().parent
-    for _ in range(8):
-        if (d / 'eligibility_utils.py').exists():
-            return d
-        d = d.parent
-    return Path(__file__).resolve().parents[4]  # fallback
-
-ROOT_DIR = _find_legacy_root()
-import sys
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
-
-from eligibility_utils import (  # noqa: E402
+from app.legacy.eligibility_utils import (
     build_requisites_str,
     check_course_completed,
     check_course_registered,
@@ -44,7 +29,7 @@ from eligibility_utils import (  # noqa: E402
     get_mutual_concurrent_pairs,
     get_student_standing,
 )
-from reporting import apply_excel_formatting  # noqa: E402
+from app.legacy.reporting import apply_excel_formatting
 
 
 def _major(session: Session, major_code: str) -> Major:
