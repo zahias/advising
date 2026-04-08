@@ -176,7 +176,7 @@ function AssignmentPanel({
               <AssignmentSlot
                 label={`${courseCode} substitute`}
                 currentValue={byType[`${courseCode}_substitute`] ?? ''}
-                extraCourses={studentExtraCourses}
+                extraCourses={extraCourses}
                 saving={saving === `${courseCode}_substitute`}
                 savedRecently={savedRecently === `${courseCode}_substitute`}
                 onChange={(val) => handleChange(`${courseCode}_substitute`, val)}
