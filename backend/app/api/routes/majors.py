@@ -5,6 +5,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_admin, require_staff
+from app.core.config import get_settings
+from app.core.smtp_crypto import decrypt_smtp_password, encrypt_smtp_password
 from app.models import Major, User
 from app.schemas.admin import MajorCreateRequest, MajorResponse, MajorUpdateRequest
 from app.services.audit import log_event
@@ -41,7 +43,12 @@ def update_major(code: str, payload: MajorUpdateRequest, admin: User = Depends(r
     if payload.smtp_email is not None:
         major.smtp_email = payload.smtp_email or None
     if payload.smtp_password is not None:
-        major.smtp_password = payload.smtp_password or None
+        raw = payload.smtp_password or None
+        if raw:
+            enc_key = get_settings().smtp_encryption_key
+            major.smtp_password = encrypt_smtp_password(raw, enc_key) if enc_key else raw
+        else:
+            major.smtp_password = None
     log_event(db, admin.id, 'major.updated', 'major', str(major.id), {'code': major.code})
     db.commit()
     db.refresh(major)
@@ -53,7 +60,13 @@ def reveal_smtp_password(code: str, _: User = Depends(require_admin), db: Sessio
     major = db.scalar(select(Major).where(Major.code == code))
     if not major:
         raise HTTPException(status_code=404, detail='Major not found')
-    return {'smtp_password': major.smtp_password or ''}
+    stored = major.smtp_password or ''
+    if stored:
+        enc_key = get_settings().smtp_encryption_key
+        plaintext = decrypt_smtp_password(stored, enc_key) if enc_key else stored
+    else:
+        plaintext = ''
+    return {'smtp_password': plaintext}
 
 
 @router.delete('/{code}')

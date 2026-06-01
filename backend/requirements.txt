@@ -8,6 +8,8 @@ email-validator==2.2.0
 python-multipart==0.0.20
 passlib[bcrypt]==1.7.4
 python-jose[cryptography]==3.5.0
+cryptography>=41.0.0
+slowapi==0.1.9
 pandas==2.2.3
 openpyxl==3.1.5
 boto3==1.39.17

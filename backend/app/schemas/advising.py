@@ -12,6 +12,7 @@ class StudentSearchItem(BaseModel):
     standing: str
     total_credits: float
     remaining_credits: float
+    major: Optional[str] = None
 
 
 class CourseCatalogItem(BaseModel):
@@ -48,6 +49,7 @@ class StudentEligibilityResponse(BaseModel):
     student_id: str
     student_name: str
     standing: str
+    major: Optional[str] = None
     credits_completed: float
     credits_registered: float
     credits_remaining: float

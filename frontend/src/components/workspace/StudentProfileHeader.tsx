@@ -68,6 +68,12 @@ export function StudentProfileHeader({
             <span className="eyebrow">Standing</span>
             <strong>{student.standing}</strong>
           </span>
+          {student.major && (
+            <span className="profile-stat">
+              <span className="eyebrow">Program</span>
+              <strong>{student.major}</strong>
+            </span>
+          )}
           <span className="profile-stat">
             <span className="eyebrow">Remaining</span>
             <strong>{student.credits_remaining} cr</strong>

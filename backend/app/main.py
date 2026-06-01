@@ -5,10 +5,13 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from sqlalchemy import inspect as sa_inspect, select, text
 
 from app.api.router import api_router
 from app.core.config import get_settings
+from app.core.limiters import limiter
 from app.db import Base, engine, SessionLocal
 from app.services.bootstrap import seed_defaults
 
@@ -16,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -119,6 +124,27 @@ def on_startup() -> None:
             session.commit()
     finally:
         session.close()
+
+    # Encrypt any plaintext SMTP passwords that pre-date the encryption feature
+    enc_key = settings.smtp_encryption_key
+    if enc_key:
+        from app.core.smtp_crypto import encrypt_smtp_password, is_encrypted
+        from app.models import Major as MajorModel
+        smtp_session = SessionLocal()
+        try:
+            majors_with_pw = smtp_session.scalars(
+                select(MajorModel).where(MajorModel.smtp_password.isnot(None))
+            ).all()
+            migrated = 0
+            for m in majors_with_pw:
+                if not is_encrypted(m.smtp_password):
+                    m.smtp_password = encrypt_smtp_password(m.smtp_password, enc_key)
+                    migrated += 1
+            if migrated:
+                smtp_session.commit()
+                logger.info('Encrypted %d plaintext SMTP password(s) in the database.', migrated)
+        finally:
+            smtp_session.close()
 
     # Fix PostgreSQL sequences that are out of sync (e.g. after data migration)
     if 'postgresql' in settings.database_url:

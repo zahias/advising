@@ -443,6 +443,7 @@ def _build_student_rows(
             StudentProgressRow(
                 student_id=str(row['ID']),
                 name=str(row['NAME']),
+                major=str(row['MAJOR']) if 'MAJOR' in df.columns and pd.notna(row.get('MAJOR')) else None,
                 courses=courses,
                 completed_credits=credits['completed'],
                 registered_credits=credits['registered'],
@@ -544,7 +545,9 @@ def _write_excel_sheet(
         summary_headers = ['# of Credits Completed', '# Registered', '# Remaining', 'Total Credits', 'GPA']
     else:
         summary_headers = ['Completed', 'Registered', 'Remaining', 'Total', 'GPA']
-    headers = ['ID', 'NAME'] + course_cols + summary_headers
+    has_major = 'MAJOR' in df.columns if hasattr(df, 'columns') else False
+    id_name_cols = ['ID', 'NAME'] + (['MAJOR'] if has_major else [])
+    headers = id_name_cols + course_cols + summary_headers
     ws.append(headers)
 
     if df.empty:
@@ -568,6 +571,8 @@ def _write_excel_sheet(
         credits = calculate_credits(row, courses_dict)
         gpa = gpa_map.get(str(row['ID']))
         ws_row = [str(row['ID']), str(row['NAME'])]
+        if has_major:
+            ws_row.append(str(row['MAJOR']) if pd.notna(row.get('MAJOR')) else '')
         ws_row += [display[c] for c in course_cols]
         ws_row += [
             credits['completed'], credits['registered'],
@@ -576,10 +581,11 @@ def _write_excel_sheet(
         ]
         ws.append(ws_row)
 
-    # Apply background colours
+    # Apply background colours (skip ID, NAME, and optional MAJOR columns)
+    id_name_offset = 3 if has_major else 2
     for r_idx, xl_row in enumerate(ws.iter_rows(min_row=2), start=2):
         for c_idx, cell in enumerate(xl_row):
-            if c_idx < 2:
+            if c_idx < id_name_offset:
                 continue
             col_header = headers[c_idx] if c_idx < len(headers) else ''
             if col_header not in courses_dict:

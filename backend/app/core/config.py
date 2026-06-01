@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     graph_tenant_id: Optional[str] = Field(default=None, alias='GRAPH_TENANT_ID')
     graph_client_id: Optional[str] = Field(default=None, alias='GRAPH_CLIENT_ID')
     graph_client_secret: Optional[str] = Field(default=None, alias='GRAPH_CLIENT_SECRET')
+    default_admin_password: str = Field(default='admin1234', alias='DEFAULT_ADMIN_PASSWORD')
+    default_adviser_password: str = Field(default='adviser1234', alias='DEFAULT_ADVISER_PASSWORD')
+    smtp_encryption_key: Optional[str] = Field(default=None, alias='SMTP_ENCRYPTION_KEY')
 
     @property
     def cors_origins(self) -> List[str]:

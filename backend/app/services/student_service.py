@@ -69,6 +69,7 @@ def search_students(session: Session, major_code: str, query: Optional[str] = No
             'standing': str(row.get('Standing', '')),
             'total_credits': float(row.get('Total Credits', 0) or 0),
             'remaining_credits': float(row.get('Remaining Credits', 0) or 0),
+            'major': str(row['MAJOR']) if 'MAJOR' in working.columns and pd.notna(row.get('MAJOR')) else None,
         })
     return results
 
@@ -231,11 +232,13 @@ def student_eligibility(session: Session, major_code: str, student_id: str) -> S
     credits_registered = float(student_row.get('# Registered', 0) or 0)
     credits_remaining = float(student_row.get('# Remaining', student_row.get('Remaining Credits', 0)) or 0)
     standing = get_student_standing(credits_completed + credits_registered)
+    major_val = str(student_row['MAJOR']) if 'MAJOR' in progress_df.columns and pd.notna(student_row.get('MAJOR')) else None
     session.commit()
     return StudentEligibilityResponse(
         student_id=str(student_row.get('ID')),
         student_name=str(student_row.get('NAME', '')),
         standing=standing,
+        major=major_val,
         credits_completed=credits_completed,
         credits_registered=credits_registered,
         credits_remaining=credits_remaining,

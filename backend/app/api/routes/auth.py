@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
+from app.core.limiters import limiter
 from app.core.security import create_access_token
 from app.models import Major, UserMajorAccess
 from app.schemas.auth import CurrentUserResponse, LoginRequest, TokenResponse
@@ -14,7 +15,8 @@ router = APIRouter(prefix='/auth', tags=['auth'])
 
 
 @router.post('/login', response_model=TokenResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
+@limiter.limit('5/minute')
+def login(request: Request, payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
     user = authenticate_user(db, payload.email, payload.password)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid credentials')

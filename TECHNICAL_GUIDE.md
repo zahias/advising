@@ -173,6 +173,8 @@ v2/
 | Settings | pydantic-settings 2.10 |
 | Auth / JWT | python-jose[cryptography] 3.5 |
 | Password hashing | passlib[bcrypt] (scheme: pbkdf2_sha256) |
+| Rate limiting | slowapi 0.1.9 (in-memory, per-IP) |
+| SMTP encryption | cryptography ≥ 41.0 (Fernet symmetric encryption) |
 | Data parsing | pandas 2.2, numpy 1.26, openpyxl 3.1 |
 | Object storage | boto3 1.39 (S3-compatible Cloudflare R2) |
 | HTTP client | httpx 0.28 |
@@ -206,18 +208,22 @@ v2/
 
 ```python
 app = FastAPI(title=settings.app_name)
+app.state.limiter = limiter          # slowapi in-memory rate limiter
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, ...)
 app.include_router(api_router, prefix='/api')
 
 @app.on_event('startup')
 def on_startup():
-    Base.metadata.create_all(bind=engine)   # DDL auto-create
-    seed_defaults(session)                   # Insert default majors/users/templates
+    Base.metadata.create_all(bind=engine)     # DDL auto-create
+    seed_defaults(session)                     # Insert default majors/users/templates
+    # Encrypt any plaintext SMTP passwords if SMTP_ENCRYPTION_KEY is set
 ```
 
 All routes live under `/api`. CORS origins are configurable via `CORS_ORIGINS` env var (comma-separated).
 
-The startup hook runs `CREATE TABLE IF NOT EXISTS` for all mapped tables and seeds default data (4 majors, 2 users, 2 email templates). This is idempotent — safe to re-run on every startup.
+The startup hook runs `CREATE TABLE IF NOT EXISTS` for all mapped tables, seeds default data (4 majors, 2 users, 2 email templates), and migrates any plaintext SMTP passwords to Fernet-encrypted form if `SMTP_ENCRYPTION_KEY` is set. This is idempotent — safe to re-run on every startup.
+
+**Rate limiting**: `POST /api/auth/login` is limited to **5 requests per minute per IP** via `slowapi`. Excess requests return HTTP 429.
 
 ---
 
@@ -904,6 +910,13 @@ R2_SECRET_ACCESS_KEY=
 R2_BUCKET=
 R2_PUBLIC_BASE_URL=
 
+# Default seed credentials — override in production
+DEFAULT_ADMIN_PASSWORD=<strong-password>
+DEFAULT_ADVISER_PASSWORD=<strong-password>
+
+# SMTP password encryption key — any string; if set, passwords are stored encrypted
+SMTP_ENCRYPTION_KEY=<random-secret>
+
 # Optional
 JWT_EXPIRY_MINUTES=480
 LOCAL_STORAGE_PATH=./local-storage
@@ -938,10 +951,10 @@ npm run dev  # starts at http://localhost:5173
 ```
 
 **Default seeded credentials** (created by `bootstrap.py` on first startup):
-- Admin: `admin@example.com` / `admin1234`
-- Adviser: `adviser@example.com` / `adviser1234`
+- Admin: `admin@example.com` / value of `DEFAULT_ADMIN_PASSWORD` env var (falls back to `admin1234` in development)
+- Adviser: `adviser@example.com` / value of `DEFAULT_ADVISER_PASSWORD` env var (falls back to `adviser1234` in development)
 
-**Recommendation**: change these immediately in production by updating via the Users API.
+**Recommendation**: always set `DEFAULT_ADMIN_PASSWORD` and `DEFAULT_ADVISER_PASSWORD` in production. If the defaults are in use on a non-development deployment, the server logs a warning on every startup.
 
 The app auto-creates all database tables (`Base.metadata.create_all`) on startup — no migration tool is needed for initial setup. For schema evolution, you will need to either drop and recreate (dev only) or write manual ALTER TABLE migrations.
 

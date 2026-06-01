@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.smtp_crypto import decrypt_smtp_password
 from app.models import Major
 from app.services.period_service import current_period
 from app.services.student_service import get_student_email, student_eligibility
@@ -265,10 +266,12 @@ def send_student_email(session: Session, *, major_code: str, student_id: str, te
     # Fallback to direct SMTP
     if not major.smtp_password:
         return {'success': False, 'message': 'No API email transport configured and SMTP password is missing.'}
+    enc_key = s.smtp_encryption_key
+    smtp_password = decrypt_smtp_password(major.smtp_password, enc_key) if enc_key else major.smtp_password
     logger.info('Falling back to SMTP for %s → %s', sender_email, recipient)
     return _send_via_smtp(
         smtp_email=sender_email,
-        smtp_password=major.smtp_password,
+        smtp_password=smtp_password,
         recipient=recipient,
         subject=subject,
         body=body,

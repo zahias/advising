@@ -72,6 +72,7 @@ function ProgressTable({
             <tr>
               <th style={{ minWidth: 90 }}>ID</th>
               <th style={{ minWidth: 160 }}>Name</th>
+              <th style={{ minWidth: 120 }}>Major</th>
               {courses.map((c) => <th key={c} style={{ minWidth: 70 }}>{c}</th>)}
               <th style={{ minWidth: 60 }}>Done</th>
               <th style={{ minWidth: 60 }}>Reg</th>
@@ -92,6 +93,7 @@ function ProgressTable({
                   </button>
                 </td>
                 <td>{row.name}</td>
+                <td>{row.major ?? '—'}</td>
                 {courses.map((c) => {
                   const raw = row.courses[c] ?? 'NR'
                   if (collapseMode) {

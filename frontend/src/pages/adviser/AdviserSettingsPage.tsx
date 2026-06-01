@@ -23,7 +23,6 @@ async function authedFetch(path: string, init?: RequestInit) {
 
 const DATASET_LABELS: Record<string, string> = {
   courses: 'Course Catalog (courses_table.xlsx)',
-  progress: 'Student Progress Report',
   email_roster: 'Email Roster',
 }
 

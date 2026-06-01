@@ -44,6 +44,7 @@ export type StudentSearchItem = {
   standing: string
   total_credits: number
   remaining_credits: number
+  major?: string | null
 }
 
 export type CourseCatalogItem = {
@@ -80,6 +81,7 @@ export type StudentEligibility = {
   student_id: string
   student_name: string
   standing: string
+  major?: string | null
   credits_completed: number
   credits_registered: number
   credits_remaining: number
@@ -352,6 +354,7 @@ export type ProgressAssignment = {
 export type StudentProgressRow = {
   student_id: string
   name: string
+  major?: string | null
   courses: Record<string, string>
   completed_credits: number
   registered_credits: number

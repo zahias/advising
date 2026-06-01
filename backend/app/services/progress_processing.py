@@ -71,12 +71,18 @@ def read_progress_report(content: bytes, filename: str) -> pd.DataFrame:
 def _normalise_long(df: pd.DataFrame) -> pd.DataFrame:
     id_col = _find_col(df, ('ID', 'STUDENT ID'))
     name_col = _find_col(df, ('NAME', 'Name'))
+    major_col = _find_col(df, ('MAJOR', 'Major', 'major'))
     if id_col is None:
         raise ValueError("Missing ID column. Expected 'ID' or 'STUDENT ID'.")
     if name_col is None:
         raise ValueError("Missing NAME column. Expected 'NAME' or 'Name'.")
-    result = df[[id_col, name_col, 'Course', 'Grade', 'Year', 'Semester']].copy()
-    return result.rename(columns={id_col: 'ID', name_col: 'NAME'})
+    base_cols = [id_col, name_col, 'Course', 'Grade', 'Year', 'Semester']
+    rename_map: dict[str, str] = {id_col: 'ID', name_col: 'NAME'}
+    if major_col is not None:
+        base_cols.insert(2, major_col)
+        rename_map[major_col] = 'MAJOR'
+    result = df[base_cols].copy()
+    return result.rename(columns=rename_map)
 
 
 def _transform_wide(df: pd.DataFrame) -> pd.DataFrame:
@@ -114,12 +120,21 @@ def _transform_wide(df: pd.DataFrame) -> pd.DataFrame:
     melted['Semester'] = sem_parts[0].str.strip().str.title()
     melted['Year'] = sem_parts[1].str.strip()
 
+    rename_map: dict[str, str] = {}
     if id_col != 'ID':
-        melted = melted.rename(columns={id_col: 'ID'})
+        rename_map[id_col] = 'ID'
     if name_col != 'NAME':
-        melted = melted.rename(columns={name_col: 'NAME'})
+        rename_map[name_col] = 'NAME'
+    major_col = _find_col(melted, ('MAJOR', 'Major', 'major'))
+    if major_col is not None and major_col not in rename_map:
+        rename_map[major_col] = 'MAJOR'
+    if rename_map:
+        melted = melted.rename(columns=rename_map)
 
-    return melted[['ID', 'NAME', 'Course', 'Grade', 'Year', 'Semester']].drop_duplicates()
+    out_cols = ['ID', 'NAME', 'Course', 'Grade', 'Year', 'Semester']
+    if 'MAJOR' in melted.columns:
+        out_cols.insert(2, 'MAJOR')
+    return melted[out_cols].drop_duplicates()
 
 
 def read_course_config(content: bytes, filename: str) -> dict[str, Any]:
@@ -455,8 +470,15 @@ def process_progress_report(
 
     df['ProcessedValue'] = df.apply(get_processed, axis=1)
 
-    # Preserve full roster so students without course rows still appear
-    roster_df = df[['ID', 'NAME']].drop_duplicates()
+    # Preserve full roster so students without course rows still appear.
+    # Also carry MAJOR (per-student attribute) into the pivot output if present.
+    roster_cols = ['ID', 'NAME']
+    if 'MAJOR' in df.columns:
+        major_map = df.dropna(subset=['MAJOR']).drop_duplicates('ID')[['ID', 'MAJOR']]
+        roster_df = df[['ID', 'NAME']].drop_duplicates().merge(major_map, on='ID', how='left')
+    else:
+        roster_df = df[['ID', 'NAME']].drop_duplicates()
+        major_map = None
 
     # 5) Split
     target_mask = df['Mapped Course'].isin(target_courses)
@@ -492,8 +514,10 @@ def process_progress_report(
         else:
             int_pivot[course] = int_pivot[course].fillna('NR')
 
-    result_req = req_pivot[['ID', 'NAME'] + list(target_courses.keys())]
-    result_int = int_pivot[['ID', 'NAME'] + list(intensive_courses.keys())]
+    _id_name = ['ID', 'NAME'] + (['MAJOR'] if 'MAJOR' in req_pivot.columns else [])
+    result_req = req_pivot[_id_name + list(target_courses.keys())]
+    _id_name_i = ['ID', 'NAME'] + (['MAJOR'] if 'MAJOR' in int_pivot.columns else [])
+    result_int = int_pivot[_id_name_i + list(intensive_courses.keys())]
 
     # 8) Remove assigned courses from extras
     if per_student_assignments:

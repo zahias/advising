@@ -11,7 +11,11 @@ from app.core.config import get_settings
 class StorageService:
     def __init__(self) -> None:
         self.settings = get_settings()
-        self.local_root = Path(self.settings.local_storage_path).resolve()
+        _raw = Path(self.settings.local_storage_path)
+        # Anchor relative paths to the backend package root (backend/) so the
+        # storage location is stable regardless of the working directory at startup.
+        _backend_root = Path(__file__).resolve().parents[2]
+        self.local_root = (_raw if _raw.is_absolute() else _backend_root / _raw).resolve()
         self.local_root.mkdir(parents=True, exist_ok=True)
         self._client = None
         if self.settings.r2_account_id and self.settings.r2_access_key_id and self.settings.r2_secret_access_key and self.settings.r2_bucket:

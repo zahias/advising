@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import logging
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.roles import ADMIN, ADVISER
 from app.core.security import hash_password
 from app.models import EmailTemplate, Major, User, UserMajorAccess
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_MAJORS = [
     ('PBHL', 'Public Health'),
@@ -33,6 +38,22 @@ DEFAULT_TEMPLATES = {
 
 
 def seed_defaults(session: Session) -> None:
+    settings = get_settings()
+    admin_password = settings.default_admin_password
+    adviser_password = settings.default_adviser_password
+
+    if settings.app_env != 'development':
+        if admin_password == 'admin1234':
+            logger.warning(
+                'DEFAULT_ADMIN_PASSWORD is not set — using insecure default. '
+                'Set the DEFAULT_ADMIN_PASSWORD environment variable before deploying to production.'
+            )
+        if adviser_password == 'adviser1234':
+            logger.warning(
+                'DEFAULT_ADVISER_PASSWORD is not set — using insecure default. '
+                'Set the DEFAULT_ADVISER_PASSWORD environment variable before deploying to production.'
+            )
+
     for code, name in DEFAULT_MAJORS:
         existing = session.scalar(select(Major).where(Major.code == code))
         if not existing:
@@ -40,13 +61,13 @@ def seed_defaults(session: Session) -> None:
 
     admin = session.scalar(select(User).where(User.email == 'admin@example.com'))
     if not admin:
-        admin = User(email='admin@example.com', full_name='System Admin', password_hash=hash_password('admin1234'), role=ADMIN)
+        admin = User(email='admin@example.com', full_name='System Admin', password_hash=hash_password(admin_password), role=ADMIN)
         session.add(admin)
         session.flush()
 
     adviser = session.scalar(select(User).where(User.email == 'adviser@example.com'))
     if not adviser:
-        adviser = User(email='adviser@example.com', full_name='Default Adviser', password_hash=hash_password('adviser1234'), role=ADVISER)
+        adviser = User(email='adviser@example.com', full_name='Default Adviser', password_hash=hash_password(adviser_password), role=ADVISER)
         session.add(adviser)
         session.flush()
 
