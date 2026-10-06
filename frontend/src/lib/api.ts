@@ -93,6 +93,21 @@ export type StudentEligibility = {
   bypasses: Record<string, { note: string; advisor: string }>
   hidden_courses: string[]
   excluded_courses: string[]
+  intensive_placement?: IntensivePlacementCourse[]
+  placement?: PlacementInfo | null
+}
+
+export type IntensivePlacementCourse = {
+  course_code: string
+  title: string
+  excluded: boolean
+  placed_out: boolean
+}
+
+export type PlacementInfo = {
+  source: 'upload' | 'manual'
+  placement_courses: string[]
+  updated_at?: string | null
 }
 
 export type DatasetVersion = {

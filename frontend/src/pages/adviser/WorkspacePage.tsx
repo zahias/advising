@@ -103,9 +103,10 @@ export function WorkspacePage() {
       repeat: student.data.selection.repeat,
       note: student.data.selection.note,
     })
-    setExcludedCourses(student.data.excluded_courses)
+    const savedPlacementExclusions = (student.data.intensive_placement ?? []).filter((c) => c.excluded).map((c) => c.course_code)
+    setExcludedCourses(savedPlacementExclusions)
     if (selectedStudentId !== loadedForStudentRef.current) {
-      setOriginalExcludedCourses(student.data.excluded_courses)
+      setOriginalExcludedCourses(savedPlacementExclusions)
       loadedForStudentRef.current = selectedStudentId
     }
   }, [student.data, selectedStudentId])
@@ -120,6 +121,16 @@ export function WorkspacePage() {
     () => student.data?.eligibility.filter((c) => c.course_type.toLowerCase() === 'intensive') ?? [],
     [student.data],
   )
+
+  const placementCourses = student.data?.intensive_placement ?? []
+  const placementDirty = useMemo(
+    () => [...excludedCourses].sort().join('|') !== [...originalExcludedCourses].sort().join('|'),
+    [excludedCourses, originalExcludedCourses],
+  )
+  const placementInfo = student.data?.placement
+  const placementSourceText = placementInfo
+    ? `${placementInfo.source === 'manual' ? 'Set manually in Workspace' : 'Set by placement upload'}${placementInfo.updated_at ? ` on ${new Date(placementInfo.updated_at).toLocaleDateString()}` : ''}${placementInfo.placement_courses.length ? ` · placed at ${placementInfo.placement_courses.join(', ')}` : ''}`
+    : 'No placement set yet — all intensive courses are active.'
 
 
 
@@ -219,10 +230,10 @@ export function WorkspacePage() {
 
   async function handleSavePlacements() {
     if (!selectedStudentId) return
-    const r = await authedFetch('/advising/exclusions', {
-      method: 'POST',
+    const r = await authedFetch(`/advising/${majorCode}/placements/${encodeURIComponent(selectedStudentId)}`, {
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ major_code: majorCode, student_ids: [selectedStudentId], course_codes: excludedCourses }),
+      body: JSON.stringify({ excluded_courses: excludedCourses }),
     })
     if (!r.ok) { setMessage({ type: 'error', text: await r.text() }); return }
     setMessage({ type: 'success', text: 'Intensive placement saved.' })
@@ -371,6 +382,8 @@ export function WorkspacePage() {
               <CourseSelectionBuilder
                 eligibility={student.data.eligibility}
                 remainingCredits={student.data.credits_remaining}
+                excludedCourses={student.data.excluded_courses}
+                placementDirty={placementDirty}
                 formState={formState}
                 onChange={setFormState}
                 onSave={handleSaveSelection}
@@ -379,27 +392,30 @@ export function WorkspacePage() {
 
             {activeTab === 'academic' && (
               <div className="stack">
-                {intensiveCourses.length > 0 && (
+                {placementCourses.length > 0 && (
                   <div className="panel stack">
                     <div className="flex-between">
                       <div>
-                        <h3 style={{ margin: 0 }}>Intensive Course Placement <Tooltip text="Mark a course as 'Excluded' to remove it from this student's eligible list during intensive semesters." /></h3>
-                        <p className="text-muted text-sm" style={{ margin: '4px 0 0' }}>Select which intensive course(s) apply to this student.</p>
+                        <h3 style={{ margin: 0 }}>Intensive Course Placement <Tooltip text="Mark a course as 'Excluded' to remove it from this student's eligible list. Placements saved here are kept when a placement report is uploaded later, unless the upload is set to overwrite them." /></h3>
+                        <p className="text-muted text-sm" style={{ margin: '4px 0 0' }}>Select which intensive course(s) apply to this student. Excluded courses below an active one in the same chain count as completed prerequisites.</p>
+                        <p className="text-muted text-sm" style={{ margin: '4px 0 0' }}>{placementSourceText}</p>
+                        {placementDirty && <p className="text-sm" style={{ margin: '4px 0 0', color: '#b45309' }}>⚠ Unsaved changes — the Schedule Builder won't reflect them until you save.</p>}
                       </div>
                       <div style={{ display: 'flex', gap: '0.5rem' }}>
-                        <button type="button" className="btn-sm btn-outline" onClick={() => setExcludedCourses(originalExcludedCourses)}>Reset</button>
-                        <button type="button" className="btn-primary btn-sm" onClick={handleSavePlacements}>Save Placement</button>
+                        <button type="button" className="btn-sm btn-outline" disabled={!placementDirty} onClick={() => setExcludedCourses(originalExcludedCourses)}>Reset</button>
+                        <button type="button" className="btn-primary btn-sm" disabled={!placementDirty} onClick={handleSavePlacements}>Save Placement</button>
                       </div>
                     </div>
                     <div className="placement-grid">
-                      {intensiveCourses.map((course) => {
+                      {placementCourses.map((course) => {
                         const isExcluded = excludedCourses.includes(course.course_code)
+                        const isPlacedOut = isExcluded && !placementDirty && course.placed_out
                         return (
                           <button key={course.course_code} type="button" className={`placement-card ${isExcluded ? 'excluded' : 'active'}`}
                             onClick={() => setExcludedCourses((prev) => isExcluded ? prev.filter((c) => c !== course.course_code) : [...prev, course.course_code])}>
                             <span className="placement-card-code">{course.course_code}</span>
                             <span className="placement-card-title">{course.title}</span>
-                            <span className="placement-card-status">{isExcluded ? '✗ Excluded' : '✓ Active'}</span>
+                            <span className="placement-card-status">{isPlacedOut ? '✗ Excluded · placed out' : isExcluded ? '✗ Excluded' : '✓ Active'}</span>
                           </button>
                         )
                       })}
