@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.api.deps import ensure_major_access, get_db, require_staff
@@ -14,6 +14,7 @@ from app.schemas.advising import (
     ExclusionRequest,
     ExclusionSummary,
     HiddenCoursesRequest,
+    ManualPlacementRequest,
     RecommendationResponse,
     SaveSelectionRequest,
     SessionSummary,
@@ -166,19 +167,22 @@ def list_exclusions_route(major_code: str, user: User = Depends(require_staff), 
 def upload_placements_route(
     major_code: str,
     file: UploadFile,
+    overwrite_manual: bool = Form(False),
     user: User = Depends(require_staff),
     db: Session = Depends(get_db),
 ):
     """Upload a bulk intensive-placement report (student_id + placement_course).
 
     Derives and applies course exclusions per student based on the prerequisite
-    chain among intensive courses.  Students not in the file are untouched.
+    chain among intensive courses.  Students not in the file are untouched, and
+    students whose placement was set manually in the Workspace are skipped
+    unless ``overwrite_manual`` is true.
     """
     ensure_major_access(major_code, db, user)
     content = file.file.read()
     try:
         from app.services.placement_service import bulk_placement_from_file
-        result = bulk_placement_from_file(db, major_code, content)
+        result = bulk_placement_from_file(db, major_code, content, overwrite_manual=overwrite_manual, user_id=user.id)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     # Store the uploaded file as a versioned dataset so Settings can show "Current File"
@@ -189,3 +193,20 @@ def upload_placements_route(
     except Exception:
         pass  # non-fatal — versioning failure must not break the upload
     return result
+
+
+@router.put('/{major_code}/placements/{student_id}')
+def save_manual_placement_route(
+    major_code: str,
+    student_id: str,
+    payload: ManualPlacementRequest,
+    user: User = Depends(require_staff),
+    db: Session = Depends(get_db),
+):
+    """Save one student's intensive placement from the Workspace (marked as manual)."""
+    ensure_major_access(major_code, db, user)
+    from app.services.placement_service import save_manual_placement
+    try:
+        return save_manual_placement(db, major_code, student_id, payload.excluded_courses, user_id=user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

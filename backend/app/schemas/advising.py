@@ -45,6 +45,20 @@ class EligibilityCourse(BaseModel):
     action: str
 
 
+class IntensivePlacementCourse(BaseModel):
+    course_code: str
+    title: str
+    excluded: bool
+    # Excluded, but below an active course in its chain: counts as satisfied
+    placed_out: bool = False
+
+
+class PlacementInfo(BaseModel):
+    source: str  # 'upload' | 'manual'
+    placement_courses: list[str] = []
+    updated_at: Optional[datetime] = None
+
+
 class StudentEligibilityResponse(BaseModel):
     student_id: str
     student_name: str
@@ -61,6 +75,8 @@ class StudentEligibilityResponse(BaseModel):
     bypasses: dict[str, dict[str, Any]]
     hidden_courses: list[str]
     excluded_courses: list[str]
+    intensive_placement: list[IntensivePlacementCourse] = []
+    placement: Optional[PlacementInfo] = None
 
 
 class SaveSelectionRequest(BaseModel):
@@ -122,3 +138,7 @@ class TemplatePreviewResponse(BaseModel):
     subject: str
     preview_body: str
     variables: dict[str, Optional[str]]
+
+
+class ManualPlacementRequest(BaseModel):
+    excluded_courses: list[str]
