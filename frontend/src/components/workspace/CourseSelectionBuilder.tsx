@@ -5,6 +5,8 @@ import { Tooltip } from '../Tooltip'
 interface Props {
   eligibility: StudentEligibility['eligibility']
   remainingCredits?: number
+  excludedCourses?: string[]
+  placementDirty?: boolean
   formState: { advised: string[]; optional: string[]; repeat: string[]; note: string }
   onChange: (state: { advised: string[]; optional: string[]; repeat: string[]; note: string }) => void
   onSave: () => void
@@ -52,7 +54,9 @@ const STATUS_BORDER: Record<string, string> = {
   not_offered: 'var(--line)',
 }
 
-export function CourseSelectionBuilder({ eligibility, remainingCredits = 0, formState, onChange, onSave }: Props) {
+export function CourseSelectionBuilder({ eligibility, remainingCredits = 0, excludedCourses = [], placementDirty = false, formState, onChange, onSave }: Props) {
+  const excludedSet = useMemo(() => new Set(excludedCourses.map((c) => c.trim().toUpperCase())), [excludedCourses])
+  const isExcluded = useCallback((code: string) => excludedSet.has(code.trim().toUpperCase()), [excludedSet])
   const undoStack = useRef<Array<typeof formState>>([])
 
   const creditLookup = useMemo(() => {
@@ -119,20 +123,22 @@ export function CourseSelectionBuilder({ eligibility, remainingCredits = 0, form
     () => eligibility.filter((c) =>
       c.course_type.toLowerCase() !== 'intensive' &&
       !selected.has(c.course_code) &&
+      !isExcluded(c.course_code) &&
       (showNotOffered || c.offered || c.completed || c.registered) &&
       (!searchQuery || c.course_code.toLowerCase().includes(searchLower) || c.title.toLowerCase().includes(searchLower))
     ),
-    [eligibility, selected, showNotOffered, searchQuery, searchLower],
+    [eligibility, selected, showNotOffered, searchQuery, searchLower, isExcluded],
   )
 
   const availableIntensive = useMemo(
     () => eligibility.filter((c) =>
       c.course_type.toLowerCase() === 'intensive' &&
       !selected.has(c.course_code) &&
+      !isExcluded(c.course_code) &&
       (showNotOffered || c.offered || c.completed || c.registered) &&
       (!searchQuery || c.course_code.toLowerCase().includes(searchLower) || c.title.toLowerCase().includes(searchLower))
     ),
-    [eligibility, selected, showNotOffered, searchQuery, searchLower],
+    [eligibility, selected, showNotOffered, searchQuery, searchLower, isExcluded],
   )
 
   // Group main courses by suggested_semester
@@ -248,6 +254,12 @@ export function CourseSelectionBuilder({ eligibility, remainingCredits = 0, form
         <button type="button" className="btn-primary" onClick={onSave} style={{ flexShrink: 0 }}>Save Selections</button>
       </div>
 
+      {placementDirty && (
+        <div className="credit-warning credit-warning--orange" style={{ margin: '0 0 0.75rem' }}>
+          ⚠ Intensive placement has unsaved changes (Academic Record tab). This list reflects the last saved placement.
+        </div>
+      )}
+
       {/* Stacked layout: full-width course pool, then selections below */}
       <div className="builder-stacked">
 
@@ -328,7 +340,7 @@ export function CourseSelectionBuilder({ eligibility, remainingCredits = 0, form
                 const c = eligibility.find((x) => x.course_code === code)
                 return (
                   <div key={code} className="selected-item">
-                    <span><strong>{code}</strong>{c ? ` — ${c.title}` : ''}</span>
+                    <span><strong>{code}</strong>{c ? ` — ${c.title}` : ''}{isExcluded(code) && <span className="text-sm" style={{ color: '#b45309' }}> ⚠ excluded by placement</span>}</span>
                     <button type="button" onClick={() => handleRemove(code, 'advised')} className="remove-btn">&times;</button>
                   </div>
                 )
@@ -347,7 +359,7 @@ export function CourseSelectionBuilder({ eligibility, remainingCredits = 0, form
                 const c = eligibility.find((x) => x.course_code === code)
                 return (
                   <div key={code} className="selected-item">
-                    <span><strong>{code}</strong>{c ? ` — ${c.title}` : ''}</span>
+                    <span><strong>{code}</strong>{c ? ` — ${c.title}` : ''}{isExcluded(code) && <span className="text-sm" style={{ color: '#b45309' }}> ⚠ excluded by placement</span>}</span>
                     <button type="button" onClick={() => handleRemove(code, 'optional')} className="remove-btn">&times;</button>
                   </div>
                 )
@@ -366,7 +378,7 @@ export function CourseSelectionBuilder({ eligibility, remainingCredits = 0, form
                 const c = eligibility.find((x) => x.course_code === code)
                 return (
                   <div key={code} className="selected-item">
-                    <span><strong>{code}</strong>{c ? ` — ${c.title}` : ''}</span>
+                    <span><strong>{code}</strong>{c ? ` — ${c.title}` : ''}{isExcluded(code) && <span className="text-sm" style={{ color: '#b45309' }}> ⚠ excluded by placement</span>}</span>
                     <button type="button" onClick={() => handleRemove(code, 'repeat')} className="remove-btn">&times;</button>
                   </div>
                 )

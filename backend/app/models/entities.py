@@ -149,6 +149,25 @@ class CourseExclusion(TimestampMixin, Base):
     course_code: Mapped[str] = mapped_column(String(64), index=True)
 
 
+class StudentPlacement(TimestampMixin, Base):
+    """Records how a student's intensive placement was last set.
+
+    ``source`` is 'upload' (bulk placement report) or 'manual' (Workspace).
+    Bulk uploads skip students whose placement was set manually unless the
+    adviser explicitly chooses to overwrite them.
+    """
+
+    __tablename__ = 'student_placements'
+    __table_args__ = (UniqueConstraint('major_id', 'student_id', name='uq_student_placement_scope'),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    major_id: Mapped[int] = mapped_column(ForeignKey('majors.id', ondelete='CASCADE'), index=True)
+    student_id: Mapped[str] = mapped_column(String(64), index=True)
+    source: Mapped[str] = mapped_column(String(16), default='upload')
+    placement_courses: Mapped[list] = mapped_column(JSON, default=list)
+    updated_by_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey('users.id', ondelete='SET NULL'))
+
+
 class HiddenCourse(TimestampMixin, Base):
     __tablename__ = 'hidden_courses'
     __table_args__ = (UniqueConstraint('major_id', 'student_id', 'course_code', name='uq_hidden_course_scope'),)

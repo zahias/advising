@@ -15,11 +15,21 @@ from app.models import (
     HiddenCourse,
     Major,
     SessionSnapshot,
+    StudentPlacement,
     StudentSelection,
 )
-from app.schemas.advising import CourseCatalogItem, EligibilityCourse, ExclusionSummary, SelectionPayload, StudentEligibilityResponse
+from app.schemas.advising import (
+    CourseCatalogItem,
+    EligibilityCourse,
+    ExclusionSummary,
+    IntensivePlacementCourse,
+    PlacementInfo,
+    SelectionPayload,
+    StudentEligibilityResponse,
+)
 from app.services.dataset_service import dataset_dataframe
 from app.services.period_service import current_period
+from app.services.placement_service import IntensiveChains, normalize_code
 
 from app.legacy.eligibility_utils import (
     build_requisites_str,
@@ -175,15 +185,30 @@ def student_eligibility(session: Session, major_code: str, student_id: str) -> S
     excluded_courses = _excluded_courses(session, major.id, student_id)
     bypass_map = _bypass_map(session, major.id, student_id)
     mutual_pairs = get_mutual_concurrent_pairs(courses_df)
+    hidden_norm = {normalize_code(c) for c in hidden_courses}
+    excluded_norm = {normalize_code(c) for c in excluded_courses}
+    chains = IntensiveChains(courses_df)
+    placed_out = chains.placed_out(excluded_courses)
 
     eligibility_rows: list[EligibilityCourse] = []
+    intensive_placement: list[IntensivePlacementCourse] = []
     advised_credits = 0.0
     optional_credits = 0.0
     repeat_credits = 0.0
 
     for _, info in courses_df.iterrows():
-        code = str(info.get('Course Code', ''))
-        if not code or code in hidden_courses or code in excluded_courses:
+        code = str(info.get('Course Code', '')).strip()
+        norm = normalize_code(code)
+        if not code or norm in hidden_norm:
+            continue
+        if norm in chains.codes:
+            intensive_placement.append(IntensivePlacementCourse(
+                course_code=code,
+                title=chains.titles.get(norm, code),
+                excluded=norm in excluded_norm,
+                placed_out=norm in placed_out,
+            ))
+        if norm in excluded_norm:
             continue
         completed = check_course_completed(student_row, code)
         registered = check_course_registered(student_row, code)
@@ -196,6 +221,7 @@ def student_eligibility(session: Session, major_code: str, student_id: str) -> S
             ignore_offered=False,
             mutual_pairs=mutual_pairs,
             bypass_map=bypass_map,
+            placement_satisfied=placed_out,
         )
         action = ''
         if code in selection_payload.repeat:
@@ -250,7 +276,18 @@ def student_eligibility(session: Session, major_code: str, student_id: str) -> S
         bypasses=bypass_map,
         hidden_courses=sorted(hidden_courses),
         excluded_courses=sorted(excluded_courses),
+        intensive_placement=intensive_placement,
+        placement=_placement_info(session, major.id, str(student_id)),
     )
+
+
+def _placement_info(session: Session, major_id: int, student_id: str) -> Optional[PlacementInfo]:
+    record = session.scalar(
+        select(StudentPlacement).where(StudentPlacement.major_id == major_id, StudentPlacement.student_id == student_id)
+    )
+    if record is None:
+        return None
+    return PlacementInfo(source=record.source, placement_courses=list(record.placement_courses or []), updated_at=record.updated_at)
 
 
 def _write_selection(

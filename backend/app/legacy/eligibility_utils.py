@@ -3,7 +3,7 @@
 # This prevents circular imports during module loading
 
 import pandas as pd
-from typing import List, Tuple, Dict, Any, Union
+from typing import List, Optional, Set, Tuple, Dict, Any, Union
 
 
 def _norm_cell(val: Any) -> str:
@@ -196,6 +196,7 @@ def check_eligibility(
     ignore_offered: bool = False,
     mutual_pairs: Dict[str, List[str]] = None,
     bypass_map: Dict[str, Dict[str, Any]] = None,
+    placement_satisfied: Optional[Set[str]] = None,
 ) -> Tuple[str, str]:
     """
     Returns (status, justification).
@@ -212,6 +213,8 @@ def check_eligibility(
     bypass_map: Dict mapping course_code -> bypass info dict with keys:
                 {note: str, advisor: str, timestamp: str}. If a course has a bypass,
                 requisite checks are skipped and course is marked as "Eligible (Bypass)".
+    placement_satisfied: Intensive courses the student placed out of (placed into a
+                later course in the same chain). They satisfy any requisite naming them.
     """
     if registered_courses is None:
         registered_courses = []
@@ -219,6 +222,8 @@ def check_eligibility(
         mutual_pairs = {}
     if bypass_map is None:
         bypass_map = {}
+    if placement_satisfied is None:
+        placement_satisfied = set()
     
     if check_course_completed(student_row, course_code):
         return "Completed", "Already completed."
@@ -266,6 +271,9 @@ def check_eligibility(
         tok = token.strip()
         if "standing" in tok.lower():
             return _standing_satisfies(tok, standing)
+        if tok.upper() in placement_satisfied:
+            notes.append(f"Prerequisite '{tok}' satisfied by intensive placement.")
+            return True
         comp = check_course_completed(student_row, tok)
         reg = check_course_registered(student_row, tok)
         if reg:
@@ -276,6 +284,9 @@ def check_eligibility(
         tok = token.strip()
         if "standing" in tok.lower():
             return _standing_satisfies(tok, standing)
+        if tok.upper() in placement_satisfied:
+            notes.append(f"Requirement '{tok}' satisfied by intensive placement.")
+            return True
         comp = check_course_completed(student_row, tok)
         reg = check_course_registered(student_row, tok)
         adv = tok in (advised_courses or [])

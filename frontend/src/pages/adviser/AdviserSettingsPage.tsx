@@ -48,6 +48,8 @@ export function AdviserSettingsPage() {
   // Bulk placement upload
   const [placementFile, setPlacementFile] = useState<File | null>(null)
   const [placementUploading, setPlacementUploading] = useState(false)
+  const [placementOverwriteManual, setPlacementOverwriteManual] = useState(false)
+  const [placementResult, setPlacementResult] = useState<{ processed: number; errors: string[]; skipped_manual: string[] } | null>(null)
 
   const periods = usePeriods(majorCode)
   const activePeriod = periods.data?.find((p) => p.is_active)
@@ -155,12 +157,17 @@ export function AdviserSettingsPage() {
     try {
       const fd = new FormData()
       fd.append('file', placementFile)
+      fd.append('overwrite_manual', placementOverwriteManual ? 'true' : 'false')
+      setPlacementResult(null)
       const res = await authedFetch(`/advising/${majorCode}/placements/upload`, { method: 'POST', body: fd })
       if (!res.ok) { showMsg('error', await res.text()); return }
-      const result = await res.json() as { processed: number; errors: string[] }
+      const result = await res.json() as { processed: number; errors: string[]; skipped_manual?: string[] }
+      const skippedManual = result.skipped_manual ?? []
+      setPlacementResult({ processed: result.processed, errors: result.errors, skipped_manual: skippedManual })
       const summary = `Placement report applied: ${result.processed} student(s) updated.`
-      const errText = result.errors.length ? ` ${result.errors.length} row(s) skipped.` : ''
-      showMsg(result.errors.length ? 'error' : 'success', summary + errText)
+      const errText = result.errors.length ? ` ${result.errors.length} student(s) skipped with errors.` : ''
+      const manualText = skippedManual.length ? ` ${skippedManual.length} student(s) kept their manual placement.` : ''
+      showMsg(result.errors.length ? 'error' : 'success', summary + errText + manualText)
       setPlacementFile(null)
       queryClient.invalidateQueries({ queryKey: ['student-eligibility', majorCode] })
       queryClient.invalidateQueries({ queryKey: ['dataset-versions', majorCode] })
@@ -434,6 +441,24 @@ export function AdviserSettingsPage() {
           <button type="button" style={{ alignSelf: 'flex-start', fontSize: '0.75rem', color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginTop: '4px' }} onClick={() => setPlacementFile(null)}>
             ✕ Clear selection
           </button>
+        )}
+        <label className="toggle-label" style={{ alignSelf: 'flex-start', marginTop: '0.5rem', whiteSpace: 'normal' }}>
+          <input type="checkbox" style={{ width: 'auto' }} checked={placementOverwriteManual} onChange={(e) => setPlacementOverwriteManual(e.target.checked)} />
+          Overwrite placements set manually in the Workspace
+        </label>
+        {placementResult && (placementResult.errors.length > 0 || placementResult.skipped_manual.length > 0) && (
+          <div className="text-sm" style={{ marginTop: '0.5rem', maxHeight: '180px', overflowY: 'auto', background: '#f8fafc', border: '1px solid var(--line)', borderRadius: '8px', padding: '0.5rem 0.75rem' }}>
+            {placementResult.skipped_manual.length > 0 && (
+              <p style={{ margin: '0 0 0.4rem' }}>
+                <strong>Kept manual placement ({placementResult.skipped_manual.length}):</strong> {placementResult.skipped_manual.join(', ')}
+              </p>
+            )}
+            {placementResult.errors.length > 0 && (
+              <ul style={{ margin: 0, paddingLeft: '1.1rem', color: '#b91c1c' }}>
+                {placementResult.errors.map((err) => <li key={err}>{err}</li>)}
+              </ul>
+            )}
+          </div>
         )}
       </div>
 
